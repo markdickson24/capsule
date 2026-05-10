@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, Image, TouchableOpacity,
-  FlatList, ActivityIndicator, Platform,
+  FlatList, ActivityIndicator,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,7 +27,6 @@ export default function PreviewScreen({ route, navigation }: Props) {
     async function fetchCapsules() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-
       const { data } = await supabase
         .from('capsule_members')
         .select('capsule_id, role, capsules(id, title, status)')
@@ -96,64 +95,60 @@ export default function PreviewScreen({ route, navigation }: Props) {
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.videoPlaceholder]}>
           <Text style={styles.videoIcon}>🎥</Text>
-          <Text style={styles.videoLabel}>Video ready</Text>
+          <Text style={styles.videoLabel}>Video captured</Text>
         </View>
       )}
 
-      {/* Dark gradient overlay at bottom */}
-      <View style={styles.overlay} />
-
-      <SafeAreaView edges={['top', 'bottom']} style={styles.ui}>
-        {/* Top: discard */}
+      {/* Top: discard */}
+      <SafeAreaView edges={['top']} style={styles.topBar}>
         <TouchableOpacity style={styles.discardBtn} onPress={() => navigation.goBack()}>
           <Text style={styles.discardText}>✕</Text>
         </TouchableOpacity>
+      </SafeAreaView>
 
-        {/* Bottom panel */}
-        <View style={styles.bottomPanel}>
-          <Text style={styles.panelTitle}>Add to capsule</Text>
+      {/* Bottom panel — self-contained dark background */}
+      <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
+        <Text style={styles.panelTitle}>Add to capsule</Text>
 
-          {capsules.length === 0 ? (
-            <Text style={styles.noCapsules}>
-              No active capsules. Create one first.
-            </Text>
+        {capsules.length === 0 ? (
+          <Text style={styles.noCapsules}>No active capsules. Create one first.</Text>
+        ) : (
+          <FlatList
+            data={capsules}
+            keyExtractor={item => item.capsule_id}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.chipList}
+            renderItem={({ item }) => {
+              const selected = selectedId === item.capsule_id;
+              return (
+                <TouchableOpacity
+                  style={[styles.chip, selected && styles.chipSelected]}
+                  onPress={() => setSelectedId(item.capsule_id)}
+                >
+                  {selected && <Text style={styles.chipCheck}>✓ </Text>}
+                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                    {item.capsules?.title ?? 'Untitled'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )}
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <TouchableOpacity
+          style={[styles.addBtn, (!selectedId || uploading) && styles.addBtnDisabled]}
+          onPress={upload}
+          disabled={!selectedId || uploading}
+        >
+          {uploading ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
-            <FlatList
-              data={capsules}
-              keyExtractor={item => item.capsule_id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.capsuleList}
-              renderItem={({ item }) => {
-                const selected = selectedId === item.capsule_id;
-                return (
-                  <TouchableOpacity
-                    style={[styles.capsuleChip, selected && styles.capsuleChipSelected]}
-                    onPress={() => setSelectedId(item.capsule_id)}
-                  >
-                    <Text style={[styles.capsuleChipText, selected && styles.capsuleChipTextSelected]}>
-                      {item.capsules?.title ?? 'Untitled'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }}
-            />
+            <Text style={styles.addBtnText}>Add to Capsule</Text>
           )}
-
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          <TouchableOpacity
-            style={[styles.addBtn, (!selectedId || uploading) && styles.addBtnDisabled]}
-            onPress={upload}
-            disabled={!selectedId || uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.addBtnText}>Add to Capsule</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+        </TouchableOpacity>
       </SafeAreaView>
     </View>
   );
@@ -166,36 +161,34 @@ const styles = StyleSheet.create({
   },
   videoIcon: { fontSize: 56 },
   videoLabel: { fontSize: 18, color: '#888888', fontWeight: '600' },
-  overlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, height: '45%',
-    background: 'transparent',
-    // gradient-like fade using multiple overlapping views
-    backgroundColor: 'rgba(0,0,0,0.65)',
-  },
-  ui: { flex: 1, justifyContent: 'space-between' },
+  topBar: { paddingHorizontal: 16, paddingTop: 8 },
   discardBtn: {
-    alignSelf: 'flex-start', marginTop: 8, marginLeft: 16,
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center', alignItems: 'center',
   },
   discardText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   bottomPanel: {
-    paddingHorizontal: 24, paddingBottom: 8, gap: 14,
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(0,0,0,0.82)',
+    paddingHorizontal: 24, paddingTop: 20, paddingBottom: 8,
+    gap: 14,
   },
-  panelTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  panelTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
   noCapsules: { color: '#888888', fontSize: 14 },
-  capsuleList: { gap: 10, paddingBottom: 4 },
-  capsuleChip: {
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8,
+  chipList: { gap: 10, paddingBottom: 2 },
+  chip: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
     borderWidth: 2, borderColor: 'transparent',
   },
-  capsuleChipSelected: {
-    backgroundColor: 'rgba(255,107,53,0.25)', borderColor: '#FF6B35',
+  chipSelected: {
+    backgroundColor: '#FF6B35', borderColor: '#FF6B35',
   },
-  capsuleChipText: { color: '#CCCCCC', fontWeight: '600', fontSize: 14 },
-  capsuleChipTextSelected: { color: '#FF6B35' },
+  chipCheck: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  chipText: { color: '#CCCCCC', fontWeight: '600', fontSize: 14 },
+  chipTextSelected: { color: '#FFFFFF', fontWeight: '700' },
   error: { color: '#FF3B30', fontSize: 13 },
   addBtn: {
     backgroundColor: '#FF6B35', borderRadius: 14,

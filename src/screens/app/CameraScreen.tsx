@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppStackParamList } from '../../types/navigation';
 
 const MAX_RECORD_SECONDS = 30;
+const HOLD_THRESHOLD_MS = 300;
 
 export default function CameraScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
@@ -23,10 +24,11 @@ export default function CameraScreen() {
 
   const cameraRef = useRef<CameraView>(null);
   const isRecordingRef = useRef(false);
+  const holdStarted = useRef(false);
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recordInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const maxDurationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Animated shutter button
   const shutterAnim = useRef(new Animated.Value(0)).current;
 
   function animateShutter(toValue: number) {
@@ -61,8 +63,8 @@ export default function CameraScreen() {
   async function startRecording() {
     if (!cameraRef.current || isRecordingRef.current) return;
     if (!micPermission?.granted) {
-      await requestMicPermission();
-      return;
+      const result = await requestMicPermission();
+      if (!result.granted) return;
     }
 
     isRecordingRef.current = true;
@@ -70,10 +72,7 @@ export default function CameraScreen() {
     setRecordSeconds(0);
     animateShutter(1);
 
-    recordInterval.current = setInterval(() => {
-      setRecordSeconds(s => s + 1);
-    }, 1000);
-
+    recordInterval.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
     maxDurationTimer.current = setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
 
     try {
@@ -88,7 +87,6 @@ export default function CameraScreen() {
 
   function stopRecording() {
     cameraRef.current?.stopRecording();
-    cleanupRecording();
   }
 
   function cleanupRecording() {
@@ -100,8 +98,21 @@ export default function CameraScreen() {
     if (maxDurationTimer.current) { clearTimeout(maxDurationTimer.current); maxDurationTimer.current = null; }
   }
 
-  function onPressOut() {
-    if (isRecordingRef.current) stopRecording();
+  function onPressIn() {
+    holdStarted.current = false;
+    holdTimer.current = setTimeout(() => {
+      holdStarted.current = true;
+      startRecording();
+    }, HOLD_THRESHOLD_MS);
+  }
+
+  async function onPressOut() {
+    if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
+    if (holdStarted.current) {
+      stopRecording();
+    } else {
+      await takePhoto();
+    }
   }
 
   if (!cameraPermission) return <View style={styles.container} />;
@@ -129,6 +140,7 @@ export default function CameraScreen() {
           style={StyleSheet.absoluteFill}
           facing={facing}
           flash={flash}
+          mode="video"
         />
       )}
 
@@ -162,22 +174,12 @@ export default function CameraScreen() {
           {isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
         </Text>
 
-        <Pressable
-          onPress={takePhoto}
-          onLongPress={startRecording}
-          onPressOut={onPressOut}
-          delayLongPress={300}
-        >
+        <Pressable onPressIn={onPressIn} onPressOut={onPressOut}>
           <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>
             <Animated.View
               style={[
                 styles.shutterInner,
-                {
-                  width: innerSize,
-                  height: innerSize,
-                  borderRadius: innerRadius,
-                  backgroundColor: innerColor,
-                },
+                { width: innerSize, height: innerSize, borderRadius: innerRadius, backgroundColor: innerColor },
               ]}
             />
           </Animated.View>
@@ -202,11 +204,8 @@ const styles = StyleSheet.create({
   },
   permBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   topBar: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingTop: 8,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', paddingHorizontal: 16, paddingTop: 8,
   },
   iconBtn: { padding: 10 },
   iconText: { fontSize: 26 },
@@ -219,12 +218,12 @@ const styles = StyleSheet.create({
   recTime: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   bottomBar: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    alignItems: 'center', gap: 20, paddingBottom: 20, paddingTop: 8,
+    alignItems: 'center', gap: 16, paddingBottom: 16, paddingTop: 8,
   },
   hint: { color: 'rgba(255,255,255,0.65)', fontSize: 13 },
   shutterOuter: {
     width: 84, height: 84, borderRadius: 42,
     borderWidth: 4, justifyContent: 'center', alignItems: 'center',
   },
-  shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#FFFFFF' },
+  shutterInner: { backgroundColor: '#FFFFFF' },
 });
