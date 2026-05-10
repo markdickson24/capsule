@@ -17,7 +17,7 @@ type CapsuleOption = {
 };
 
 export default function PreviewScreen({ route, navigation }: Props) {
-  const { uri, mediaType } = route.params;
+  const { uri, mediaType, facing } = route.params;
   const [capsules, setCapsules] = useState<CapsuleOption[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -91,7 +91,11 @@ export default function PreviewScreen({ route, navigation }: Props) {
     <View style={styles.container}>
       {/* Full-screen preview */}
       {mediaType === 'photo' ? (
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+        <Image
+          source={{ uri }}
+          style={[StyleSheet.absoluteFill, facing === 'front' && { transform: [{ scaleX: -1 }] }]}
+          resizeMode="cover"
+        />
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.videoPlaceholder]}>
           <Text style={styles.videoIcon}>🎥</Text>

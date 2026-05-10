@@ -55,7 +55,7 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.85 });
       if (photo?.uri) {
-        navigation.navigate('Preview', { uri: photo.uri, mediaType: 'photo' });
+        navigation.navigate('Preview', { uri: photo.uri, mediaType: 'photo', facing });
       }
     } catch {}
   }
@@ -78,7 +78,7 @@ export default function CameraScreen() {
     try {
       const video = await cameraRef.current.recordAsync({ maxDuration: MAX_RECORD_SECONDS });
       if (video?.uri) {
-        navigation.navigate('Preview', { uri: video.uri, mediaType: 'video' });
+        navigation.navigate('Preview', { uri: video.uri, mediaType: 'video', facing });
       }
     } catch {}
 

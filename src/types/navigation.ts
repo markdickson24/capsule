@@ -15,7 +15,7 @@ export type AppTabParamList = {
 export type AppStackParamList = {
   Tabs: undefined;
   CapsuleDetail: { capsuleId: string };
-  Preview: { uri: string; mediaType: 'photo' | 'video' };
+  Preview: { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back' };
 };
 
 export type RootStackParamList = {
