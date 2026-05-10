@@ -26,10 +26,36 @@ No test suite or linter configured yet.
 
 **Platform split in `src/lib/supabase.ts`:** on web, Supabase uses `localStorage` directly (default behavior, no custom adapter). On native, `expo-secure-store` is used. This split exists because SecureStore is native-only and using a custom async adapter on web caused JWT to not be attached to requests.
 
-### Key RLS Constraint
-When inserting a capsule, **do not chain `.select()` on the insert**. The SELECT policy checks `capsule_members` for membership, but the member row doesn't exist yet at insert time — this causes a 403. Instead, generate the capsule UUID client-side with `crypto.randomUUID()`, insert without `.select()`, then insert the member row separately.
+**Always use `getSession()` instead of `getUser()`** when you just need the user ID or token. `getUser()` makes a live network request to Supabase Auth on every call, adding 500ms–2s of latency. `getSession()` reads from local secure storage instantly.
+
+### Key RLS Constraints
+
+**Capsule insert:** do not chain `.select()` on the insert. The SELECT policy checks `capsule_members` for membership, but the member row doesn't exist yet at insert time — this causes a 403. Instead, generate the UUID client-side using `randomUUID()` from `src/lib/uuid.ts`, insert without `.select()`, then insert the member row separately.
+
+**`capsule_members` policies use security definer functions** to avoid infinite recursion. Direct policy expressions that query `capsule_members` from within a `capsule_members` policy cause a recursion error. The pattern is:
+- SELECT: `get_my_capsule_ids()` — security definer, returns capsule IDs the user belongs to
+- INSERT: `can_insert_capsule_member(capsule_id, user_id)` — security definer, checks ownership via `capsules` table
+
+**Never query `capsule_members` inside a `capsule_members` policy.** Always go through a security definer function or use the `capsules` table directly.
 
 All RLS policies use `(select auth.uid())` rather than `auth.uid()` directly to avoid query planner issues.
+
+### Supabase Storage
+
+Bucket: `capsule-media` (private). Required policies:
+- INSERT: users can upload to their own capsules
+- SELECT: authenticated users can read (needed for `createSignedUrls` to work)
+
+**Raw REST uploads require both headers:**
+```
+Authorization: Bearer <access_token>
+apikey: <anon_key>
+```
+The Supabase JS client adds both automatically, but `FileSystem.uploadAsync` does not — you must add `apikey` manually.
+
+**Use `FileSystem.uploadAsync` for native uploads** (iOS/Android). It uses NSURLSession natively — file bytes never cross the JS bridge, making it dramatically faster than `fetch(uri).blob()`. Web must fall back to `fetch + arrayBuffer + supabase.storage.upload()`.
+
+**`createSignedUrls` response:** map by array index, not by `item.path`. The `path` property is not always reliable. Use `signedData?.[i]?.signedUrl`.
 
 ### Database Schema
 Defined in `supabase-schema.sql`. Key tables and relationships:
@@ -37,11 +63,37 @@ Defined in `supabase-schema.sql`. Key tables and relationships:
 - `users` — extends `auth.users` via trigger `on_auth_user_created`
 - `capsules` — owned by a user, has `status` (draft/active/unlocked) and `unlock_at`
 - `capsule_members` — join table with `role` (owner/contributor/viewer); a user must be a member to see a capsule
-- `media` — photos/videos belonging to a capsule, stored in Supabase Storage
+- `media` — photos/videos belonging to a capsule, stored in Supabase Storage bucket `capsule-media`
 - `reactions` — emoji reactions on individual media items
 - `notifications` — records of push notifications sent
 
-Permission model: owners control everything; contributors can add media until `contribution_lock_at`; viewers can only see content after unlock. Media is only visible to non-owners/contributors after `status = 'unlocked'`.
+Permission model: only owners can see photos before unlock. Contributors and viewers see a locked state until `status = 'unlocked'`. Use `isOwner` (`capsule.owner_id === currentUserId`) for owner checks — it's derived from the capsule row directly and works even if the `capsule_members` row is missing.
+
+### Navigation Structure
+
+```
+RootStack
+  AuthStack (Welcome, Login, SignUp)
+  AppStack
+    Tabs (Home, Create, Camera, Notifications, Profile)
+    CapsuleDetail
+    Preview (animation: 'none')
+```
+
+### In-App Camera (`src/screens/app/CameraScreen.tsx`)
+- `mode="video"` is required on `CameraView` even for photos — expo-camera 17.x needs it for `recordAsync`
+- Tap = photo, hold 300ms = video (manual timer, not `onLongPress`)
+- Double-tap viewfinder switches front/back camera
+- Photos are resized to 1920px wide via `expo-image-manipulator` before upload
+- Front camera photos are flipped horizontally via `FlipType.Horizontal`
+- Use `useIsFocused()` to stop camera rendering when the tab is not active
+
+### iOS Layout Gotchas
+- **Never use percentage widths (`width: '33.33%'`) inside a ScrollView on iOS** — they compute to 0. Use `Dimensions.get('window').width / 3` instead.
+- `expo-file-system` APIs (`getInfoAsync`, `uploadAsync`) are native-only — always check `Platform.OS !== 'web'` before calling them. Use `expo-file-system/legacy` import path (not `expo-file-system`) to avoid deprecation warnings.
+
+### Utilities
+- `src/lib/uuid.ts` — `randomUUID()` helper. Use this instead of `crypto.randomUUID()` — the `crypto` global is not reliably typed in the Expo TS config.
 
 ### Environment
 Credentials live in `.env` (gitignored):
