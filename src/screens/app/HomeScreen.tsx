@@ -3,9 +3,11 @@ import {
   View, Text, StyleSheet, SafeAreaView, FlatList,
   TouchableOpacity, RefreshControl, ActivityIndicator,
 } from 'react-native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { Capsule } from '../../types/database';
+import { AppStackParamList } from '../../types/navigation';
 
 type CapsuleWithCountdown = Capsule & { daysLeft: number; hoursLeft: number };
 
@@ -23,10 +25,10 @@ function CountdownBadge({ daysLeft, hoursLeft, status }: { daysLeft: number; hou
   return <Text style={styles.countdownText}>{hoursLeft}h left</Text>;
 }
 
-function CapsuleCard({ capsule }: { capsule: CapsuleWithCountdown }) {
+function CapsuleCard({ capsule, onPress }: { capsule: CapsuleWithCountdown; onPress: () => void }) {
   const isLocked = capsule.status !== 'unlocked';
   return (
-    <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]}>
+    <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]} onPress={onPress}>
       <View style={styles.cardTop}>
         <Text style={styles.cardEmoji}>{isLocked ? '⏳' : '🔓'}</Text>
         <CountdownBadge daysLeft={capsule.daysLeft} hoursLeft={capsule.hoursLeft} status={capsule.status} />
@@ -41,6 +43,7 @@ function CapsuleCard({ capsule }: { capsule: CapsuleWithCountdown }) {
 }
 
 export default function HomeScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [capsules, setCapsules] = useState<CapsuleWithCountdown[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -100,7 +103,12 @@ export default function HomeScreen() {
         <FlatList
           data={capsules}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <CapsuleCard capsule={item} />}
+          renderItem={({ item }) => (
+            <CapsuleCard
+              capsule={item}
+              onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: item.id })}
+            />
+          )}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
         />

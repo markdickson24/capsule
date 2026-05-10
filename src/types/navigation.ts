@@ -11,6 +11,11 @@ export type AppTabParamList = {
   Profile: undefined;
 };
 
+export type AppStackParamList = {
+  Tabs: undefined;
+  CapsuleDetail: { capsuleId: string };
+};
+
 export type RootStackParamList = {
   Auth: undefined;
   App: undefined;
