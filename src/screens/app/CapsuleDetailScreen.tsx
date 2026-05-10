@@ -2,11 +2,13 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform,
+  Share, Image, Platform, Dimensions,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '../../lib/supabase';
+import { randomUUID } from '../../lib/uuid';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 
@@ -192,21 +194,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }
 
-    const { data: signedData } = await supabase.storage
+    const { data: signedData, error: signedErr } = await supabase.storage
       .from('capsule-media')
       .createSignedUrls(mediaData.map((m: any) => m.storage_key), 3600);
 
-    const urlMap: Record<string, string> = {};
-    (signedData ?? []).forEach((item: any) => {
-      if (item.signedUrl) urlMap[item.path] = item.signedUrl;
-    });
 
-    setPhotos(mediaData.map((m: any) => ({
+
+
+    setPhotos(mediaData.map((m: any, i: number) => ({
       id: m.id,
       storage_key: m.storage_key,
       uploader_id: m.uploader_id,
       uploaded_at: m.uploaded_at,
-      signedUrl: urlMap[m.storage_key] ?? '',
+      signedUrl: signedData?.[i]?.signedUrl ?? '',
     })));
   }
 
@@ -241,39 +241,66 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     setUploadError('');
     setUploadCount({ done: 0, total: assets.length });
 
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setUploading(false); return; }
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { setUploading(false); return; }
 
-    let failed = 0;
-    for (let i = 0; i < assets.length; i++) {
-      const asset = assets[i];
-      const mimeType = asset.mimeType ?? 'image/jpeg';
-      const ext = mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
-      const storageKey = `${capsuleId}/${crypto.randomUUID()}.${ext}`;
+      let failed = 0;
+      for (let i = 0; i < assets.length; i++) {
+        const asset = assets[i];
+        const mimeType = asset.mimeType ?? 'image/jpeg';
+        const ext = mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
+        const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
 
-      const response = await fetch(asset.uri);
-      const blob = await response.blob();
+        try {
+          let sizeBytes = 0;
 
-      const { error: uploadErr } = await supabase.storage
-        .from('capsule-media')
-        .upload(storageKey, blob, { contentType: mimeType });
+          if (Platform.OS === 'web') {
+            const response = await fetch(asset.uri);
+            const arrayBuffer = await response.arrayBuffer();
+            sizeBytes = arrayBuffer.byteLength;
+            const { error: uploadErr } = await supabase.storage
+              .from('capsule-media')
+              .upload(storageKey, arrayBuffer, { contentType: mimeType });
+            if (uploadErr) throw new Error(uploadErr.message);
+          } else {
+            const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+            sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+            const result = await FileSystem.uploadAsync(
+              `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
+              asset.uri,
+              {
+                httpMethod: 'POST',
+                uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+                headers: {
+                  Authorization: `Bearer ${session.access_token}`,
+                  apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+                  'Content-Type': mimeType,
+                },
+              }
+            );
+            if (result.status < 200 || result.status >= 300) throw new Error(`${result.status}`);
+          }
 
-      if (uploadErr) {
-        failed++;
-      } else {
-        await supabase.from('media').insert({
-          capsule_id: capsuleId,
-          uploader_id: user.id,
-          storage_key: storageKey,
-          media_type: 'photo',
-          size_bytes: blob.size,
-        });
+          await supabase.from('media').insert({
+            capsule_id: capsuleId,
+            uploader_id: session.user.id,
+            storage_key: storageKey,
+            media_type: 'photo',
+            size_bytes: sizeBytes,
+          });
+        } catch {
+          failed++;
+        }
+
+        setUploadCount({ done: i + 1, total: assets.length });
       }
 
-      setUploadCount({ done: i + 1, total: assets.length });
+      if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
+    } catch {
+      setUploadError('Upload failed. Try again.');
     }
 
-    if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
     setUploading(false);
     setShowPickerOptions(false);
     await fetchPhotos();
@@ -336,11 +363,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
   const isOwner = capsule.owner_id === currentUserId;
   const myRole = members.find(m => m.user_id === currentUserId)?.role ?? null;
-  const canSeePhotos = !isLocked || myRole === 'owner' || myRole === 'contributor';
+  const canSeePhotos = !isLocked || isOwner;
   const contributionLocked = capsule.contribution_lock_at
     ? new Date(capsule.contribution_lock_at) <= new Date()
     : false;
-  const canUpload = myRole === 'owner' || (myRole === 'contributor' && !contributionLocked);
+  const canUpload = isOwner || (myRole === 'contributor' && !contributionLocked);
   const existingMemberIds = members.map(m => m.user_id);
 
   return (
@@ -436,7 +463,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         ) : (
           <View style={styles.lockedBox}>
             <Text style={styles.lockedIcon}>🔒</Text>
-            <Text style={styles.lockedText}>Photos hidden until unlock</Text>
+            <Text style={styles.lockedText}>Photos reveal on {unlockDate}</Text>
+            {photos.length > 0 && (
+              <Text style={styles.lockedCount}>{photos.length} {photos.length === 1 ? 'memory' : 'memories'} waiting</Text>
+            )}
           </View>
         )}
 
@@ -542,8 +572,8 @@ const styles = StyleSheet.create({
   pendingLabel: { fontSize: 11, color: '#888888', marginTop: 2 },
   roleBadge: { backgroundColor: '#2A2A2A', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   roleText: { fontSize: 12, color: '#888888' },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', borderRadius: 12, overflow: 'hidden' },
-  photoThumb: { width: '33.33%', aspectRatio: 1, borderWidth: 1, borderColor: '#0A0A0A' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+  photoThumb: { width: Dimensions.get('window').width / 3, height: Dimensions.get('window').width / 3 },
   emptyPhotos: {
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 32, alignItems: 'center', gap: 8,
@@ -556,7 +586,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#2A2A2A',
   },
   lockedIcon: { fontSize: 32 },
-  lockedText: { fontSize: 15, color: '#555555' },
+  lockedText: { fontSize: 15, color: '#888888', textAlign: 'center' },
+  lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   uploadingText: { color: '#888888', fontSize: 15 },

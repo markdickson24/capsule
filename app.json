@@ -42,7 +42,8 @@
           "cameraPermission": "Capsule needs camera access for the in-app camera.",
           "microphonePermission": "Capsule needs microphone access to record videos."
         }
-      ]
+      ],
+      "expo-video"
     ]
   }
 }

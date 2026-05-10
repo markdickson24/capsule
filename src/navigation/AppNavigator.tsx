@@ -45,7 +45,7 @@ export default function AppNavigator() {
       <Stack.Screen
         name="Preview"
         component={PreviewScreen}
-        options={{ animation: 'fade' }}
+        options={{ animation: 'none' }}
       />
     </Stack.Navigator>
   );

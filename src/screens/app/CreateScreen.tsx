@@ -3,7 +3,11 @@ import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
   TouchableOpacity, ScrollView, ActivityIndicator,
 } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { randomUUID } from '../../lib/uuid';
+import { AppStackParamList } from '../../types/navigation';
 
 type Permission = 'contributor' | 'viewer';
 
@@ -155,6 +159,7 @@ function DatePicker({ label, optional, fields, onChange }: {
 const emptyDate: DateFields = { month: '', day: '', year: '', hour: '', minute: '' };
 
 export default function CreateScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [unlockFields, setUnlockFields] = useState<DateFields>(emptyDate);
@@ -162,7 +167,6 @@ export default function CreateScreen() {
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
 
   const unlockDate = buildDate(unlockFields);
   const contributionLockDate = buildDate(contribFields);
@@ -184,7 +188,7 @@ export default function CreateScreen() {
     const user = session?.user;
     if (!user || !session) { setLoading(false); setError('Not logged in — try signing out and back in.'); return; }
 
-    const capsuleId = crypto.randomUUID();
+    const capsuleId = randomUUID();
 
     const { error: capsuleError } = await supabase
       .from('capsules')
@@ -205,19 +209,21 @@ export default function CreateScreen() {
       return;
     }
 
-    await supabase.from('capsule_members').insert({
+    const { error: memberError } = await supabase.from('capsule_members').insert({
       capsule_id: capsuleId,
       user_id: user.id,
       role: 'owner',
       joined_at: new Date().toISOString(),
     });
 
+    if (memberError) {
+      setLoading(false);
+      setError('Capsule created but failed to set owner: ' + memberError.message);
+      return;
+    }
+
     setLoading(false);
-    setTitle('');
-    setDescription('');
-    setUnlockFields(emptyDate);
-    setContribFields(emptyDate);
-    setSuccess(`Capsule locked! ⏳ "${capsule.title}" unlocks on ${formatDate(unlockDate)}.`);
+    navigation.navigate('CapsuleDetail', { capsuleId });
   }
 
   return (
@@ -272,7 +278,6 @@ export default function CreateScreen() {
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
-        {success ? <Text style={styles.success}>{success}</Text> : null}
 
         <TouchableOpacity style={styles.createButton} onPress={handleCreate} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.createButtonText}>Lock Capsule ⏳</Text>}
@@ -327,7 +332,6 @@ const styles = StyleSheet.create({
   toggleText: { color: '#666666', fontWeight: '600', fontSize: 15 },
   toggleTextActive: { color: '#FF6B35' },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
-  success: { color: '#30D158', fontSize: 14, textAlign: 'center' },
   createButton: {
     backgroundColor: '#FF6B35', borderRadius: 16,
     paddingVertical: 18, alignItems: 'center', marginTop: 8,

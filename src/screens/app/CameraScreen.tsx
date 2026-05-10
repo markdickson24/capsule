@@ -59,23 +59,10 @@ export default function CameraScreen() {
     }).start();
   }
 
-  async function cropToScreen(uri: string, photoWidth: number, photoHeight: number, flipH: boolean) {
-    const photoRatio = photoHeight / photoWidth;
-    let actions: ImageManipulator.Action[] = [];
-
-    if (photoRatio > SCREEN_RATIO) {
-      const targetH = Math.round(photoWidth * SCREEN_RATIO);
-      const originY = Math.round((photoHeight - targetH) / 2);
-      actions.push({ crop: { originX: 0, originY, width: photoWidth, height: targetH } });
-    } else {
-      const targetW = Math.round(photoHeight / SCREEN_RATIO);
-      const originX = Math.round((photoWidth - targetW) / 2);
-      actions.push({ crop: { originX, originY: 0, width: targetW, height: photoHeight } });
-    }
-
+  async function processPhoto(uri: string, flipH: boolean): Promise<string> {
+    const actions: ImageManipulator.Action[] = [{ resize: { width: 1920 } }];
     if (flipH) actions.push({ flip: ImageManipulator.FlipType.Horizontal });
-
-    const result = await ImageManipulator.manipulateAsync(uri, actions, { compress: 0.88 });
+    const result = await ImageManipulator.manipulateAsync(uri, actions, { compress: 0.82 });
     return result.uri;
   }
 
@@ -85,8 +72,8 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.88, skipProcessing: false });
       if (!photo?.uri) return;
-      const croppedUri = await cropToScreen(photo.uri, photo.width, photo.height, facing === 'front');
-      navigation.navigate('Preview', { uri: croppedUri, mediaType: 'photo' });
+      const processedUri = await processPhoto(photo.uri, facing === 'front');
+      navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
     } catch {}
   }
 
