@@ -91,11 +91,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
     <View style={styles.container}>
       {/* Full-screen preview */}
       {mediaType === 'photo' ? (
-        <Image
-          source={{ uri }}
-          style={[StyleSheet.absoluteFill, facing === 'front' && { transform: [{ scaleX: -1 }] }]}
-          resizeMode="cover"
-        />
+        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
         <View style={[StyleSheet.absoluteFill, styles.videoPlaceholder]}>
           <Text style={styles.videoIcon}>🎥</Text>
