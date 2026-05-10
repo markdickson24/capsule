@@ -35,6 +35,13 @@
           "photosPermission": "Capsule needs access to your photos to add them to a capsule.",
           "cameraPermission": "Capsule needs camera access to take photos for a capsule."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Capsule needs camera access for the in-app camera.",
+          "microphonePermission": "Capsule needs microphone access to record videos."
+        }
       ]
     ]
   }

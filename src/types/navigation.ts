@@ -7,6 +7,7 @@ export type AuthStackParamList = {
 export type AppTabParamList = {
   Home: undefined;
   Create: undefined;
+  Camera: undefined;
   Notifications: undefined;
   Profile: undefined;
 };
@@ -14,6 +15,7 @@ export type AppTabParamList = {
 export type AppStackParamList = {
   Tabs: undefined;
   CapsuleDetail: { capsuleId: string };
+  Preview: { uri: string; mediaType: 'photo' | 'video' };
 };
 
 export type RootStackParamList = {
