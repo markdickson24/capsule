@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, ActivityIndicator, Modal, TextInput, Share,
+  TouchableOpacity, ActivityIndicator, Modal, TextInput,
+  Share, Image, Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../../lib/supabase';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
@@ -18,6 +20,14 @@ type MemberRow = {
 };
 
 type UserResult = { id: string; display_name: string };
+
+type PhotoItem = {
+  id: string;
+  storage_key: string;
+  uploader_id: string;
+  uploaded_at: string;
+  signedUrl: string;
+};
 
 const roleIcon: Record<string, string> = {
   owner: '👑',
@@ -96,9 +106,7 @@ function InviteModal({
   }
 
   async function shareLink() {
-    await Share.share({
-      message: `Join my Capsule! Use this invite code: ${capsuleId}`,
-    });
+    await Share.share({ message: `Join my Capsule! Use this invite code: ${capsuleId}` });
   }
 
   return (
@@ -164,10 +172,43 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const { capsuleId } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
   const [showInvite, setShowInvite] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
+  const [showPickerOptions, setShowPickerOptions] = useState(false);
+  const [uploadError, setUploadError] = useState('');
+
+  async function fetchPhotos() {
+    const { data: mediaData } = await supabase
+      .from('media')
+      .select('id, storage_key, uploader_id, uploaded_at')
+      .eq('capsule_id', capsuleId)
+      .eq('media_type', 'photo')
+      .order('uploaded_at', { ascending: false });
+
+    if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }
+
+    const { data: signedData } = await supabase.storage
+      .from('capsule-media')
+      .createSignedUrls(mediaData.map((m: any) => m.storage_key), 3600);
+
+    const urlMap: Record<string, string> = {};
+    (signedData ?? []).forEach((item: any) => {
+      if (item.signedUrl) urlMap[item.path] = item.signedUrl;
+    });
+
+    setPhotos(mediaData.map((m: any) => ({
+      id: m.id,
+      storage_key: m.storage_key,
+      uploader_id: m.uploader_id,
+      uploaded_at: m.uploaded_at,
+      signedUrl: urlMap[m.storage_key] ?? '',
+    })));
+  }
 
   async function load() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -189,10 +230,81 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
 
+    await fetchPhotos();
     setLoading(false);
   }
 
   useEffect(() => { load(); }, [capsuleId]);
+
+  async function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
+    setUploading(true);
+    setUploadError('');
+    setUploadCount({ done: 0, total: assets.length });
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setUploading(false); return; }
+
+    let failed = 0;
+    for (let i = 0; i < assets.length; i++) {
+      const asset = assets[i];
+      const mimeType = asset.mimeType ?? 'image/jpeg';
+      const ext = mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
+      const storageKey = `${capsuleId}/${crypto.randomUUID()}.${ext}`;
+
+      const response = await fetch(asset.uri);
+      const blob = await response.blob();
+
+      const { error: uploadErr } = await supabase.storage
+        .from('capsule-media')
+        .upload(storageKey, blob, { contentType: mimeType });
+
+      if (uploadErr) {
+        failed++;
+      } else {
+        await supabase.from('media').insert({
+          capsule_id: capsuleId,
+          uploader_id: user.id,
+          storage_key: storageKey,
+          media_type: 'photo',
+          size_bytes: blob.size,
+        });
+      }
+
+      setUploadCount({ done: i + 1, total: assets.length });
+    }
+
+    if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
+    setUploading(false);
+    setShowPickerOptions(false);
+    await fetchPhotos();
+  }
+
+  async function pickFromLibrary() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      setUploadError('Photo library access denied. Enable it in Settings.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) await uploadPhotos(result.assets);
+  }
+
+  async function pickFromCamera() {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      setUploadError('Camera access denied. Enable it in Settings.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+    if (!result.canceled) await uploadPhotos(result.assets);
+  }
 
   if (loading) {
     return (
@@ -213,7 +325,6 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     );
   }
 
-  const isOwner = capsule.owner_id === currentUserId;
   const isLocked = capsule.status !== 'unlocked';
   const timeLeft = isLocked ? getTimeLeft(capsule.unlock_at) : null;
   const unlockDate = new Date(capsule.unlock_at).toLocaleDateString('en-US', {
@@ -222,6 +333,14 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const unlockTime = new Date(capsule.unlock_at).toLocaleTimeString('en-US', {
     hour: 'numeric', minute: '2-digit',
   });
+
+  const isOwner = capsule.owner_id === currentUserId;
+  const myRole = members.find(m => m.user_id === currentUserId)?.role ?? null;
+  const canSeePhotos = !isLocked || myRole === 'owner' || myRole === 'contributor';
+  const contributionLocked = capsule.contribution_lock_at
+    ? new Date(capsule.contribution_lock_at) <= new Date()
+    : false;
+  const canUpload = myRole === 'owner' || (myRole === 'contributor' && !contributionLocked);
   const existingMemberIds = members.map(m => m.user_id);
 
   return (
@@ -259,6 +378,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <Text style={styles.timeDate}>{unlockDate} at {unlockTime}</Text>
         </View>
 
+        {/* Members */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Members</Text>
           {isOwner && (
@@ -278,9 +398,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </View>
               <View style={styles.memberInfo}>
                 <Text style={styles.memberName}>{m.users?.display_name ?? 'Member'}</Text>
-                {m.joined_at === null && (
-                  <Text style={styles.pendingLabel}>pending</Text>
-                )}
+                {m.joined_at === null && <Text style={styles.pendingLabel}>pending</Text>}
               </View>
               <View style={styles.roleBadge}>
                 <Text style={styles.roleText}>{roleIcon[m.role]} {roleLabel[m.role]}</Text>
@@ -289,15 +407,76 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           ))}
         </View>
 
-        {isLocked ? (
+        {/* Photos */}
+        <View style={styles.sectionRow}>
+          <Text style={styles.sectionTitle}>Photos</Text>
+          {photos.length > 0 && canSeePhotos && (
+            <Text style={styles.photoCount}>{photos.length}</Text>
+          )}
+        </View>
+
+        {canSeePhotos ? (
+          photos.length > 0 ? (
+            <View style={styles.photoGrid}>
+              {photos.map(p => (
+                <Image
+                  key={p.id}
+                  source={{ uri: p.signedUrl }}
+                  style={styles.photoThumb}
+                  resizeMode="cover"
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.emptyPhotos}>
+              <Text style={styles.emptyPhotosIcon}>📷</Text>
+              <Text style={styles.emptyPhotosText}>No photos yet</Text>
+            </View>
+          )
+        ) : (
           <View style={styles.lockedBox}>
             <Text style={styles.lockedIcon}>🔒</Text>
             <Text style={styles.lockedText}>Photos hidden until unlock</Text>
           </View>
-        ) : (
-          <View style={styles.lockedBox}>
-            <Text style={styles.lockedIcon}>📸</Text>
-            <Text style={styles.lockedText}>Photos coming soon</Text>
+        )}
+
+        {/* Upload controls */}
+        {canUpload && (
+          <View style={styles.uploadArea}>
+            {uploadError ? <Text style={styles.uploadError}>{uploadError}</Text> : null}
+
+            {uploading ? (
+              <View style={styles.uploadingRow}>
+                <ActivityIndicator color="#FF6B35" size="small" />
+                <Text style={styles.uploadingText}>
+                  Uploading {uploadCount.done}/{uploadCount.total}…
+                </Text>
+              </View>
+            ) : showPickerOptions ? (
+              <View style={styles.pickerOptions}>
+                {Platform.OS !== 'web' && (
+                  <TouchableOpacity style={styles.pickerBtn} onPress={pickFromCamera}>
+                    <Text style={styles.pickerBtnText}>📷  Take Photo</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity style={styles.pickerBtn} onPress={pickFromLibrary}>
+                  <Text style={styles.pickerBtnText}>🖼  Camera Roll</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.pickerCancelBtn}
+                  onPress={() => setShowPickerOptions(false)}
+                >
+                  <Text style={styles.pickerCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.addPhotoBtn}
+                onPress={() => { setUploadError(''); setShowPickerOptions(true); }}
+              >
+                <Text style={styles.addPhotoBtnText}>+ Add Photos</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -337,8 +516,12 @@ const styles = StyleSheet.create({
   timeLabel: { fontSize: 13, color: '#555555', textTransform: 'uppercase', letterSpacing: 0.5 },
   timeValue: { fontSize: 32, fontWeight: '800', color: '#FF6B35' },
   timeDate: { fontSize: 14, color: '#888888' },
-  sectionRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 },
+  sectionRow: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginTop: 8,
+  },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  photoCount: { fontSize: 14, color: '#555555' },
   inviteBtn: {
     backgroundColor: '#FF6B3520', borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 6,
@@ -359,12 +542,39 @@ const styles = StyleSheet.create({
   pendingLabel: { fontSize: 11, color: '#888888', marginTop: 2 },
   roleBadge: { backgroundColor: '#2A2A2A', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   roleText: { fontSize: 12, color: '#888888' },
+  photoGrid: { flexDirection: 'row', flexWrap: 'wrap', borderRadius: 12, overflow: 'hidden' },
+  photoThumb: { width: '33.33%', aspectRatio: 1, borderWidth: 1, borderColor: '#0A0A0A' },
+  emptyPhotos: {
+    backgroundColor: '#1A1A1A', borderRadius: 16,
+    padding: 32, alignItems: 'center', gap: 8,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  emptyPhotosIcon: { fontSize: 32 },
+  emptyPhotosText: { fontSize: 15, color: '#555555' },
   lockedBox: {
     backgroundColor: '#1A1A1A', borderRadius: 16, padding: 32,
-    alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#2A2A2A', marginTop: 8,
+    alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#2A2A2A',
   },
   lockedIcon: { fontSize: 32 },
   lockedText: { fontSize: 15, color: '#555555' },
+  uploadArea: { gap: 10 },
+  uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  uploadingText: { color: '#888888', fontSize: 15 },
+  uploadError: { color: '#FF3B30', fontSize: 14 },
+  pickerOptions: { gap: 10 },
+  pickerBtn: {
+    backgroundColor: '#1A1A1A', borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center',
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  pickerBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
+  pickerCancelBtn: { paddingVertical: 12, alignItems: 'center' },
+  pickerCancelText: { color: '#555555', fontSize: 15 },
+  addPhotoBtn: {
+    backgroundColor: '#FF6B35', borderRadius: 14,
+    paddingVertical: 16, alignItems: 'center',
+  },
+  addPhotoBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   errorText: { color: '#FF3B30', textAlign: 'center', marginTop: 40, fontSize: 15 },
 });
 

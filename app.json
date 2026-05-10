@@ -28,7 +28,14 @@
     },
     "plugins": [
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Capsule needs access to your photos to add them to a capsule.",
+          "cameraPermission": "Capsule needs camera access to take photos for a capsule."
+        }
+      ]
     ]
   }
 }
