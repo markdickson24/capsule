@@ -203,6 +203,83 @@ function InviteModal({
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
+const REACTION_EMOJIS = ['❤️', '😂', '😮', '🔥', '😢', '👏', '🤯'];
+
+type Reaction = { id: string; media_id: string; user_id: string; emoji: string };
+
+function ReactionsBar({
+  mediaId,
+  reactions,
+  currentUserId,
+  onAdd,
+  onRemove,
+}: {
+  mediaId: string;
+  reactions: Reaction[];
+  currentUserId: string;
+  onAdd: (mediaId: string, emoji: string) => void;
+  onRemove: (reactionId: string) => void;
+}) {
+  const [showPicker, setShowPicker] = useState(false);
+
+  const groups = REACTION_EMOJIS
+    .map(emoji => {
+      const matching = reactions.filter(r => r.media_id === mediaId && r.emoji === emoji);
+      const mine = matching.find(r => r.user_id === currentUserId);
+      return { emoji, count: matching.length, myReactionId: mine?.id ?? null };
+    })
+    .filter(g => g.count > 0);
+
+  const reactedEmojis = new Set(
+    reactions.filter(r => r.media_id === mediaId && r.user_id === currentUserId).map(r => r.emoji)
+  );
+
+  return (
+    <View style={{ position: 'absolute', bottom: 48, left: 0, right: 0, paddingHorizontal: 16 }}>
+      {showPicker && (
+        <View style={rs.picker}>
+          {REACTION_EMOJIS.filter(e => !reactedEmojis.has(e)).map(emoji => (
+            <TouchableOpacity
+              key={emoji}
+              onPress={() => { onAdd(mediaId, emoji); setShowPicker(false); }}
+              style={rs.pickerEmoji}
+            >
+              <Text style={{ fontSize: 28 }}>{emoji}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+      <View style={rs.bar}>
+        {groups.map(g => (
+          <TouchableOpacity
+            key={g.emoji}
+            style={[rs.pill, g.myReactionId && rs.pillMine]}
+            onPress={() => g.myReactionId ? onRemove(g.myReactionId) : onAdd(mediaId, g.emoji)}
+          >
+            <Text style={{ fontSize: 16 }}>{g.emoji}</Text>
+            <Text style={rs.pillCount}>{g.count}</Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity
+          style={rs.pill}
+          onPress={() => setShowPicker(p => !p)}
+        >
+          <Text style={rs.pillCount}>{showPicker ? '✕' : '+'}</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+const rs = StyleSheet.create({
+  bar: { flexDirection: 'row', gap: 8, flexWrap: 'wrap', alignItems: 'center' },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, borderWidth: 1, borderColor: 'transparent' },
+  pillMine: { backgroundColor: 'rgba(255,107,53,0.25)', borderColor: '#FF6B35' },
+  pillCount: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  picker: { flexDirection: 'row', justifyContent: 'center', gap: 8, backgroundColor: 'rgba(20,20,20,0.92)', borderRadius: 24, padding: 12, marginBottom: 10 },
+  pickerEmoji: { padding: 4 },
+});
+
 function VideoSlide({ item, isActive }: { item: MediaItem; isActive: boolean }) {
   const player = useVideoPlayer(item.signedUrl, p => { p.loop = true; });
   useEffect(() => {
@@ -225,9 +302,47 @@ function MediaViewerModal({
   startIndex: number;
   onClose: () => void;
 }) {
-  // Use a ref for currentIndex so the PanResponder always sees the latest value
   const currentIndexRef = useRef(startIndex);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const [reactions, setReactions] = useState<Reaction[]>([]);
+  const [currentUserId, setCurrentUserId] = useState('');
+
+  useEffect(() => {
+    loadReactions();
+  }, []);
+
+  async function loadReactions() {
+    const { data: { session } } = await supabase.auth.getSession();
+    setCurrentUserId(session?.user.id ?? '');
+    const mediaIds = items.map(i => i.id);
+    const { data } = await supabase
+      .from('reactions')
+      .select('id, media_id, user_id, emoji')
+      .in('media_id', mediaIds);
+    if (data) setReactions(data as Reaction[]);
+  }
+
+  async function addReaction(mediaId: string, emoji: string) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    // Prevent duplicate
+    if (reactions.some(r => r.media_id === mediaId && r.emoji === emoji && r.user_id === session.user.id)) return;
+    const tempId = `tmp_${Date.now()}`;
+    const optimistic = { id: tempId, media_id: mediaId, user_id: session.user.id, emoji };
+    setReactions(prev => [...prev, optimistic]);
+    const { data, error } = await supabase
+      .from('reactions')
+      .insert({ media_id: mediaId, emoji })
+      .select('id')
+      .single();
+    if (error) setReactions(prev => prev.filter(r => r.id !== tempId));
+    else if (data) setReactions(prev => prev.map(r => r.id === tempId ? { ...r, id: data.id } : r));
+  }
+
+  async function removeReaction(reactionId: string) {
+    setReactions(prev => prev.filter(r => r.id !== reactionId));
+    await supabase.from('reactions').delete().eq('id', reactionId);
+  }
 
   const translateX = useRef(new Animated.Value(-startIndex * SCREEN_WIDTH)).current;
   const translateY = useRef(new Animated.Value(0)).current;
@@ -300,6 +415,15 @@ function MediaViewerModal({
               )
             )}
           </Animated.View>
+
+          {/* Reactions */}
+          <ReactionsBar
+            mediaId={items[currentIndex]?.id ?? ''}
+            reactions={reactions}
+            currentUserId={currentUserId}
+            onAdd={addReaction}
+            onRemove={removeReaction}
+          />
 
           {/* Header */}
           <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 }}>
