@@ -332,7 +332,7 @@ function MediaViewerModal({
     setReactions(prev => [...prev, optimistic]);
     const { data, error } = await supabase
       .from('reactions')
-      .insert({ media_id: mediaId, emoji })
+      .insert({ media_id: mediaId, emoji, user_id: session.user.id })
       .select('id')
       .single();
     if (error) setReactions(prev => prev.filter(r => r.id !== tempId));
