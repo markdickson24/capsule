@@ -8,58 +8,94 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { AppStackParamList } from '../../types/navigation';
 
-type PendingInvite = {
+type NotificationRow = {
   id: string;
   capsule_id: string;
-  invited_at: string;
+  type: 'invite' | 'unlock';
+  sent_at: string;
+  read_at: string | null;
   capsules: { title: string } | null;
+};
+
+type PendingMember = {
+  id: string;
+  capsule_id: string;
 };
 
 export default function NotificationsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const [invites, setInvites] = useState<PendingInvite[]>([]);
+  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+  const [pendingMap, setPendingMap] = useState<Record<string, string>>({}); // capsule_id → member row id
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [accepting, setAccepting] = useState<string | null>(null);
 
-  async function fetchInvites() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+  async function fetchAll() {
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+    if (!userId) return;
 
-    const { data } = await supabase
-      .from('capsule_members')
-      .select('id, capsule_id, invited_at, capsules(title)')
-      .eq('user_id', user.id)
-      .is('joined_at', null)
-      .neq('role', 'owner');
+    const [notifsRes, pendingRes] = await Promise.all([
+      supabase
+        .from('notifications')
+        .select('id, capsule_id, type, sent_at, read_at, capsules(title)')
+        .eq('user_id', userId)
+        .order('sent_at', { ascending: false }),
+      supabase
+        .from('capsule_members')
+        .select('id, capsule_id')
+        .eq('user_id', userId)
+        .is('joined_at', null)
+        .neq('role', 'owner'),
+    ]);
 
-    if (data) setInvites(data as PendingInvite[]);
+    if (notifsRes.data) setNotifications(notifsRes.data as NotificationRow[]);
+
+    const map: Record<string, string> = {};
+    for (const m of (pendingRes.data ?? []) as PendingMember[]) {
+      map[m.capsule_id] = m.id;
+    }
+    setPendingMap(map);
   }
 
   useFocusEffect(useCallback(() => {
     setLoading(true);
-    fetchInvites().finally(() => setLoading(false));
+    fetchAll().finally(() => setLoading(false));
   }, []));
 
-  async function accept(invite: PendingInvite) {
-    setAccepting(invite.id);
+  async function accept(notif: NotificationRow) {
+    const memberId = pendingMap[notif.capsule_id];
+    if (!memberId) return;
+    setAccepting(notif.id);
     const { error } = await supabase
       .from('capsule_members')
       .update({ joined_at: new Date().toISOString() })
-      .eq('id', invite.id);
+      .eq('id', memberId);
 
     if (!error) {
-      setInvites(prev => prev.filter(i => i.id !== invite.id));
-      navigation.navigate('CapsuleDetail', { capsuleId: invite.capsule_id });
+      setPendingMap(prev => {
+        const next = { ...prev };
+        delete next[notif.capsule_id];
+        return next;
+      });
+      navigation.navigate('CapsuleDetail', { capsuleId: notif.capsule_id });
     }
     setAccepting(null);
   }
 
   async function onRefresh() {
     setRefreshing(true);
-    await fetchInvites();
+    await fetchAll();
     setRefreshing(false);
   }
+
+  function formatDate(iso: string) {
+    return new Date(iso).toLocaleDateString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric',
+    });
+  }
+
+  const pendingCount = Object.keys(pendingMap).length;
 
   if (loading) {
     return (
@@ -73,14 +109,14 @@ export default function NotificationsScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Notifications</Text>
-        {invites.length > 0 && (
+        {pendingCount > 0 && (
           <View style={styles.badge}>
-            <Text style={styles.badgeText}>{invites.length}</Text>
+            <Text style={styles.badgeText}>{pendingCount}</Text>
           </View>
         )}
       </View>
 
-      {invites.length === 0 ? (
+      {notifications.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyIconWrap}>
             <Text style={styles.emptyIconBg}>🔔</Text>
@@ -88,42 +124,73 @@ export default function NotificationsScreen() {
           </View>
           <Text style={styles.emptyText}>You're all caught up</Text>
           <Text style={styles.emptySubtext}>
-            When someone invites you to a capsule,{'\n'}it'll show up here.
+            Invites and unlocks will show up here.
           </Text>
         </View>
       ) : (
         <FlatList
-          data={invites}
+          data={notifications}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
-          renderItem={({ item }) => (
-            <View style={styles.card}>
-              <Text style={styles.cardIcon}>📦</Text>
-              <View style={styles.cardBody}>
-                <Text style={styles.cardText}>
-                  You're invited to{' '}
-                  <Text style={styles.cardCapsuleTitle}>
-                    {item.capsules?.title ?? 'a capsule'}
-                  </Text>
-                </Text>
-                <Text style={styles.cardDate}>
-                  {new Date(item.invited_at).toLocaleDateString('en-US', {
-                    month: 'short', day: 'numeric', year: 'numeric',
-                  })}
-                </Text>
-              </View>
+          renderItem={({ item }) => {
+            const isPending = item.type === 'invite' && !!pendingMap[item.capsule_id];
+            const isAccepted = item.type === 'invite' && !pendingMap[item.capsule_id];
+
+            return (
               <TouchableOpacity
-                style={styles.acceptBtn}
-                onPress={() => accept(item)}
-                disabled={accepting === item.id}
+                style={styles.card}
+                activeOpacity={item.type === 'unlock' ? 0.7 : 1}
+                onPress={() => {
+                  if (item.type === 'unlock') {
+                    navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
+                  }
+                }}
               >
-                <Text style={styles.acceptBtnText}>
-                  {accepting === item.id ? '…' : 'Accept'}
+                <Text style={styles.cardIcon}>
+                  {item.type === 'unlock' ? '🔓' : '📦'}
                 </Text>
+                <View style={styles.cardBody}>
+                  <Text style={styles.cardText}>
+                    {item.type === 'unlock' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
+                        {' '}just unlocked!
+                      </>
+                    ) : (
+                      <>
+                        You were invited to{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                      </>
+                    )}
+                  </Text>
+                  <Text style={styles.cardDate}>{formatDate(item.sent_at)}</Text>
+                </View>
+
+                {item.type === 'invite' && isPending && (
+                  <TouchableOpacity
+                    style={styles.acceptBtn}
+                    onPress={() => accept(item)}
+                    disabled={accepting === item.id}
+                  >
+                    <Text style={styles.acceptBtnText}>
+                      {accepting === item.id ? '…' : 'Accept'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {item.type === 'invite' && isAccepted && (
+                  <View style={styles.joinedBadge}>
+                    <Text style={styles.joinedText}>Joined</Text>
+                  </View>
+                )}
+
+                {item.type === 'unlock' && (
+                  <Text style={styles.chevron}>›</Text>
+                )}
               </TouchableOpacity>
-            </View>
-          )}
+            );
+          }}
         />
       )}
     </SafeAreaView>
@@ -143,7 +210,10 @@ const styles = StyleSheet.create({
   },
   badgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
-  emptyIconWrap: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  emptyIconWrap: {
+    width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A',
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
   emptyIconBg: { fontSize: 40 },
   emptyIconCheck: { position: 'absolute', bottom: 8, right: 8, fontSize: 18, color: '#30D158', fontWeight: '900' },
   emptyText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
@@ -164,4 +234,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 9,
   },
   acceptBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
+  joinedBadge: {
+    backgroundColor: '#30D15820', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 7,
+  },
+  joinedText: { color: '#30D158', fontWeight: '700', fontSize: 13 },
+  chevron: { color: '#555555', fontSize: 22, fontWeight: '300' },
 });

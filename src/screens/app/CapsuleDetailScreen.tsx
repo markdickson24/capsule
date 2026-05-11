@@ -11,6 +11,7 @@ import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
+import { Avatar } from './ProfileScreen';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 
@@ -799,11 +800,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               style={styles.memberRow}
               onPress={() => navigation.navigate('PublicProfile', { userId: m.user_id })}
             >
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>
-                  {(m.users?.display_name ?? '?')[0].toUpperCase()}
-                </Text>
-              </View>
+              <Avatar
+                url={m.users?.avatar_url ?? null}
+                name={m.users?.display_name ?? '?'}
+                size={36}
+              />
               <View style={styles.memberInfo}>
                 <Text style={styles.memberName}>{m.users?.display_name ?? 'Member'}</Text>
                 {m.joined_at === null && <Text style={styles.pendingLabel}>pending</Text>}
@@ -1002,11 +1003,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#1A1A1A', borderRadius: 12, padding: 14, gap: 12,
   },
-  avatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FF6B3530', justifyContent: 'center', alignItems: 'center',
-  },
-  avatarText: { fontSize: 16, fontWeight: '700', color: '#FF6B35' },
   memberInfo: { flex: 1 },
   memberName: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   pendingLabel: { fontSize: 11, color: '#888888', marginTop: 2 },

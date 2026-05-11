@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableWithoutFeedback,
-  TouchableOpacity, Pressable, Animated, Dimensions,
+  View, Text, StyleSheet, PanResponder,
+  TouchableOpacity, Pressable, Animated, Dimensions, Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -14,8 +14,18 @@ const MAX_RECORD_SECONDS = 30;
 const HOLD_THRESHOLD_MS = 300;
 const DOUBLE_TAP_MS = 300;
 
+// Height of the custom tab bar on web (no safe area inset on web)
+const WEB_TAB_BAR_HEIGHT = 60;
+
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('screen');
 const SCREEN_RATIO = SCREEN_H / SCREEN_W;
+
+function getPinchDistance(touches: ArrayLike<{ pageX: number; pageY: number }>) {
+  const t = Array.from(touches);
+  const dx = t[0].pageX - t[1].pageX;
+  const dy = t[0].pageY - t[1].pageY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
 
 export default function CameraScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
@@ -26,7 +36,7 @@ export default function CameraScreen() {
   const [flash, setFlash] = useState<'on' | 'off'>('off');
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
-  const [captureFlash, setCaptureFlash] = useState(false);
+  const [zoom, setZoom] = useState(0);
 
   const cameraRef = useRef<CameraView>(null);
   const isRecordingRef = useRef(false);
@@ -36,8 +46,15 @@ export default function CameraScreen() {
   const maxDurationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapRef = useRef(0);
 
+  // Zoom refs — used inside PanResponder closure (no re-render needed for raw tracking)
+  const zoomRef = useRef(0);
+  const lastPinchDistance = useRef<number | null>(null);
+  const isPinching = useRef(false);
+
   const shutterAnim = useRef(new Animated.Value(0)).current;
   const flashOpacity = useRef(new Animated.Value(0)).current;
+  const zoomOpacity = useRef(new Animated.Value(0)).current;
+  const zoomFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function animateShutter(toValue: number) {
     Animated.timing(shutterAnim, { toValue, duration: 150, useNativeDriver: false }).start();
@@ -54,15 +71,13 @@ export default function CameraScreen() {
 
   function triggerCaptureFlash() {
     flashOpacity.setValue(1);
-    Animated.timing(flashOpacity, {
-      toValue: 0, duration: 120, useNativeDriver: true,
-    }).start();
+    Animated.timing(flashOpacity, { toValue: 0, duration: 120, useNativeDriver: true }).start();
   }
 
-  async function processPhoto(uri: string, flipH: boolean): Promise<string> {
-    const actions: ImageManipulator.Action[] = [{ resize: { width: 1920 } }];
-    if (flipH) actions.push({ flip: ImageManipulator.FlipType.Horizontal });
-    const result = await ImageManipulator.manipulateAsync(uri, actions, { compress: 0.82 });
+  async function processPhoto(uri: string): Promise<string> {
+    const result = await ImageManipulator.manipulateAsync(
+      uri, [{ resize: { width: 1920 } }], { compress: 0.82 }
+    );
     return result.uri;
   }
 
@@ -72,7 +87,7 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.88, skipProcessing: false });
       if (!photo?.uri) return;
-      const processedUri = await processPhoto(photo.uri, facing === 'front');
+      const processedUri = await processPhoto(photo.uri);
       navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
     } catch {}
   }
@@ -126,15 +141,56 @@ export default function CameraScreen() {
     }
   }
 
-  function handleViewfinderTap() {
-    const now = Date.now();
-    if (now - lastTapRef.current < DOUBLE_TAP_MS) {
-      setFacing(f => f === 'back' ? 'front' : 'back');
-      lastTapRef.current = 0;
-    } else {
-      lastTapRef.current = now;
-    }
-  }
+  // Handles both pinch-to-zoom and double-tap-to-flip on the viewfinder.
+  // All variables referenced inside are refs or stable useState setters — safe for a single-creation PanResponder.
+  const viewfinderResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: (e) => e.nativeEvent.touches.length >= 2,
+
+    onPanResponderGrant: (e) => {
+      if (e.nativeEvent.touches.length >= 2) {
+        isPinching.current = true;
+        lastPinchDistance.current = getPinchDistance(e.nativeEvent.touches);
+      }
+    },
+
+    onPanResponderMove: (e) => {
+      const { touches } = e.nativeEvent;
+      if (touches.length >= 2) {
+        isPinching.current = true;
+        const dist = getPinchDistance(touches);
+        if (lastPinchDistance.current !== null) {
+          const delta = (dist - lastPinchDistance.current) / 250;
+          const newZoom = Math.min(1, Math.max(0, zoomRef.current + delta));
+          zoomRef.current = newZoom;
+          setZoom(newZoom);
+          // Show zoom badge
+          zoomOpacity.setValue(1);
+          if (zoomFadeTimer.current) clearTimeout(zoomFadeTimer.current);
+          zoomFadeTimer.current = setTimeout(() => {
+            Animated.timing(zoomOpacity, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+          }, 800);
+        }
+        lastPinchDistance.current = dist;
+      }
+    },
+
+    onPanResponderRelease: (_e, gesture) => {
+      const wasPinching = isPinching.current;
+      isPinching.current = false;
+      lastPinchDistance.current = null;
+      // Only treat as a tap if no pinch occurred and the finger barely moved
+      if (!wasPinching && Math.abs(gesture.dx) < 8 && Math.abs(gesture.dy) < 8) {
+        const now = Date.now();
+        if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+          setFacing(f => f === 'back' ? 'front' : 'back');
+          lastTapRef.current = 0;
+        } else {
+          lastTapRef.current = now;
+        }
+      }
+    },
+  })).current;
 
   if (!cameraPermission) return <View style={styles.container} />;
 
@@ -152,6 +208,7 @@ export default function CameraScreen() {
   }
 
   const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+  const zoomDisplay = `${(zoom * 4 + 1).toFixed(1)}×`;
 
   return (
     <View style={styles.container}>
@@ -162,6 +219,7 @@ export default function CameraScreen() {
           facing={facing}
           flash={flash}
           mode="video"
+          zoom={zoom}
         />
       )}
 
@@ -192,13 +250,15 @@ export default function CameraScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Viewfinder — double tap to switch camera */}
-        <TouchableWithoutFeedback onPress={handleViewfinderTap}>
-          <View style={styles.viewfinder} />
-        </TouchableWithoutFeedback>
+        {/* Viewfinder — double-tap to switch camera, pinch to zoom */}
+        <View style={styles.viewfinder} {...viewfinderResponder.panHandlers}>
+          <Animated.View style={[styles.zoomBadge, { opacity: zoomOpacity }]}>
+            <Text style={styles.zoomText}>{zoomDisplay}</Text>
+          </Animated.View>
+        </View>
 
-        {/* Bottom shutter */}
-        <View style={styles.bottomBar}>
+        {/* Bottom shutter — extra padding on web so it clears the tab bar */}
+        <View style={[styles.bottomBar, Platform.OS === 'web' && styles.bottomBarWeb]}>
           <Text style={styles.hint}>
             {isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
           </Text>
@@ -248,8 +308,14 @@ const styles = StyleSheet.create({
   },
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF3B30' },
   recTime: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
-  viewfinder: { flex: 1 },
+  viewfinder: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 16 },
+  zoomBadge: {
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 5,
+  },
+  zoomText: { color: '#FFFFFF', fontWeight: '600', fontSize: 15, letterSpacing: 0.5 },
   bottomBar: { alignItems: 'center', gap: 16, paddingVertical: 16 },
+  bottomBarWeb: { paddingBottom: 16 + WEB_TAB_BAR_HEIGHT },
   hint: { color: 'rgba(255,255,255,0.65)', fontSize: 13 },
   shutterOuter: {
     width: 84, height: 84, borderRadius: 42,
