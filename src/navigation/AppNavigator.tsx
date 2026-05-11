@@ -43,13 +43,16 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           if (isCamera) {
             return (
               <View key={route.key} style={styles.cameraSlot}>
-                <TouchableOpacity
-                  style={[styles.cameraBtn, isFocused && styles.cameraBtnActive]}
-                  onPress={onPress}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.cameraEmoji}>{config.emoji}</Text>
-                </TouchableOpacity>
+                {/* Ring in screen bg color carves the button off the bar */}
+                <View style={styles.cameraRing}>
+                  <TouchableOpacity
+                    style={[styles.cameraBtn, isFocused && styles.cameraBtnActive]}
+                    onPress={onPress}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.cameraEmoji}>{config.emoji}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             );
           }
@@ -117,6 +120,15 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     paddingBottom: 4,
   },
+  cameraRing: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: '#0A0A0A', // screen background — carves a notch in the bar
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateY: -20 }],
+  },
   cameraBtn: {
     width: 58,
     height: 58,
@@ -124,16 +136,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B35',
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateY: -16 }],
     shadowColor: '#FF6B35',
-    shadowOpacity: 0.45,
-    shadowRadius: 10,
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
   cameraBtnActive: {
-    shadowOpacity: 0.7,
-    shadowRadius: 14,
+    shadowOpacity: 0.75,
+    shadowRadius: 16,
   },
   cameraEmoji: {
     fontSize: 26,
