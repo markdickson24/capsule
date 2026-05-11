@@ -780,11 +780,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                       activeOpacity={0.8}
                       onPress={() => setActiveMediaIndex(index)}
                     >
-                      <Image
-                        source={{ uri: p.mediaType === 'video' ? (p.thumbnailUri ?? undefined) : p.signedUrl }}
-                        style={StyleSheet.absoluteFill}
-                        resizeMode="cover"
-                      />
+                      {(p.mediaType === 'photo' || p.thumbnailUri) && (
+                        <Image
+                          source={{ uri: p.mediaType === 'video' ? p.thumbnailUri : p.signedUrl }}
+                          style={StyleSheet.absoluteFill}
+                          resizeMode="cover"
+                        />
+                      )}
                       {p.mediaType === 'video' && !isLast && (
                         <View style={styles.playOverlay}>
                           <Text style={styles.playIcon}>▶</Text>
@@ -947,8 +949,8 @@ const styles = StyleSheet.create({
   pendingLabel: { fontSize: 11, color: '#888888', marginTop: 2 },
   roleBadge: { backgroundColor: '#2A2A2A', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   roleText: { fontSize: 12, color: '#888888' },
-  photoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  photoThumb: { width: Dimensions.get('window').width / 3, height: Dimensions.get('window').width / 3, overflow: 'hidden', backgroundColor: '#1A1A1A' },
+  photoGrid: { flexDirection: 'row', gap: 2 },
+  photoThumb: { flex: 1, aspectRatio: 1, overflow: 'hidden', backgroundColor: '#1A1A1A' },
   playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
   playIcon: { color: '#fff', fontSize: 22 },
   moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
