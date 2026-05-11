@@ -862,7 +862,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                   style={styles.viewAllBtn}
                   onPress={() => setShowGallery(true)}
                 >
-                  <Text style={styles.viewAllText}>View all {photos.length} media</Text>
+                  <Text style={styles.viewAllText}>See all {photos.length}</Text>
                 </TouchableOpacity>
               )}
             </>
@@ -1018,8 +1018,8 @@ const styles = StyleSheet.create({
   playIcon: { color: '#fff', fontSize: 22 },
   moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
   moreText: { color: '#fff', fontSize: 24, fontWeight: '800' },
-  viewAllBtn: { marginHorizontal: 16, marginTop: 10, paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center' },
-  viewAllText: { color: '#888888', fontSize: 14, fontWeight: '600' },
+  viewAllBtn: { alignSelf: 'flex-end', paddingTop: 6, paddingBottom: 2, paddingHorizontal: 2 },
+  viewAllText: { color: '#FF6B35', fontSize: 13, fontWeight: '600' },
   emptyPhotos: {
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 32, alignItems: 'center', gap: 8,
