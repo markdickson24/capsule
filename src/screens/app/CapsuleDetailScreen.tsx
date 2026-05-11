@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions,
+  Share, Image, Platform, Dimensions, Animated,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -51,13 +51,38 @@ function getTimeLeft(unlockAt: string) {
   return { days, hours };
 }
 
+async function sendInviteNotification(userId: string, capsuleTitle: string, inviterName: string) {
+  const { data } = await supabase
+    .from('users')
+    .select('push_token')
+    .eq('id', userId)
+    .single();
+  const token = (data as any)?.push_token;
+  if (!token) return;
+  fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({
+      to: token,
+      title: 'You were invited to a Capsule!',
+      body: `${inviterName} invited you to "${capsuleTitle}"`,
+      data: { screen: 'Notifications' },
+      sound: 'default',
+    }),
+  });
+}
+
 function InviteModal({
   capsuleId,
+  capsuleTitle,
+  inviterName,
   existingMemberIds,
   onClose,
   onInvited,
 }: {
   capsuleId: string;
+  capsuleTitle: string;
+  inviterName: string;
   existingMemberIds: string[];
   onClose: () => void;
   onInvited: () => void;
@@ -103,6 +128,7 @@ function InviteModal({
       setInvitedIds(prev => [...prev, userId]);
       setResults(prev => prev.filter(u => u.id !== userId));
       onInvited();
+      sendInviteNotification(userId, capsuleTitle, inviterName);
     }
     setInviting(null);
   }
@@ -183,6 +209,23 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
   const [showPickerOptions, setShowPickerOptions] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const revealOpacity = useRef(new Animated.Value(0)).current;
+  const revealScale = useRef(new Animated.Value(0.8)).current;
+  const [showReveal, setShowReveal] = useState(false);
+
+  function triggerReveal() {
+    setShowReveal(true);
+    Animated.parallel([
+      Animated.spring(revealScale, { toValue: 1, useNativeDriver: true }),
+      Animated.timing(revealOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
+    ]).start(() => {
+      setTimeout(() => {
+        Animated.timing(revealOpacity, { toValue: 0, duration: 600, useNativeDriver: true }).start(
+          () => setShowReveal(false)
+        );
+      }, 2500);
+    });
+  }
 
   async function fetchPhotos() {
     const { data: mediaData } = await supabase
@@ -235,6 +278,26 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   useEffect(() => { load(); }, [capsuleId]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`capsule-${capsuleId}`)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'capsules', filter: `id=eq.${capsuleId}` },
+        (payload) => {
+          const updated = payload.new as Capsule;
+          setCapsule(updated);
+          if (updated.status === 'unlocked') {
+            triggerReveal();
+            fetchPhotos();
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [capsuleId]);
 
   async function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
     setUploading(true);
@@ -514,10 +577,23 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       {showInvite && (
         <InviteModal
           capsuleId={capsuleId}
+          capsuleTitle={capsule?.title ?? ''}
+          inviterName={members.find(m => m.user_id === currentUserId)?.users?.display_name ?? 'Someone'}
           existingMemberIds={existingMemberIds}
           onClose={() => setShowInvite(false)}
           onInvited={load}
         />
+      )}
+
+      {showReveal && (
+        <Animated.View
+          style={[styles.revealOverlay, { opacity: revealOpacity, transform: [{ scale: revealScale }] }]}
+          pointerEvents="none"
+        >
+          <Text style={styles.revealEmoji}>🔓</Text>
+          <Text style={styles.revealTitle}>It's time!</Text>
+          <Text style={styles.revealSub}>Your capsule is now open</Text>
+        </Animated.View>
       )}
     </SafeAreaView>
   );
@@ -607,6 +683,13 @@ const styles = StyleSheet.create({
   },
   addPhotoBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   errorText: { color: '#FF3B30', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  revealOverlay: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: '#000000CC', justifyContent: 'center', alignItems: 'center', gap: 12,
+  },
+  revealEmoji: { fontSize: 64 },
+  revealTitle: { fontSize: 32, fontWeight: '800', color: '#FFFFFF' },
+  revealSub: { fontSize: 16, color: '#888888' },
 });
 
 const ms = StyleSheet.create({
