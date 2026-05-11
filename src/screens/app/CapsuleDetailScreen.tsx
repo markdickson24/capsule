@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated, FlatList, PanResponder,
+  Share, Image, Platform, Dimensions, Animated, PanResponder,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -225,85 +225,83 @@ function MediaViewerModal({
   startIndex: number;
   onClose: () => void;
 }) {
+  // Use a ref for currentIndex so the PanResponder always sees the latest value
+  const currentIndexRef = useRef(startIndex);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
-  const listRef = useRef<FlatList<MediaItem>>(null);
-  const translateY = useRef(new Animated.Value(0)).current;
 
-  const backgroundOpacity = translateY.interpolate({
-    inputRange: [0, SCREEN_HEIGHT * 0.4],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
+  const translateX = useRef(new Animated.Value(-startIndex * SCREEN_WIDTH)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const bgOpacity = useRef(new Animated.Value(1)).current;
+
+  // Track which axis this gesture is locked to so we don't move diagonally
+  const axis = useRef<'none' | 'h' | 'v'>('none');
+
+  const goToIndex = (index: number) => {
+    currentIndexRef.current = index;
+    setCurrentIndex(index);
+    Animated.spring(translateX, { toValue: -index * SCREEN_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
+  };
 
   const panResponder = useRef(
     PanResponder.create({
-      // Capture phase — parent intercepts before FlatList sees the event.
-      // Only claim if clearly downward (dy > |dx| and meaningful distance).
-      onMoveShouldSetPanResponderCapture: (_, { dy, dx }) =>
-        dy > Math.abs(dx) && dy > 10,
-      onPanResponderMove: (_, { dy }) => {
-        if (dy > 0) translateY.setValue(dy);
-      },
-      onPanResponderRelease: (_, { dy, vy }) => {
-        if (dy > 120 || vy > 1.5) {
-          Animated.timing(translateY, {
-            toValue: SCREEN_HEIGHT,
-            duration: 220,
-            useNativeDriver: true,
-          }).start(onClose);
-        } else {
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            bounciness: 6,
-          }).start();
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderGrant: () => { axis.current = 'none'; },
+      onPanResponderMove: (_, { dx, dy }) => {
+        // Lock axis on first meaningful movement
+        if (axis.current === 'none') {
+          if (dy > 8 && dy > Math.abs(dx)) axis.current = 'v';
+          else if (Math.abs(dx) > 8) axis.current = 'h';
         }
+        if (axis.current === 'v' && dy > 0) {
+          translateY.setValue(dy);
+          bgOpacity.setValue(Math.max(0, 1 - dy / (SCREEN_HEIGHT * 0.45)));
+        } else if (axis.current === 'h') {
+          translateX.setValue(-currentIndexRef.current * SCREEN_WIDTH + dx);
+        }
+      },
+      onPanResponderRelease: (_, { dx, dy, vx, vy }) => {
+        if (axis.current === 'v') {
+          if (dy > 120 || vy > 1.5) {
+            Animated.timing(translateY, { toValue: SCREEN_HEIGHT, duration: 220, useNativeDriver: true }).start(onClose);
+          } else {
+            Animated.parallel([
+              Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 6 }),
+              Animated.spring(bgOpacity, { toValue: 1, useNativeDriver: true }),
+            ]).start();
+          }
+        } else {
+          const idx = currentIndexRef.current;
+          let next = idx;
+          if ((dx < -SCREEN_WIDTH * 0.25 || vx < -0.5) && idx < items.length - 1) next = idx + 1;
+          else if ((dx > SCREEN_WIDTH * 0.25 || vx > 0.5) && idx > 0) next = idx - 1;
+          goToIndex(next);
+        }
+        axis.current = 'none';
       },
     })
   ).current;
 
-  useEffect(() => {
-    requestAnimationFrame(() => {
-      listRef.current?.scrollToIndex({ index: startIndex, animated: false });
-    });
-  }, []);
-
   return (
     <Modal visible animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-      <Animated.View style={{ flex: 1, backgroundColor: '#000', opacity: backgroundOpacity }}>
+      <Animated.View style={{ flex: 1, backgroundColor: '#000', opacity: bgOpacity }}>
         <Animated.View
           style={{ flex: 1, transform: [{ translateY }] }}
           {...panResponder.panHandlers}
         >
-          <FlatList
-            ref={listRef}
-            data={items}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            initialScrollIndex={startIndex}
-            getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
-            keyExtractor={item => item.id}
-            onMomentumScrollEnd={e => {
-              const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-              setCurrentIndex(index);
-            }}
-            renderItem={({ item, index }) =>
+          {/* Slide row — all items side by side, moved with translateX */}
+          <Animated.View style={{ flexDirection: 'row', width: SCREEN_WIDTH * items.length, flex: 1, transform: [{ translateX }] }}>
+            {items.map((item, index) =>
               item.mediaType === 'video' ? (
-                <VideoSlide item={item} isActive={index === currentIndex} />
+                <VideoSlide key={item.id} item={item} isActive={index === currentIndex} />
               ) : (
-                <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                  <Image
-                    source={{ uri: item.signedUrl }}
-                    style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
-                    resizeMode="contain"
-                  />
+                <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
+                  <Image source={{ uri: item.signedUrl }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="contain" />
                 </View>
               )
-            }
-          />
+            )}
+          </Animated.View>
 
-          {/* Header overlay */}
+          {/* Header */}
           <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 }}>
             <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
               <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>✕</Text>
