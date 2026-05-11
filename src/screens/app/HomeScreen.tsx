@@ -9,7 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 
-type CapsuleWithCountdown = Capsule & { daysLeft: number; hoursLeft: number };
+type CapsuleWithCountdown = Capsule;
 
 function getTimeLeft(unlockAt: string) {
   const diff = new Date(unlockAt).getTime() - Date.now();
@@ -19,8 +19,17 @@ function getTimeLeft(unlockAt: string) {
   return { daysLeft, hoursLeft };
 }
 
-function CountdownBadge({ daysLeft, hoursLeft, status }: { daysLeft: number; hoursLeft: number; status: string }) {
+function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string }) {
+  const [timeLeft, setTimeLeft] = useState(() => getTimeLeft(unlockAt));
+
+  useEffect(() => {
+    if (status === 'unlocked') return;
+    const id = setInterval(() => setTimeLeft(getTimeLeft(unlockAt)), 60_000);
+    return () => clearInterval(id);
+  }, [unlockAt, status]);
+
   if (status === 'unlocked') return <Text style={styles.unlockedBadge}>🔓 Unlocked</Text>;
+  const { daysLeft, hoursLeft } = timeLeft;
   if (daysLeft > 0) return <Text style={styles.countdownText}>{daysLeft}d {hoursLeft}h left</Text>;
   return <Text style={styles.countdownText}>{hoursLeft}h left</Text>;
 }
@@ -31,7 +40,7 @@ function CapsuleCard({ capsule, onPress }: { capsule: CapsuleWithCountdown; onPr
     <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]} onPress={onPress}>
       <View style={styles.cardTop}>
         <Text style={styles.cardEmoji}>{isLocked ? '⏳' : '🔓'}</Text>
-        <CountdownBadge daysLeft={capsule.daysLeft} hoursLeft={capsule.hoursLeft} status={capsule.status} />
+        <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} />
       </View>
       <Text style={styles.cardTitle}>{capsule.title}</Text>
       {capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
@@ -62,8 +71,7 @@ export default function HomeScreen() {
 
     const enriched: CapsuleWithCountdown[] = data
       .map((row: any) => row.capsules)
-      .filter(Boolean)
-      .map((c: Capsule) => ({ ...c, ...getTimeLeft(c.unlock_at) }));
+      .filter(Boolean);
 
     setCapsules(enriched);
   }
@@ -91,14 +99,26 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>My Capsules</Text>
-        <Text style={styles.count}>{capsules.length} total</Text>
+        {capsules.length > 0 && <Text style={styles.count}>{capsules.length} total</Text>}
       </View>
 
       {capsules.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>⏳</Text>
-          <Text style={styles.emptyText}>No capsules yet</Text>
-          <Text style={styles.emptySubtext}>Tap + to create your first one</Text>
+          <View style={styles.emptyArt}>
+            <Text style={styles.emptyArtBack}>📷</Text>
+            <Text style={styles.emptyArtMid}>✨</Text>
+            <Text style={styles.emptyArtFront}>⏳</Text>
+          </View>
+          <Text style={styles.emptyText}>Create your first capsule</Text>
+          <Text style={styles.emptySubtext}>
+            Lock photos and videos in time.{'\n'}Open them together when the moment arrives.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyBtn}
+            onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
+          >
+            <Text style={styles.emptyBtnText}>Create a Capsule</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -123,10 +143,15 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   count: { fontSize: 14, color: '#555555' },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
-  emptyIcon: { fontSize: 48 },
-  emptyText: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
-  emptySubtext: { fontSize: 15, color: '#888888' },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
+  emptyArt: { flexDirection: 'row', marginBottom: 8 },
+  emptyArtBack: { fontSize: 52, transform: [{ rotate: '-12deg' }, { translateX: 18 }, { translateY: 8 }], opacity: 0.5 },
+  emptyArtMid: { fontSize: 52, transform: [{ rotate: '6deg' }], opacity: 0.7, zIndex: 1 },
+  emptyArtFront: { fontSize: 64, transform: [{ rotate: '-4deg' }, { translateX: -12 }], zIndex: 2 },
+  emptyText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
+  emptySubtext: { fontSize: 15, color: '#888888', textAlign: 'center', lineHeight: 22 },
+  emptyBtn: { marginTop: 8, backgroundColor: '#FF6B35', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
+  emptyBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   list: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
   card: {
     backgroundColor: '#1A1A1A',

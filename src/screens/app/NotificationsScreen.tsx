@@ -82,9 +82,14 @@ export default function NotificationsScreen() {
 
       {invites.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyIcon}>🔔</Text>
-          <Text style={styles.emptyText}>No pending invites</Text>
-          <Text style={styles.emptySubtext}>Capsule invites will appear here</Text>
+          <View style={styles.emptyIconWrap}>
+            <Text style={styles.emptyIconBg}>🔔</Text>
+            <Text style={styles.emptyIconCheck}>✓</Text>
+          </View>
+          <Text style={styles.emptyText}>You're all caught up</Text>
+          <Text style={styles.emptySubtext}>
+            When someone invites you to a capsule,{'\n'}it'll show up here.
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -137,10 +142,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 2,
   },
   badgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 8 },
-  emptyIcon: { fontSize: 48 },
-  emptyText: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
-  emptySubtext: { fontSize: 15, color: '#888888' },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
+  emptyIconWrap: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  emptyIconBg: { fontSize: 40 },
+  emptyIconCheck: { position: 'absolute', bottom: 8, right: 8, fontSize: 18, color: '#30D158', fontWeight: '900' },
+  emptyText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
+  emptySubtext: { fontSize: 15, color: '#888888', textAlign: 'center', lineHeight: 22 },
   list: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
   card: {
     flexDirection: 'row', alignItems: 'center',
