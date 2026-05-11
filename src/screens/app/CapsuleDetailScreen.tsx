@@ -237,9 +237,10 @@ function MediaViewerModal({
 
   const panResponder = useRef(
     PanResponder.create({
-      // Only claim the gesture if it's more vertical than horizontal
-      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
-        Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8,
+      // Capture phase — parent intercepts before FlatList sees the event.
+      // Only claim if clearly downward (dy > |dx| and meaningful distance).
+      onMoveShouldSetPanResponderCapture: (_, { dy, dx }) =>
+        dy > Math.abs(dx) && dy > 10,
       onPanResponderMove: (_, { dy }) => {
         if (dy > 0) translateY.setValue(dy);
       },
