@@ -1,7 +1,9 @@
 import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { Text } from 'react-native';
+import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
@@ -15,25 +17,140 @@ import PreviewScreen from '../screens/app/PreviewScreen';
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
-function icon(emoji: string) {
-  return () => <Text style={{ fontSize: 22 }}>{emoji}</Text>;
+const TAB_CONFIG: Record<string, { emoji: string; label: string }> = {
+  Home:          { emoji: '🏠', label: 'Home' },
+  Create:        { emoji: '✨', label: 'Create' },
+  Camera:        { emoji: '📷', label: '' },
+  Notifications: { emoji: '🔔', label: 'Alerts' },
+  Profile:       { emoji: '👤', label: 'Profile' },
+};
+
+function CustomTabBar({ state, navigation }: BottomTabBarProps) {
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.wrapper, { paddingBottom: insets.bottom }]}>
+      <View style={styles.bar}>
+        {state.routes.map((route, index) => {
+          const isFocused = state.index === index;
+          const config = TAB_CONFIG[route.name];
+          const isCamera = route.name === 'Camera';
+
+          const onPress = () => {
+            if (!isFocused) navigation.navigate(route.name);
+          };
+
+          if (isCamera) {
+            return (
+              <View key={route.key} style={styles.cameraSlot}>
+                <TouchableOpacity
+                  style={[styles.cameraBtn, isFocused && styles.cameraBtnActive]}
+                  onPress={onPress}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.cameraEmoji}>{config.emoji}</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          }
+
+          return (
+            <TouchableOpacity
+              key={route.key}
+              style={styles.tab}
+              onPress={onPress}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.emoji, { opacity: isFocused ? 1 : 0.4 }]}>
+                {config.emoji}
+              </Text>
+              <Text style={[styles.label, isFocused && styles.labelActive]}>
+                {config.label}
+              </Text>
+              {isFocused && <View style={styles.underline} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  wrapper: {
+    backgroundColor: '#111111',
+    borderTopWidth: 1,
+    borderTopColor: '#1E1E1E',
+  },
+  bar: {
+    flexDirection: 'row',
+    height: 60,
+    alignItems: 'flex-end',
+    paddingBottom: 8,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 3,
+  },
+  emoji: {
+    fontSize: 22,
+  },
+  label: {
+    fontSize: 11,
+    color: '#555555',
+    fontWeight: '500',
+  },
+  labelActive: {
+    color: '#FF6B35',
+  },
+  underline: {
+    width: 18,
+    height: 2,
+    backgroundColor: '#FF6B35',
+    borderRadius: 1,
+  },
+  cameraSlot: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 4,
+  },
+  cameraBtn: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: '#FF6B35',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ translateY: -16 }],
+    shadowColor: '#FF6B35',
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  cameraBtnActive: {
+    shadowOpacity: 0.7,
+    shadowRadius: 14,
+  },
+  cameraEmoji: {
+    fontSize: 26,
+  },
+});
 
 function TabNavigator() {
   return (
     <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: { backgroundColor: '#111111', borderTopColor: '#222222' },
-        tabBarActiveTintColor: '#FF6B35',
-        tabBarInactiveTintColor: '#555555',
-      }}
+      tabBar={props => <CustomTabBar {...props} />}
+      screenOptions={{ headerShown: false }}
     >
-      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarIcon: icon('🏠'), tabBarLabel: 'Home' }} />
-      <Tab.Screen name="Create" component={CreateScreen} options={{ tabBarIcon: icon('➕'), tabBarLabel: 'New' }} />
-      <Tab.Screen name="Camera" component={CameraScreen} options={{ tabBarIcon: icon('📷'), tabBarLabel: 'Camera' }} />
-      <Tab.Screen name="Notifications" component={NotificationsScreen} options={{ tabBarIcon: icon('🔔'), tabBarLabel: 'Alerts' }} />
-      <Tab.Screen name="Profile" component={ProfileScreen} options={{ tabBarIcon: icon('👤'), tabBarLabel: 'Profile' }} />
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Create" component={CreateScreen} />
+      <Tab.Screen name="Camera" component={CameraScreen} />
+      <Tab.Screen name="Notifications" component={NotificationsScreen} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
