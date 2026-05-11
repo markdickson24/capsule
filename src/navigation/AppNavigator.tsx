@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0A', // screen background — carves a notch in the bar
     alignItems: 'center',
     justifyContent: 'center',
-    transform: [{ translateY: -20 }],
+    transform: [{ translateY: -10 }],
   },
   cameraBtn: {
     width: 58,
