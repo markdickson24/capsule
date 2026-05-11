@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated, PanResponder,
+  Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -441,12 +441,68 @@ function MediaViewerModal({
   );
 }
 
+function MediaGalleryModal({
+  visible,
+  items,
+  onClose,
+  onSelect,
+}: {
+  visible: boolean;
+  items: MediaItem[];
+  onClose: () => void;
+  onSelect: (index: number) => void;
+}) {
+  const thumbSize = (Dimensions.get('window').width - 4) / 3;
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={gal.container}>
+        <View style={gal.header}>
+          <Text style={gal.title}>All Media</Text>
+          <Text style={gal.count}>{items.length}</Text>
+          <TouchableOpacity onPress={onClose} style={gal.closeBtn}>
+            <Text style={gal.closeText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+        <FlatList
+          data={items}
+          numColumns={3}
+          keyExtractor={item => item.id}
+          renderItem={({ item, index }) => (
+            <TouchableOpacity
+              style={[gal.thumb, { width: thumbSize, height: thumbSize }]}
+              onPress={() => { onClose(); onSelect(index); }}
+              activeOpacity={0.8}
+            >
+              {(item.mediaType === 'photo' || item.thumbnailUri) && (
+                <Image
+                  source={{ uri: item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl }}
+                  style={StyleSheet.absoluteFill}
+                  resizeMode="cover"
+                />
+              )}
+              {item.mediaType === 'video' && (
+                <View style={gal.playOverlay}>
+                  <Text style={gal.playIcon}>▶</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          )}
+          ItemSeparatorComponent={() => <View style={{ height: 2 }} />}
+          columnWrapperStyle={{ gap: 2 }}
+        />
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const { capsuleId } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
+  const [showGallery, setShowGallery] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
@@ -804,7 +860,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               {photos.length > 3 && (
                 <TouchableOpacity
                   style={styles.viewAllBtn}
-                  onPress={() => setActiveMediaIndex(0)}
+                  onPress={() => setShowGallery(true)}
                 >
                   <Text style={styles.viewAllText}>View all {photos.length} media</Text>
                 </TouchableOpacity>
@@ -866,6 +922,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           </View>
         )}
       </ScrollView>
+
+      <MediaGalleryModal
+        visible={showGallery}
+        items={photos}
+        onClose={() => setShowGallery(false)}
+        onSelect={(index) => setActiveMediaIndex(index)}
+      />
 
       {activeMediaIndex !== null && (
         <MediaViewerModal
@@ -1036,4 +1099,23 @@ const ms = StyleSheet.create({
     paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#2A2A2A',
   },
   shareBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+});
+
+const gal = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#0A0A0A' },
+  header: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, gap: 8,
+  },
+  title: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', flex: 1 },
+  count: { fontSize: 15, color: '#555555', fontWeight: '600' },
+  closeBtn: { padding: 8 },
+  closeText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  thumb: { overflow: 'hidden', backgroundColor: '#1A1A1A' },
+  playOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  playIcon: { color: '#fff', fontSize: 22 },
 });
