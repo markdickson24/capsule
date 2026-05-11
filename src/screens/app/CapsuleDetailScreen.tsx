@@ -7,6 +7,8 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as VideoThumbnails from 'expo-video-thumbnails';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
 import { Capsule } from '../../types/database';
@@ -23,12 +25,14 @@ type MemberRow = {
 
 type UserResult = { id: string; display_name: string };
 
-type PhotoItem = {
+type MediaItem = {
   id: string;
   storage_key: string;
   uploader_id: string;
   uploaded_at: string;
+  mediaType: 'photo' | 'video';
   signedUrl: string;
+  thumbnailUri?: string;
 };
 
 const roleIcon: Record<string, string> = {
@@ -196,11 +200,29 @@ function InviteModal({
   );
 }
 
+function VideoPlayerModal({ uri, onClose }: { uri: string; onClose: () => void }) {
+  const player = useVideoPlayer(uri, p => { p.play(); });
+  return (
+    <Modal visible animationType="fade" onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center' }}>
+        <VideoView player={player} style={{ width: '100%', aspectRatio: 9 / 16 }} contentFit="contain" />
+        <TouchableOpacity
+          onPress={onClose}
+          style={{ position: 'absolute', top: 56, left: 20, padding: 8 }}
+        >
+          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>✕ Close</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const { capsuleId } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
-  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [photos, setPhotos] = useState<MediaItem[]>([]);
+  const [activeVideo, setActiveVideo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
@@ -230,27 +252,39 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   async function fetchPhotos() {
     const { data: mediaData } = await supabase
       .from('media')
-      .select('id, storage_key, uploader_id, uploaded_at')
+      .select('id, storage_key, uploader_id, uploaded_at, media_type')
       .eq('capsule_id', capsuleId)
-      .eq('media_type', 'photo')
       .order('uploaded_at', { ascending: false });
 
     if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }
 
-    const { data: signedData, error: signedErr } = await supabase.storage
+    const { data: signedData } = await supabase.storage
       .from('capsule-media')
       .createSignedUrls(mediaData.map((m: any) => m.storage_key), 3600);
 
-
-
-
-    setPhotos(mediaData.map((m: any, i: number) => ({
+    const items: MediaItem[] = mediaData.map((m: any, i: number) => ({
       id: m.id,
       storage_key: m.storage_key,
       uploader_id: m.uploader_id,
       uploaded_at: m.uploaded_at,
+      mediaType: m.media_type,
       signedUrl: signedData?.[i]?.signedUrl ?? '',
-    })));
+    }));
+
+    setPhotos(items);
+
+    // Generate thumbnails for videos in background
+    if (Platform.OS !== 'web') {
+      for (const item of items) {
+        if (item.mediaType === 'video' && item.signedUrl) {
+          VideoThumbnails.getThumbnailAsync(item.signedUrl, { time: 0 })
+            .then(({ uri }) => {
+              setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, thumbnailUri: uri } : p));
+            })
+            .catch(() => {});
+        }
+      }
+    }
   }
 
   async function load() {
@@ -501,9 +535,9 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           ))}
         </View>
 
-        {/* Photos */}
+        {/* Media */}
         <View style={styles.sectionRow}>
-          <Text style={styles.sectionTitle}>Photos</Text>
+          <Text style={styles.sectionTitle}>Media</Text>
           {photos.length > 0 && canSeePhotos && (
             <Text style={styles.photoCount}>{photos.length}</Text>
           )}
@@ -513,24 +547,35 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           photos.length > 0 ? (
             <View style={styles.photoGrid}>
               {photos.map(p => (
-                <Image
+                <TouchableOpacity
                   key={p.id}
-                  source={{ uri: p.signedUrl }}
                   style={styles.photoThumb}
-                  resizeMode="cover"
-                />
+                  activeOpacity={p.mediaType === 'video' ? 0.7 : 1}
+                  onPress={() => p.mediaType === 'video' ? setActiveVideo(p.signedUrl) : undefined}
+                >
+                  <Image
+                    source={{ uri: p.mediaType === 'video' ? (p.thumbnailUri ?? undefined) : p.signedUrl }}
+                    style={StyleSheet.absoluteFill}
+                    resizeMode="cover"
+                  />
+                  {p.mediaType === 'video' && (
+                    <View style={styles.playOverlay}>
+                      <Text style={styles.playIcon}>▶</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
               ))}
             </View>
           ) : (
             <View style={styles.emptyPhotos}>
               <Text style={styles.emptyPhotosIcon}>📷</Text>
-              <Text style={styles.emptyPhotosText}>No photos yet</Text>
+              <Text style={styles.emptyPhotosText}>No media yet</Text>
             </View>
           )
         ) : (
           <View style={styles.lockedBox}>
             <Text style={styles.lockedIcon}>🔒</Text>
-            <Text style={styles.lockedText}>Photos reveal on {unlockDate}</Text>
+            <Text style={styles.lockedText}>Media reveals on {unlockDate}</Text>
             {photos.length > 0 && (
               <Text style={styles.lockedCount}>{photos.length} {photos.length === 1 ? 'memory' : 'memories'} waiting</Text>
             )}
@@ -577,6 +622,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           </View>
         )}
       </ScrollView>
+
+      {activeVideo && (
+        <VideoPlayerModal uri={activeVideo} onClose={() => setActiveVideo(null)} />
+      )}
 
       {showInvite && (
         <InviteModal
@@ -653,7 +702,9 @@ const styles = StyleSheet.create({
   roleBadge: { backgroundColor: '#2A2A2A', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   roleText: { fontSize: 12, color: '#888888' },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap' },
-  photoThumb: { width: Dimensions.get('window').width / 3, height: Dimensions.get('window').width / 3 },
+  photoThumb: { width: Dimensions.get('window').width / 3, height: Dimensions.get('window').width / 3, overflow: 'hidden', backgroundColor: '#1A1A1A' },
+  playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
+  playIcon: { color: '#fff', fontSize: 22 },
   emptyPhotos: {
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 32, alignItems: 'center', gap: 8,
