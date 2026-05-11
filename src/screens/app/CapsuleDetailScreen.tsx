@@ -480,7 +480,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
         <View style={styles.membersList}>
           {members.map((m, i) => (
-            <View key={i} style={styles.memberRow}>
+            <TouchableOpacity
+              key={i}
+              style={styles.memberRow}
+              onPress={() => navigation.navigate('PublicProfile', { userId: m.user_id })}
+            >
               <View style={styles.avatar}>
                 <Text style={styles.avatarText}>
                   {(m.users?.display_name ?? '?')[0].toUpperCase()}
@@ -493,7 +497,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               <View style={styles.roleBadge}>
                 <Text style={styles.roleText}>{roleIcon[m.role]} {roleLabel[m.role]}</Text>
               </View>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 

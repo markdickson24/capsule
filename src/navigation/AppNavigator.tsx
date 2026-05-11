@@ -9,6 +9,7 @@ import CameraScreen from '../screens/app/CameraScreen';
 import NotificationsScreen from '../screens/app/NotificationsScreen';
 import ProfileScreen from '../screens/app/ProfileScreen';
 import CapsuleDetailScreen from '../screens/app/CapsuleDetailScreen';
+import PublicProfileScreen from '../screens/app/PublicProfileScreen';
 import PreviewScreen from '../screens/app/PreviewScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
@@ -42,6 +43,7 @@ export default function AppNavigator() {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Tabs" component={TabNavigator} />
       <Stack.Screen name="CapsuleDetail" component={CapsuleDetailScreen} />
+      <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
       <Stack.Screen
         name="Preview"
         component={PreviewScreen}

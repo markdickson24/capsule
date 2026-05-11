@@ -15,6 +15,7 @@ export type AppTabParamList = {
 export type AppStackParamList = {
   Tabs: { screen: keyof AppTabParamList } | undefined;
   CapsuleDetail: { capsuleId: string };
+  PublicProfile: { userId: string };
   Preview: { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back' };
 };
 
