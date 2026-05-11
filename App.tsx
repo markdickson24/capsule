@@ -3,11 +3,13 @@ import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from './src/hooks/useAuth';
+import { usePushNotifications } from './src/hooks/usePushNotifications';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
 
 function RootNavigator() {
   const { session, loading } = useAuth();
+  usePushNotifications(session?.user.id);
 
   if (loading) {
     return (
