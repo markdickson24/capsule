@@ -289,7 +289,7 @@ export default function CreateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 48, gap: 24 },
+  scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 120, gap: 24 },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   subtitle: { fontSize: 15, color: '#888888', marginTop: -16 },
   section: { gap: 8 },
