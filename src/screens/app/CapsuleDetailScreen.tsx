@@ -769,27 +769,45 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
         {canSeePhotos ? (
           photos.length > 0 ? (
-            <View style={styles.photoGrid}>
-              {photos.map((p, index) => (
+            <>
+              <View style={styles.photoGrid}>
+                {photos.slice(0, 3).map((p, index) => {
+                  const isLast = index === 2 && photos.length > 3;
+                  return (
+                    <TouchableOpacity
+                      key={p.id}
+                      style={styles.photoThumb}
+                      activeOpacity={0.8}
+                      onPress={() => setActiveMediaIndex(index)}
+                    >
+                      <Image
+                        source={{ uri: p.mediaType === 'video' ? (p.thumbnailUri ?? undefined) : p.signedUrl }}
+                        style={StyleSheet.absoluteFill}
+                        resizeMode="cover"
+                      />
+                      {p.mediaType === 'video' && !isLast && (
+                        <View style={styles.playOverlay}>
+                          <Text style={styles.playIcon}>▶</Text>
+                        </View>
+                      )}
+                      {isLast && (
+                        <View style={styles.moreOverlay}>
+                          <Text style={styles.moreText}>+{photos.length - 3}</Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              {photos.length > 3 && (
                 <TouchableOpacity
-                  key={p.id}
-                  style={styles.photoThumb}
-                  activeOpacity={0.8}
-                  onPress={() => setActiveMediaIndex(index)}
+                  style={styles.viewAllBtn}
+                  onPress={() => setActiveMediaIndex(0)}
                 >
-                  <Image
-                    source={{ uri: p.mediaType === 'video' ? (p.thumbnailUri ?? undefined) : p.signedUrl }}
-                    style={StyleSheet.absoluteFill}
-                    resizeMode="cover"
-                  />
-                  {p.mediaType === 'video' && (
-                    <View style={styles.playOverlay}>
-                      <Text style={styles.playIcon}>▶</Text>
-                    </View>
-                  )}
+                  <Text style={styles.viewAllText}>View all {photos.length} media</Text>
                 </TouchableOpacity>
-              ))}
-            </View>
+              )}
+            </>
           ) : (
             <View style={styles.emptyPhotos}>
               <Text style={styles.emptyPhotosIcon}>📷</Text>
@@ -933,6 +951,10 @@ const styles = StyleSheet.create({
   photoThumb: { width: Dimensions.get('window').width / 3, height: Dimensions.get('window').width / 3, overflow: 'hidden', backgroundColor: '#1A1A1A' },
   playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
   playIcon: { color: '#fff', fontSize: 22 },
+  moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
+  moreText: { color: '#fff', fontSize: 24, fontWeight: '800' },
+  viewAllBtn: { marginHorizontal: 16, marginTop: 10, paddingVertical: 13, borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center' },
+  viewAllText: { color: '#888888', fontSize: 14, fontWeight: '600' },
   emptyPhotos: {
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 32, alignItems: 'center', gap: 8,
