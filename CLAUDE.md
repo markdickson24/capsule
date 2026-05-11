@@ -88,8 +88,16 @@ RootStack
 - Front camera photos are flipped horizontally via `FlipType.Horizontal`
 - Use `useIsFocused()` to stop camera rendering when the tab is not active
 
+### Media Grid Layout
+
+For equal-width thumbnail rows (e.g. the 3-up preview on CapsuleDetail), use `flex: 1, aspectRatio: 1` on each thumbnail — **not** `width: Dimensions.get('window').width / 3`. The Dimensions approach doesn't account for parent padding and produces unequal sizes. Set `gap` on the row container instead of margins on children.
+
+When showing a "+N more" overlay on the last visible thumbnail, the number should be `photos.length - 2` (not `- 3`), because the overlaid photo is itself not fully visible to the user.
+
+The full-screen gallery (`MediaGalleryModal` in `CapsuleDetailScreen`) uses `FlatList` with `numColumns={3}` and `columnWrapperStyle={{ gap: 2 }}` plus `ItemSeparatorComponent` for row gaps. Tapping any item closes the modal and opens the swipe carousel at that index.
+
 ### iOS Layout Gotchas
-- **Never use percentage widths (`width: '33.33%'`) inside a ScrollView on iOS** — they compute to 0. Use `Dimensions.get('window').width / 3` instead.
+- **Never use percentage widths (`width: '33.33%'`) inside a ScrollView on iOS** — they compute to 0. Use `flex: 1` with `aspectRatio` instead for grid children.
 - `expo-file-system` APIs (`getInfoAsync`, `uploadAsync`) are native-only — always check `Platform.OS !== 'web'` before calling them. Use `expo-file-system/legacy` import path (not `expo-file-system`) to avoid deprecation warnings.
 
 ### Utilities
