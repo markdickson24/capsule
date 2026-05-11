@@ -65,7 +65,7 @@ create table public.notifications (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references public.users(id) on delete cascade not null,
   capsule_id uuid references public.capsules(id) on delete cascade not null,
-  type text not null check (type in ('invite', 'unlock', 'contribution_nudge', 'milestone')),
+  type text not null check (type in ('invite', 'unlock', 'contribution_nudge', 'milestone', 'reaction')),
   sent_at timestamptz not null default now(),
   read_at timestamptz
 );
@@ -209,3 +209,31 @@ $$ language plpgsql security definer;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+-- =====================
+-- REACTION NOTIFICATION TRIGGER
+-- =====================
+
+create or replace function notify_on_reaction()
+returns trigger as $$
+declare
+  v_uploader_id uuid;
+  v_capsule_id  uuid;
+begin
+  select m.uploader_id, m.capsule_id
+    into v_uploader_id, v_capsule_id
+    from public.media m
+   where m.id = NEW.media_id;
+
+  if v_uploader_id is not null and v_uploader_id != NEW.user_id then
+    insert into public.notifications (user_id, capsule_id, type, sent_at)
+    values (v_uploader_id, v_capsule_id, 'reaction', now());
+  end if;
+
+  return NEW;
+end;
+$$ language plpgsql security definer;
+
+create trigger on_reaction_added
+  after insert on public.reactions
+  for each row execute function notify_on_reaction();

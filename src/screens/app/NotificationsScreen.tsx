@@ -12,7 +12,7 @@ import { AppStackParamList } from '../../types/navigation';
 type NotificationRow = {
   id: string;
   capsule_id: string;
-  type: 'invite' | 'unlock';
+  type: 'invite' | 'unlock' | 'reaction';
   sent_at: string;
   read_at: string | null;
   capsules: { title: string } | null;
@@ -127,7 +127,7 @@ export default function NotificationsScreen() {
           </View>
           <Text style={styles.emptyText}>You're all caught up</Text>
           <Text style={styles.emptySubtext}>
-            Invites and unlocks will show up here.
+            Invites, unlocks, and reactions will show up here.
           </Text>
         </View>
       ) : (
@@ -143,17 +143,25 @@ export default function NotificationsScreen() {
             return (
               <TouchableOpacity
                 style={styles.card}
-                activeOpacity={item.type === 'unlock' ? 0.7 : 1}
+                activeOpacity={item.type === 'invite' ? 1 : 0.7}
                 onPress={() => {
-                  if (item.type === 'unlock') {
+                  if (item.type === 'unlock' || item.type === 'reaction') {
                     navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
                   }
                 }}
               >
                 <Ionicons
-                  name={item.type === 'unlock' ? 'lock-open-outline' : 'cube-outline'}
+                  name={
+                    item.type === 'unlock' ? 'lock-open-outline'
+                    : item.type === 'reaction' ? 'heart-outline'
+                    : 'cube-outline'
+                  }
                   size={28}
-                  color={item.type === 'unlock' ? '#30D158' : '#888888'}
+                  color={
+                    item.type === 'unlock' ? '#30D158'
+                    : item.type === 'reaction' ? '#FF6B35'
+                    : '#888888'
+                  }
                 />
                 <View style={styles.cardBody}>
                   <Text style={styles.cardText}>
@@ -161,6 +169,11 @@ export default function NotificationsScreen() {
                       <>
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
                         {' '}just unlocked!
+                      </>
+                    ) : item.type === 'reaction' ? (
+                      <>
+                        Someone reacted to your photo in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
                       </>
                     ) : (
                       <>
@@ -190,7 +203,7 @@ export default function NotificationsScreen() {
                   </View>
                 )}
 
-                {item.type === 'unlock' && (
+                {(item.type === 'unlock' || item.type === 'reaction') && (
                   <Ionicons name="chevron-forward" size={18} color="#555555" />
                 )}
               </TouchableOpacity>
