@@ -834,7 +834,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                       key={p.id}
                       style={styles.photoThumb}
                       activeOpacity={0.8}
-                      onPress={() => setActiveMediaIndex(index)}
+                      onPress={() => isLast ? setShowGallery(true) : setActiveMediaIndex(index)}
                     >
                       {(p.mediaType === 'photo' || p.thumbnailUri) && (
                         <Image
@@ -850,7 +850,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                       )}
                       {isLast && (
                         <View style={styles.moreOverlay}>
-                          <Text style={styles.moreText}>+{photos.length - 3}</Text>
+                          <Text style={styles.moreText}>+{photos.length - 2}</Text>
                         </View>
                       )}
                     </TouchableOpacity>
