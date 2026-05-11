@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated,
+  Share, Image, Platform, Dimensions, Animated, FlatList,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -200,18 +200,81 @@ function InviteModal({
   );
 }
 
-function VideoPlayerModal({ uri, onClose }: { uri: string; onClose: () => void }) {
-  const player = useVideoPlayer(uri, p => { p.play(); });
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+function VideoSlide({ item, isActive }: { item: MediaItem; isActive: boolean }) {
+  const player = useVideoPlayer(item.signedUrl, p => { p.loop = true; });
+  useEffect(() => {
+    if (isActive) player.play();
+    else player.pause();
+  }, [isActive]);
   return (
-    <Modal visible animationType="fade" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#000', justifyContent: 'center' }}>
-        <VideoView player={player} style={{ width: '100%', aspectRatio: 9 / 16 }} contentFit="contain" />
-        <TouchableOpacity
-          onPress={onClose}
-          style={{ position: 'absolute', top: 56, left: 20, padding: 8 }}
-        >
-          <Text style={{ color: '#fff', fontSize: 16, fontWeight: '600' }}>✕ Close</Text>
-        </TouchableOpacity>
+    <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
+      <VideoView player={player} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" />
+    </View>
+  );
+}
+
+function MediaViewerModal({
+  items,
+  startIndex,
+  onClose,
+}: {
+  items: MediaItem[];
+  startIndex: number;
+  onClose: () => void;
+}) {
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const listRef = useRef<FlatList<MediaItem>>(null);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      listRef.current?.scrollToIndex({ index: startIndex, animated: false });
+    });
+  }, []);
+
+  return (
+    <Modal visible animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: '#000' }}>
+        <FlatList
+          ref={listRef}
+          data={items}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          initialScrollIndex={startIndex}
+          getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
+          keyExtractor={item => item.id}
+          onMomentumScrollEnd={e => {
+            const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+            setCurrentIndex(index);
+          }}
+          renderItem={({ item, index }) =>
+            item.mediaType === 'video' ? (
+              <VideoSlide item={item} isActive={index === currentIndex} />
+            ) : (
+              <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
+                <Image
+                  source={{ uri: item.signedUrl }}
+                  style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                  resizeMode="contain"
+                />
+              </View>
+            )
+          }
+        />
+
+        {/* Header overlay */}
+        <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, pointerEvents: 'box-none' }}>
+          <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>✕</Text>
+          </TouchableOpacity>
+          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600', opacity: 0.8 }}>
+            {currentIndex + 1} / {items.length}
+          </Text>
+          <View style={{ width: 36 }} />
+        </View>
       </View>
     </Modal>
   );
@@ -222,7 +285,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
-  const [activeVideo, setActiveVideo] = useState<string | null>(null);
+  const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
@@ -546,12 +609,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         {canSeePhotos ? (
           photos.length > 0 ? (
             <View style={styles.photoGrid}>
-              {photos.map(p => (
+              {photos.map((p, index) => (
                 <TouchableOpacity
                   key={p.id}
                   style={styles.photoThumb}
-                  activeOpacity={p.mediaType === 'video' ? 0.7 : 1}
-                  onPress={() => p.mediaType === 'video' ? setActiveVideo(p.signedUrl) : undefined}
+                  activeOpacity={0.8}
+                  onPress={() => setActiveMediaIndex(index)}
                 >
                   <Image
                     source={{ uri: p.mediaType === 'video' ? (p.thumbnailUri ?? undefined) : p.signedUrl }}
@@ -623,8 +686,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         )}
       </ScrollView>
 
-      {activeVideo && (
-        <VideoPlayerModal uri={activeVideo} onClose={() => setActiveVideo(null)} />
+      {activeMediaIndex !== null && (
+        <MediaViewerModal
+          items={photos}
+          startIndex={activeMediaIndex}
+          onClose={() => setActiveMediaIndex(null)}
+        />
       )}
 
       {showInvite && (
