@@ -6,6 +6,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 
@@ -28,7 +29,12 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
     return () => clearInterval(id);
   }, [unlockAt, status]);
 
-  if (status === 'unlocked') return <Text style={styles.unlockedBadge}>🔓 Unlocked</Text>;
+  if (status === 'unlocked') return (
+    <View style={styles.unlockedBadge}>
+      <Ionicons name="lock-open-outline" size={13} color="#30D158" />
+      <Text style={styles.unlockedBadgeText}> Unlocked</Text>
+    </View>
+  );
   const { daysLeft, hoursLeft } = timeLeft;
   if (daysLeft > 0) return <Text style={styles.countdownText}>{daysLeft}d {hoursLeft}h left</Text>;
   return <Text style={styles.countdownText}>{hoursLeft}h left</Text>;
@@ -39,7 +45,11 @@ function CapsuleCard({ capsule, onPress }: { capsule: CapsuleWithCountdown; onPr
   return (
     <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]} onPress={onPress}>
       <View style={styles.cardTop}>
-        <Text style={styles.cardEmoji}>{isLocked ? '⏳' : '🔓'}</Text>
+        <Ionicons
+          name={isLocked ? 'time-outline' : 'lock-open-outline'}
+          size={24}
+          color={isLocked ? '#888888' : '#30D158'}
+        />
         <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} />
       </View>
       <Text style={styles.cardTitle}>{capsule.title}</Text>
@@ -105,9 +115,9 @@ export default function HomeScreen() {
       {capsules.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyArt}>
-            <Text style={styles.emptyArtBack}>📷</Text>
-            <Text style={styles.emptyArtMid}>✨</Text>
-            <Text style={styles.emptyArtFront}>⏳</Text>
+            <View style={styles.emptyArtBack}><Ionicons name="camera-outline" size={52} color="#FFFFFF" /></View>
+            <View style={styles.emptyArtMid}><Ionicons name="sparkles-outline" size={52} color="#FFFFFF" /></View>
+            <View style={styles.emptyArtFront}><Ionicons name="time-outline" size={64} color="#FFFFFF" /></View>
           </View>
           <Text style={styles.emptyText}>Create your first capsule</Text>
           <Text style={styles.emptySubtext}>
@@ -145,9 +155,9 @@ const styles = StyleSheet.create({
   count: { fontSize: 14, color: '#555555' },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
   emptyArt: { flexDirection: 'row', marginBottom: 8 },
-  emptyArtBack: { fontSize: 52, transform: [{ rotate: '-12deg' }, { translateX: 18 }, { translateY: 8 }], opacity: 0.5 },
-  emptyArtMid: { fontSize: 52, transform: [{ rotate: '6deg' }], opacity: 0.7, zIndex: 1 },
-  emptyArtFront: { fontSize: 64, transform: [{ rotate: '-4deg' }, { translateX: -12 }], zIndex: 2 },
+  emptyArtBack: { transform: [{ rotate: '-12deg' }, { translateX: 18 }, { translateY: 8 }], opacity: 0.5 },
+  emptyArtMid: { transform: [{ rotate: '6deg' }], opacity: 0.7, zIndex: 1 },
+  emptyArtFront: { transform: [{ rotate: '-4deg' }, { translateX: -12 }], zIndex: 2 },
   emptyText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
   emptySubtext: { fontSize: 15, color: '#888888', textAlign: 'center', lineHeight: 22 },
   emptyBtn: { marginTop: 8, backgroundColor: '#FF6B35', borderRadius: 14, paddingVertical: 14, paddingHorizontal: 32 },
@@ -163,9 +173,9 @@ const styles = StyleSheet.create({
   },
   cardUnlocked: { borderColor: '#FF6B3540' },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardEmoji: { fontSize: 24 },
   countdownText: { fontSize: 13, fontWeight: '700', color: '#FF6B35' },
-  unlockedBadge: { fontSize: 13, fontWeight: '700', color: '#30D158' },
+  unlockedBadge: { flexDirection: 'row', alignItems: 'center' },
+  unlockedBadgeText: { fontSize: 13, fontWeight: '700', color: '#30D158' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },

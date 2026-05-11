@@ -6,6 +6,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 
 type NotificationRow = {
@@ -119,8 +120,10 @@ export default function NotificationsScreen() {
       {notifications.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyIconWrap}>
-            <Text style={styles.emptyIconBg}>🔔</Text>
-            <Text style={styles.emptyIconCheck}>✓</Text>
+            <Ionicons name="notifications-outline" size={40} color="#555555" />
+            <View style={styles.emptyIconCheck}>
+              <Ionicons name="checkmark-circle" size={22} color="#30D158" />
+            </View>
           </View>
           <Text style={styles.emptyText}>You're all caught up</Text>
           <Text style={styles.emptySubtext}>
@@ -147,9 +150,11 @@ export default function NotificationsScreen() {
                   }
                 }}
               >
-                <Text style={styles.cardIcon}>
-                  {item.type === 'unlock' ? '🔓' : '📦'}
-                </Text>
+                <Ionicons
+                  name={item.type === 'unlock' ? 'lock-open-outline' : 'cube-outline'}
+                  size={28}
+                  color={item.type === 'unlock' ? '#30D158' : '#888888'}
+                />
                 <View style={styles.cardBody}>
                   <Text style={styles.cardText}>
                     {item.type === 'unlock' ? (
@@ -186,7 +191,7 @@ export default function NotificationsScreen() {
                 )}
 
                 {item.type === 'unlock' && (
-                  <Text style={styles.chevron}>›</Text>
+                  <Ionicons name="chevron-forward" size={18} color="#555555" />
                 )}
               </TouchableOpacity>
             );
@@ -214,8 +219,7 @@ const styles = StyleSheet.create({
     width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A',
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
-  emptyIconBg: { fontSize: 40 },
-  emptyIconCheck: { position: 'absolute', bottom: 8, right: 8, fontSize: 18, color: '#30D158', fontWeight: '900' },
+  emptyIconCheck: { position: 'absolute', bottom: 6, right: 6 },
   emptyText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
   emptySubtext: { fontSize: 15, color: '#888888', textAlign: 'center', lineHeight: 22 },
   list: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
@@ -224,7 +228,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 16, gap: 14, borderWidth: 1, borderColor: '#2A2A2A',
   },
-  cardIcon: { fontSize: 28 },
   cardBody: { flex: 1, gap: 4 },
   cardText: { fontSize: 14, color: '#CCCCCC', lineHeight: 20 },
   cardCapsuleTitle: { color: '#FFFFFF', fontWeight: '700' },
@@ -239,5 +242,4 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
   },
   joinedText: { color: '#30D158', fontWeight: '700', fontSize: 13 },
-  chevron: { color: '#555555', fontSize: 22, fontWeight: '300' },
 });

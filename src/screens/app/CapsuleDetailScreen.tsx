@@ -12,6 +12,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
 import { Avatar } from './ProfileScreen';
+import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 
@@ -36,10 +37,10 @@ type MediaItem = {
   thumbnailUri?: string;
 };
 
-const roleIcon: Record<string, string> = {
-  owner: '👑',
-  contributor: '✏️',
-  viewer: '👁',
+const roleIonicon: Record<string, keyof typeof Ionicons.glyphMap> = {
+  owner: 'star',
+  contributor: 'pencil-outline',
+  viewer: 'eye-outline',
 };
 
 const roleLabel: Record<string, string> = {
@@ -265,7 +266,7 @@ function ReactionsBar({
           style={rs.pill}
           onPress={() => setShowPicker(p => !p)}
         >
-          <Text style={rs.pillCount}>{showPicker ? '✕' : '+'}</Text>
+          <Ionicons name={showPicker ? 'close' : 'add'} size={16} color="#fff" />
         </TouchableOpacity>
       </View>
     </View>
@@ -429,7 +430,7 @@ function MediaViewerModal({
           {/* Header */}
           <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 }}>
             <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
-              <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>✕</Text>
+              <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
             <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600', opacity: 0.8 }}>
               {currentIndex + 1} / {items.length}
@@ -462,7 +463,7 @@ function MediaGalleryModal({
           <Text style={gal.title}>All Media</Text>
           <Text style={gal.count}>{items.length}</Text>
           <TouchableOpacity onPress={onClose} style={gal.closeBtn}>
-            <Text style={gal.closeText}>✕</Text>
+            <Ionicons name="close" size={22} color="#888888" />
           </TouchableOpacity>
         </View>
         <FlatList
@@ -484,7 +485,7 @@ function MediaGalleryModal({
               )}
               {item.mediaType === 'video' && (
                 <View style={gal.playOverlay}>
-                  <Text style={gal.playIcon}>▶</Text>
+                  <Ionicons name="play" size={20} color="#fff" />
                 </View>
               )}
             </TouchableOpacity>
@@ -756,7 +757,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
-          <Text style={styles.heroEmoji}>{isLocked ? '⏳' : '🔓'}</Text>
+          <Ionicons
+            name={isLocked ? 'time-outline' : 'lock-open-outline'}
+            size={40}
+            color={isLocked ? '#888888' : '#30D158'}
+          />
           <View style={[styles.statusBadge, !isLocked && styles.statusBadgeUnlocked]}>
             <Text style={[styles.statusText, !isLocked && styles.statusTextUnlocked]}>
               {capsule.status.toUpperCase()}
@@ -810,7 +815,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 {m.joined_at === null && <Text style={styles.pendingLabel}>pending</Text>}
               </View>
               <View style={styles.roleBadge}>
-                <Text style={styles.roleText}>{roleIcon[m.role]} {roleLabel[m.role]}</Text>
+                <Ionicons name={roleIonicon[m.role] ?? 'person-outline'} size={11} color="#888888" />
+                <Text style={styles.roleText}>{roleLabel[m.role]}</Text>
               </View>
             </TouchableOpacity>
           ))}
@@ -846,7 +852,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                       )}
                       {p.mediaType === 'video' && !isLast && (
                         <View style={styles.playOverlay}>
-                          <Text style={styles.playIcon}>▶</Text>
+                          <Ionicons name="play" size={22} color="#fff" />
                         </View>
                       )}
                       {isLast && (
@@ -869,13 +875,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             </>
           ) : (
             <View style={styles.emptyPhotos}>
-              <Text style={styles.emptyPhotosIcon}>📷</Text>
+              <Ionicons name="camera-outline" size={32} color="#555555" />
               <Text style={styles.emptyPhotosText}>No media yet</Text>
             </View>
           )
         ) : (
           <View style={styles.lockedBox}>
-            <Text style={styles.lockedIcon}>🔒</Text>
+            <Ionicons name="lock-closed-outline" size={32} color="#555555" />
             <Text style={styles.lockedText}>Media reveals on {unlockDate}</Text>
             {photos.length > 0 && (
               <Text style={styles.lockedCount}>{photos.length} {photos.length === 1 ? 'memory' : 'memories'} waiting</Text>
@@ -899,11 +905,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               <View style={styles.pickerOptions}>
                 {Platform.OS !== 'web' && (
                   <TouchableOpacity style={styles.pickerBtn} onPress={pickFromCamera}>
-                    <Text style={styles.pickerBtnText}>📷  Take Photo</Text>
+                    <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.pickerBtnText}>Take Photo</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity style={styles.pickerBtn} onPress={pickFromLibrary}>
-                  <Text style={styles.pickerBtnText}>🖼  Camera Roll</Text>
+                  <Ionicons name="images-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.pickerBtnText}>Camera Roll</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.pickerCancelBtn}
@@ -955,7 +963,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           style={[styles.revealOverlay, { opacity: revealOpacity, transform: [{ scale: revealScale }] }]}
           pointerEvents="none"
         >
-          <Text style={styles.revealEmoji}>🔓</Text>
+          <Ionicons name="lock-open-outline" size={64} color="#30D158" />
           <Text style={styles.revealTitle}>It's time!</Text>
           <Text style={styles.revealSub}>Your capsule is now open</Text>
         </Animated.View>
@@ -970,7 +978,6 @@ const styles = StyleSheet.create({
   backText: { color: '#FF6B35', fontSize: 16, fontWeight: '600' },
   scroll: { paddingHorizontal: 24, paddingBottom: 48, gap: 16 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
-  heroEmoji: { fontSize: 40 },
   statusBadge: {
     backgroundColor: '#2A2A2A', borderRadius: 8,
     paddingHorizontal: 10, paddingVertical: 4,
@@ -1006,12 +1013,11 @@ const styles = StyleSheet.create({
   memberInfo: { flex: 1 },
   memberName: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   pendingLabel: { fontSize: 11, color: '#888888', marginTop: 2 },
-  roleBadge: { backgroundColor: '#2A2A2A', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
+  roleBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#2A2A2A', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4 },
   roleText: { fontSize: 12, color: '#888888' },
   photoGrid: { flexDirection: 'row', gap: 2 },
   photoThumb: { flex: 1, aspectRatio: 1, overflow: 'hidden', backgroundColor: '#1A1A1A' },
   playOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.35)' },
-  playIcon: { color: '#fff', fontSize: 22 },
   moreOverlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.55)' },
   moreText: { color: '#fff', fontSize: 24, fontWeight: '800' },
   viewAllBtn: { alignSelf: 'flex-end', paddingTop: 6, paddingBottom: 2, paddingHorizontal: 2 },
@@ -1021,13 +1027,11 @@ const styles = StyleSheet.create({
     padding: 32, alignItems: 'center', gap: 8,
     borderWidth: 1, borderColor: '#2A2A2A',
   },
-  emptyPhotosIcon: { fontSize: 32 },
   emptyPhotosText: { fontSize: 15, color: '#555555' },
   lockedBox: {
     backgroundColor: '#1A1A1A', borderRadius: 16, padding: 32,
     alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#2A2A2A',
   },
-  lockedIcon: { fontSize: 32 },
   lockedText: { fontSize: 15, color: '#888888', textAlign: 'center' },
   lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
   uploadArea: { gap: 10 },
@@ -1036,9 +1040,9 @@ const styles = StyleSheet.create({
   uploadError: { color: '#FF3B30', fontSize: 14 },
   pickerOptions: { gap: 10 },
   pickerBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     backgroundColor: '#1A1A1A', borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center',
-    borderWidth: 1, borderColor: '#2A2A2A',
+    paddingVertical: 16, borderWidth: 1, borderColor: '#2A2A2A',
   },
   pickerBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
   pickerCancelBtn: { paddingVertical: 12, alignItems: 'center' },
@@ -1053,7 +1057,6 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: '#000000CC', justifyContent: 'center', alignItems: 'center', gap: 12,
   },
-  revealEmoji: { fontSize: 64 },
   revealTitle: { fontSize: 32, fontWeight: '800', color: '#FFFFFF' },
   revealSub: { fontSize: 16, color: '#888888' },
 });
@@ -1113,5 +1116,4 @@ const gal = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
-  playIcon: { color: '#fff', fontSize: 22 },
 });

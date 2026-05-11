@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../types/navigation';
 
@@ -11,7 +12,7 @@ export default function WelcomeScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.hero}>
-        <Text style={styles.logo}>⏳</Text>
+        <Ionicons name="time-outline" size={72} color="#FF6B35" />
         <Text style={styles.title}>Capsule</Text>
         <Text style={styles.subtitle}>Lock your memories.{'\n'}Unlock the moment.</Text>
       </View>
@@ -42,9 +43,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
-  },
-  logo: {
-    fontSize: 72,
   },
   title: {
     fontSize: 48,

@@ -7,6 +7,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
+import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 
 type Permission = 'contributor' | 'viewer';
@@ -280,7 +281,12 @@ export default function CreateScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={styles.createButton} onPress={handleCreate} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.createButtonText}>Lock Capsule ⏳</Text>}
+          {loading ? <ActivityIndicator color="#fff" /> : (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={styles.createButtonText}>Lock Capsule</Text>
+                <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+              </View>
+            )}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>

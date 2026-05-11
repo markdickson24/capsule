@@ -8,6 +8,7 @@ import * as ImageManipulator from 'expo-image-manipulator';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 
 const MAX_RECORD_SECONDS = 30;
@@ -197,7 +198,7 @@ export default function CameraScreen() {
   if (!cameraPermission.granted) {
     return (
       <SafeAreaView style={styles.permContainer}>
-        <Text style={styles.permIcon}>📷</Text>
+        <Ionicons name="camera-outline" size={52} color="#FF6B35" />
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permSubtext}>Allow Capsule to use your camera</Text>
         <TouchableOpacity style={styles.permBtn} onPress={requestCameraPermission}>
@@ -220,6 +221,7 @@ export default function CameraScreen() {
           flash={flash}
           mode="video"
           zoom={zoom}
+          mirror={facing === 'front'}
         />
       )}
 
@@ -233,7 +235,7 @@ export default function CameraScreen() {
         {/* Top bar */}
         <View style={styles.topBar}>
           <TouchableOpacity style={styles.iconBtn} onPress={() => setFlash(f => f === 'off' ? 'on' : 'off')}>
-            <Text style={styles.iconText}>{flash === 'on' ? '⚡' : '🔦'}</Text>
+            <Ionicons name={flash === 'on' ? 'flash-outline' : 'flash-off-outline'} size={26} color="#FFFFFF" />
           </TouchableOpacity>
 
           {isRecording ? (
@@ -246,7 +248,7 @@ export default function CameraScreen() {
           )}
 
           <TouchableOpacity style={styles.iconBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
-            <Text style={styles.iconText}>🔄</Text>
+            <Ionicons name="camera-reverse-outline" size={26} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
 
@@ -286,7 +288,6 @@ const styles = StyleSheet.create({
     flex: 1, backgroundColor: '#0A0A0A',
     justifyContent: 'center', alignItems: 'center', gap: 12, paddingHorizontal: 40,
   },
-  permIcon: { fontSize: 48 },
   permTitle: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
   permSubtext: { fontSize: 15, color: '#888888', textAlign: 'center' },
   permBtn: {
@@ -299,7 +300,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', paddingHorizontal: 16, paddingVertical: 8,
   },
   iconBtn: { padding: 10 },
-  iconText: { fontSize: 26 },
   doubleTapHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
   recBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,

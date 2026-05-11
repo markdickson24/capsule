@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
@@ -17,12 +18,13 @@ import PreviewScreen from '../screens/app/PreviewScreen';
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
 
-const TAB_CONFIG: Record<string, { emoji: string; label: string }> = {
-  Home:          { emoji: '🏠', label: 'Home' },
-  Create:        { emoji: '✨', label: 'Create' },
-  Camera:        { emoji: '📷', label: '' },
-  Notifications: { emoji: '🔔', label: 'Alerts' },
-  Profile:       { emoji: '👤', label: 'Profile' },
+type TabConfig = { icon: keyof typeof Ionicons.glyphMap; iconFilled: keyof typeof Ionicons.glyphMap; label: string };
+const TAB_CONFIG: Record<string, TabConfig> = {
+  Home:          { icon: 'home-outline',          iconFilled: 'home',          label: 'Home' },
+  Create:        { icon: 'add-circle-outline',    iconFilled: 'add-circle',    label: 'Create' },
+  Camera:        { icon: 'camera-outline',        iconFilled: 'camera',        label: '' },
+  Notifications: { icon: 'notifications-outline', iconFilled: 'notifications', label: 'Alerts' },
+  Profile:       { icon: 'person-outline',        iconFilled: 'person',        label: 'Profile' },
 };
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
@@ -43,14 +45,13 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           if (isCamera) {
             return (
               <View key={route.key} style={styles.cameraSlot}>
-                {/* Ring in screen bg color carves the button off the bar */}
                 <View style={styles.cameraRing}>
                   <TouchableOpacity
                     style={[styles.cameraBtn, isFocused && styles.cameraBtnActive]}
                     onPress={onPress}
                     activeOpacity={0.85}
                   >
-                    <Text style={styles.cameraEmoji}>{config.emoji}</Text>
+                    <Ionicons name="camera" size={26} color="#FFFFFF" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -64,9 +65,11 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               onPress={onPress}
               activeOpacity={0.7}
             >
-              <Text style={[styles.emoji, { opacity: isFocused ? 1 : 0.4 }]}>
-                {config.emoji}
-              </Text>
+              <Ionicons
+                name={isFocused ? config.iconFilled : config.icon}
+                size={22}
+                color={isFocused ? '#FF6B35' : '#555555'}
+              />
               <Text style={[styles.label, isFocused && styles.labelActive]}>
                 {config.label}
               </Text>
@@ -96,9 +99,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
     gap: 3,
-  },
-  emoji: {
-    fontSize: 22,
   },
   label: {
     fontSize: 11,
@@ -145,9 +145,6 @@ const styles = StyleSheet.create({
   cameraBtnActive: {
     shadowOpacity: 0.75,
     shadowRadius: 16,
-  },
-  cameraEmoji: {
-    fontSize: 26,
   },
 });
 

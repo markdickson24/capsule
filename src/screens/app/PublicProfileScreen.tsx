@@ -6,6 +6,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { Avatar } from './ProfileScreen';
+import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'PublicProfile'>;
@@ -90,7 +91,10 @@ function InviteToCapsuleModal({
               <View key={c.id} style={is.row}>
                 <Text style={is.capsuleTitle}>{c.title}</Text>
                 {invitedIds.includes(c.id) ? (
-                  <Text style={is.sent}>Invited ✓</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Ionicons name="checkmark" size={14} color="#30D158" />
+                    <Text style={is.sent}>Invited</Text>
+                  </View>
                 ) : (
                   <TouchableOpacity
                     style={is.inviteBtn}

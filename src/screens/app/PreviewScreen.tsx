@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, Image, TouchableOpacity,
   FlatList, ActivityIndicator, Platform,
+  Animated, PanResponder, Modal, Pressable,
 } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as FileSystem from 'expo-file-system/legacy';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
 import { AppStackParamList } from '../../types/navigation';
@@ -29,6 +31,24 @@ export default function PreviewScreen({ route, navigation }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
+  const [showDiscard, setShowDiscard] = useState(false);
+
+  const translateY = useRef(new Animated.Value(0)).current;
+  const SWIPE_THRESHOLD = 100;
+
+  const swipeResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => false,
+    onMoveShouldSetPanResponder: (_, g) => g.dy > 10 && g.dy > Math.abs(g.dx),
+    onPanResponderMove: (_, g) => {
+      if (g.dy > 0) translateY.setValue(g.dy);
+    },
+    onPanResponderRelease: (_, g) => {
+      if (g.dy > SWIPE_THRESHOLD) {
+        setShowDiscard(true);
+      }
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: true, tension: 80, friction: 10 }).start();
+    },
+  })).current;
 
   useEffect(() => {
     async function fetchCapsules() {
@@ -115,82 +135,127 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      {/* Full-screen preview */}
-      {mediaType === 'photo' ? (
-        <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      ) : (
-        <VideoView
-          player={player}
-          style={StyleSheet.absoluteFill}
-          contentFit="cover"
-          nativeControls={false}
-        />
-      )}
-
-      {/* Top: discard */}
-      <SafeAreaView edges={['top']} style={styles.topBar}>
-        <TouchableOpacity style={styles.discardBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.discardText}>✕</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-
-      {/* Bottom panel — self-contained dark background */}
-      <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
-        <Text style={styles.panelTitle}>Add to capsule</Text>
-
-        {capsules.length === 0 ? (
-          <Text style={styles.noCapsules}>No active capsules. Create one first.</Text>
+      <Animated.View
+        style={[StyleSheet.absoluteFill, { transform: [{ translateY }] }]}
+        {...swipeResponder.panHandlers}
+      >
+        {/* Full-screen preview */}
+        {mediaType === 'photo' ? (
+          <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
         ) : (
-          <FlatList
-            data={capsules}
-            keyExtractor={item => item.capsule_id}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.chipList}
-            renderItem={({ item }) => {
-              const selected = selectedId === item.capsule_id;
-              return (
-                <TouchableOpacity
-                  style={[styles.chip, selected && styles.chipSelected]}
-                  onPress={() => setSelectedId(item.capsule_id)}
-                >
-                  {selected && <Text style={styles.chipCheck}>✓ </Text>}
-                  <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                    {item.capsules?.title ?? 'Untitled'}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }}
+          <VideoView
+            player={player}
+            style={StyleSheet.absoluteFill}
+            contentFit="cover"
+            nativeControls={false}
           />
         )}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {/* Top: discard */}
+        <SafeAreaView edges={['top']} style={styles.topBar}>
+          <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)}>
+            <Ionicons name="close" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.swipeHint}>Swipe down to discard</Text>
+        </SafeAreaView>
 
-        <TouchableOpacity
-          style={[styles.addBtn, (!selectedId || uploading) && styles.addBtnDisabled]}
-          onPress={upload}
-          disabled={!selectedId || uploading}
-        >
-          {uploading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+        {/* Bottom panel */}
+        <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
+          <Text style={styles.panelTitle}>Add to capsule</Text>
+
+          {capsules.length === 0 ? (
+            <Text style={styles.noCapsules}>No active capsules. Create one first.</Text>
           ) : (
-            <Text style={styles.addBtnText}>Add to Capsule</Text>
+            <FlatList
+              data={capsules}
+              keyExtractor={item => item.capsule_id}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipList}
+              renderItem={({ item }) => {
+                const selected = selectedId === item.capsule_id;
+                return (
+                  <TouchableOpacity
+                    style={[styles.chip, selected && styles.chipSelected]}
+                    onPress={() => setSelectedId(item.capsule_id)}
+                  >
+                    {selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                      {item.capsules?.title ?? 'Untitled'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }}
+            />
           )}
-        </TouchableOpacity>
-      </SafeAreaView>
+
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          <TouchableOpacity
+            style={[styles.addBtn, (!selectedId || uploading) && styles.addBtnDisabled]}
+            onPress={upload}
+            disabled={!selectedId || uploading}
+          >
+            {uploading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <Text style={styles.addBtnText}>Add to Capsule</Text>
+            )}
+          </TouchableOpacity>
+        </SafeAreaView>
+      </Animated.View>
+
+      {/* Discard confirmation */}
+      <Modal
+        visible={showDiscard}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowDiscard(false)}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setShowDiscard(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Discard this?</Text>
+            <Text style={styles.sheetSubtext}>
+              This {mediaType} won't be saved to any capsule.
+            </Text>
+            <TouchableOpacity style={styles.destructBtn} onPress={() => navigation.goBack()}>
+              <Text style={styles.destructBtnText}>Discard</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowDiscard(false)}>
+              <Text style={styles.cancelBtnText}>Keep</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
-  topBar: { paddingHorizontal: 16, paddingTop: 8 },
+  topBar: { paddingHorizontal: 16, paddingTop: 8, flexDirection: 'row', alignItems: 'center', gap: 12 },
   discardBtn: {
     width: 40, height: 40, borderRadius: 20,
     backgroundColor: 'rgba(0,0,0,0.55)',
     justifyContent: 'center', alignItems: 'center',
   },
-  discardText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
+  swipeHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40, gap: 12,
+  },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#444', alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
+  sheetSubtext: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20, marginBottom: 8 },
+  destructBtn: {
+    width: '100%', backgroundColor: '#FF3B3015', borderWidth: 1, borderColor: '#FF3B30',
+    borderRadius: 12, paddingVertical: 14, alignItems: 'center',
+  },
+  destructBtnText: { color: '#FF3B30', fontWeight: '700', fontSize: 16 },
+  cancelBtn: { width: '100%', backgroundColor: '#2A2A2A', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  cancelBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
   bottomPanel: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
     backgroundColor: 'rgba(0,0,0,0.82)',
@@ -209,7 +274,6 @@ const styles = StyleSheet.create({
   chipSelected: {
     backgroundColor: '#FF6B35', borderColor: '#FF6B35',
   },
-  chipCheck: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   chipText: { color: '#CCCCCC', fontWeight: '600', fontSize: 14 },
   chipTextSelected: { color: '#FFFFFF', fontWeight: '700' },
   error: { color: '#FF3B30', fontSize: 13 },

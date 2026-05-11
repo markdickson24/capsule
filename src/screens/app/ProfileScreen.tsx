@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TouchableOpacity,
   TextInput, Modal, Image, ActivityIndicator, Platform,
-  ScrollView, KeyboardAvoidingView,
+  ScrollView, KeyboardAvoidingView, Pressable,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -203,23 +203,6 @@ export default function ProfileScreen() {
     return <SafeAreaView style={styles.center}><ActivityIndicator color="#FF6B35" /></SafeAreaView>;
   }
 
-  if (confirming) {
-    return (
-      <SafeAreaView style={styles.center}>
-        <Text style={styles.name}>Sign out?</Text>
-        <Text style={styles.bio}>You'll need to log back in to access your capsules.</Text>
-        <View style={styles.row}>
-          <TouchableOpacity style={styles.outlineBtn} onPress={() => setConfirming(false)}>
-            <Text style={styles.outlineBtnText}>Cancel</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.destructBtn} onPress={() => supabase.auth.signOut()}>
-            <Text style={styles.destructBtnText}>Sign Out</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.body}>
@@ -231,8 +214,8 @@ export default function ProfileScreen() {
           <Text style={styles.editBtnText}>Edit Profile</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.destructBtn} onPress={() => setConfirming(true)}>
-          <Text style={styles.destructBtnText}>Sign Out</Text>
+        <TouchableOpacity style={styles.signOutBtn} onPress={() => setConfirming(true)}>
+          <Text style={styles.signOutBtnText}>Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -243,6 +226,36 @@ export default function ProfileScreen() {
           onSaved={updated => { setProfile(updated); setShowEdit(false); }}
         />
       )}
+
+      {/* Sign-out confirmation sheet */}
+      <Modal
+        visible={confirming}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setConfirming(false)}
+      >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setConfirming(false)}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>Sign out?</Text>
+            <Text style={styles.sheetSubtext}>
+              You'll need to log back in to access your capsules.
+            </Text>
+            <TouchableOpacity
+              style={styles.destructBtn}
+              onPress={() => supabase.auth.signOut()}
+            >
+              <Text style={styles.destructBtnText}>Sign Out</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={() => setConfirming(false)}
+            >
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -253,13 +266,22 @@ const styles = StyleSheet.create({
   body: { alignItems: 'center', paddingTop: 48, paddingBottom: 40, gap: 12, paddingHorizontal: 32 },
   name: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', marginTop: 8 },
   bio: { fontSize: 14, color: '#888888', textAlign: 'center' },
-  row: { flexDirection: 'row', gap: 12, marginTop: 8 },
   editBtn: { marginTop: 16, width: '100%', borderWidth: 1, borderColor: '#FF6B35', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   editBtnText: { color: '#FF6B35', fontWeight: '600', fontSize: 16 },
-  outlineBtn: { flex: 1, borderWidth: 1, borderColor: '#333', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  outlineBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
-  destructBtn: { width: '100%', borderWidth: 1, borderColor: '#FF3B30', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  destructBtnText: { color: '#FF3B30', fontWeight: '600', fontSize: 16 },
+  signOutBtn: { width: '100%', paddingVertical: 14, alignItems: 'center' },
+  signOutBtnText: { color: '#FF3B30', fontWeight: '600', fontSize: 16 },
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  sheet: {
+    backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 24, paddingTop: 12, paddingBottom: 40, gap: 12,
+  },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: '#444', alignSelf: 'center', marginBottom: 16 },
+  sheetTitle: { fontSize: 20, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
+  sheetSubtext: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20, marginBottom: 8 },
+  destructBtn: { width: '100%', backgroundColor: '#FF3B3015', borderWidth: 1, borderColor: '#FF3B30', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  destructBtnText: { color: '#FF3B30', fontWeight: '700', fontSize: 16 },
+  cancelBtn: { width: '100%', backgroundColor: '#2A2A2A', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
+  cancelBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
 });
 
 const es = StyleSheet.create({
