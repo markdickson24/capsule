@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated, FlatList,
+  Share, Image, Platform, Dimensions, Animated, FlatList, PanResponder,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -227,6 +227,39 @@ function MediaViewerModal({
 }) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const listRef = useRef<FlatList<MediaItem>>(null);
+  const translateY = useRef(new Animated.Value(0)).current;
+
+  const backgroundOpacity = translateY.interpolate({
+    inputRange: [0, SCREEN_HEIGHT * 0.4],
+    outputRange: [1, 0],
+    extrapolate: 'clamp',
+  });
+
+  const panResponder = useRef(
+    PanResponder.create({
+      // Only claim the gesture if it's more vertical than horizontal
+      onMoveShouldSetPanResponder: (_, { dx, dy }) =>
+        Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 8,
+      onPanResponderMove: (_, { dy }) => {
+        if (dy > 0) translateY.setValue(dy);
+      },
+      onPanResponderRelease: (_, { dy, vy }) => {
+        if (dy > 120 || vy > 1.5) {
+          Animated.timing(translateY, {
+            toValue: SCREEN_HEIGHT,
+            duration: 220,
+            useNativeDriver: true,
+          }).start(onClose);
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0,
+            useNativeDriver: true,
+            bounciness: 6,
+          }).start();
+        }
+      },
+    })
+  ).current;
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -236,46 +269,51 @@ function MediaViewerModal({
 
   return (
     <Modal visible animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: '#000' }}>
-        <FlatList
-          ref={listRef}
-          data={items}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          initialScrollIndex={startIndex}
-          getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
-          keyExtractor={item => item.id}
-          onMomentumScrollEnd={e => {
-            const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-            setCurrentIndex(index);
-          }}
-          renderItem={({ item, index }) =>
-            item.mediaType === 'video' ? (
-              <VideoSlide item={item} isActive={index === currentIndex} />
-            ) : (
-              <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                <Image
-                  source={{ uri: item.signedUrl }}
-                  style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
-                  resizeMode="contain"
-                />
-              </View>
-            )
-          }
-        />
+      <Animated.View style={{ flex: 1, backgroundColor: '#000', opacity: backgroundOpacity }}>
+        <Animated.View
+          style={{ flex: 1, transform: [{ translateY }] }}
+          {...panResponder.panHandlers}
+        >
+          <FlatList
+            ref={listRef}
+            data={items}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            initialScrollIndex={startIndex}
+            getItemLayout={(_, index) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * index, index })}
+            keyExtractor={item => item.id}
+            onMomentumScrollEnd={e => {
+              const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              setCurrentIndex(index);
+            }}
+            renderItem={({ item, index }) =>
+              item.mediaType === 'video' ? (
+                <VideoSlide item={item} isActive={index === currentIndex} />
+              ) : (
+                <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
+                  <Image
+                    source={{ uri: item.signedUrl }}
+                    style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                    resizeMode="contain"
+                  />
+                </View>
+              )
+            }
+          />
 
-        {/* Header overlay */}
-        <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, pointerEvents: 'box-none' }}>
-          <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
-            <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>✕</Text>
-          </TouchableOpacity>
-          <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600', opacity: 0.8 }}>
-            {currentIndex + 1} / {items.length}
-          </Text>
-          <View style={{ width: 36 }} />
-        </View>
-      </View>
+          {/* Header overlay */}
+          <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 }}>
+            <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+              <Text style={{ color: '#fff', fontSize: 20, fontWeight: '700' }}>✕</Text>
+            </TouchableOpacity>
+            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600', opacity: 0.8 }}>
+              {currentIndex + 1} / {items.length}
+            </Text>
+            <View style={{ width: 36 }} />
+          </View>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 }
