@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { navigationRef } from '../lib/navigationRef';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -19,6 +20,45 @@ export function usePushNotifications(userId?: string) {
     if (!userId) return;
     registerToken(userId);
   }, [userId]);
+
+  useEffect(() => {
+    // Handle tap on a notification (app foregrounded or opened from background)
+    const sub = Notifications.addNotificationResponseReceivedListener(response => {
+      const data = response.notification.request.content.data as Record<string, string>;
+      if (!navigationRef.isReady()) return;
+      if (data?.capsuleId) {
+        navigationRef.navigate('CapsuleDetail', { capsuleId: data.capsuleId });
+      } else if (data?.screen === 'Notifications') {
+        navigationRef.navigate('Tabs', { screen: 'Notifications' });
+      }
+    });
+
+    // Handle tap when app was killed and launched via notification
+    Notifications.getLastNotificationResponseAsync().then(response => {
+      if (!response) return;
+      const data = response.notification.request.content.data as Record<string, string>;
+      const navigate = () => {
+        if (data?.capsuleId) {
+          navigationRef.navigate('CapsuleDetail', { capsuleId: data.capsuleId });
+        } else if (data?.screen === 'Notifications') {
+          navigationRef.navigate('Tabs', { screen: 'Notifications' });
+        }
+      };
+      // Nav container may not be ready yet — poll until it is
+      if (navigationRef.isReady()) {
+        navigate();
+      } else {
+        const interval = setInterval(() => {
+          if (navigationRef.isReady()) {
+            clearInterval(interval);
+            navigate();
+          }
+        }, 100);
+      }
+    });
+
+    return () => sub.remove();
+  }, []);
 }
 
 async function registerToken(userId: string) {

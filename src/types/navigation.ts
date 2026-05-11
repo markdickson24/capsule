@@ -13,7 +13,7 @@ export type AppTabParamList = {
 };
 
 export type AppStackParamList = {
-  Tabs: undefined;
+  Tabs: { screen: keyof AppTabParamList } | undefined;
   CapsuleDetail: { capsuleId: string };
   Preview: { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back' };
 };
