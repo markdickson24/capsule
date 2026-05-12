@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, FlatList,
+  View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -18,6 +18,8 @@ type NotificationRow = {
   capsules: { title: string } | null;
 };
 
+type DisplayNotification = NotificationRow & { reactionCount?: number };
+
 type PendingMember = {
   id: string;
   capsule_id: string;
@@ -25,7 +27,7 @@ type PendingMember = {
 
 export default function NotificationsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const [notifications, setNotifications] = useState<NotificationRow[]>([]);
+  const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
   const [pendingMap, setPendingMap] = useState<Record<string, string>>({}); // capsule_id → member row id
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,7 +52,32 @@ export default function NotificationsScreen() {
         .neq('role', 'owner'),
     ]);
 
-    if (notifsRes.data) setNotifications(notifsRes.data as NotificationRow[]);
+    if (notifsRes.data) {
+      const raw = notifsRes.data as NotificationRow[];
+      const display: DisplayNotification[] = [];
+      const reactionGroups: Record<string, { latest: NotificationRow; count: number }> = {};
+
+      for (const n of raw) {
+        if (n.type === 'reaction') {
+          if (!reactionGroups[n.capsule_id]) {
+            reactionGroups[n.capsule_id] = { latest: n, count: 0 };
+          }
+          reactionGroups[n.capsule_id].count++;
+          if (n.sent_at > reactionGroups[n.capsule_id].latest.sent_at) {
+            reactionGroups[n.capsule_id].latest = n;
+          }
+        } else {
+          display.push(n);
+        }
+      }
+
+      for (const group of Object.values(reactionGroups)) {
+        display.push({ ...group.latest, reactionCount: group.count });
+      }
+
+      display.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1));
+      setNotifications(display);
+    }
 
     const map: Record<string, string> = {};
     for (const m of (pendingRes.data ?? []) as PendingMember[]) {
@@ -64,7 +91,7 @@ export default function NotificationsScreen() {
     fetchAll().finally(() => setLoading(false));
   }, []));
 
-  async function accept(notif: NotificationRow) {
+  async function accept(notif: DisplayNotification) {
     const memberId = pendingMap[notif.capsule_id];
     if (!memberId) return;
     setAccepting(notif.id);
@@ -108,40 +135,43 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Notifications</Text>
-        {pendingCount > 0 && (
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>{pendingCount}</Text>
-          </View>
-        )}
-      </View>
-
-      {notifications.length === 0 ? (
-        <View style={styles.empty}>
-          <View style={styles.emptyIconWrap}>
-            <Ionicons name="notifications-outline" size={40} color="#555555" />
-            <View style={styles.emptyIconCheck}>
-              <Ionicons name="checkmark-circle" size={22} color="#30D158" />
+      <ScrollView
+        style={styles.fill}
+        contentContainerStyle={styles.scrollContent}
+        alwaysBounceVertical
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
+      >
+        <View style={styles.header}>
+          <Text style={styles.title}>Notifications</Text>
+          {pendingCount > 0 && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{pendingCount}</Text>
             </View>
-          </View>
-          <Text style={styles.emptyText}>You're all caught up</Text>
-          <Text style={styles.emptySubtext}>
-            Invites, unlocks, and reactions will show up here.
-          </Text>
+          )}
         </View>
-      ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={item => item.id}
-          contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
-          renderItem={({ item }) => {
+        {notifications.length === 0 ? (
+          <View style={styles.empty}>
+            <View style={styles.emptyIconWrap}>
+              <Ionicons name="notifications-outline" size={40} color="#555555" />
+              <View style={styles.emptyIconCheck}>
+                <Ionicons name="checkmark-circle" size={22} color="#30D158" />
+              </View>
+            </View>
+            <Text style={styles.emptyText}>You're all caught up</Text>
+            <Text style={styles.emptySubtext}>
+              Invites, unlocks, and reactions will show up here.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.list}>
+          {notifications.map(item => {
             const isPending = item.type === 'invite' && !!pendingMap[item.capsule_id];
             const isAccepted = item.type === 'invite' && !pendingMap[item.capsule_id];
+            const key = item.type === 'reaction' ? `reaction-${item.capsule_id}` : item.id;
 
             return (
               <TouchableOpacity
+                key={key}
                 style={styles.card}
                 activeOpacity={item.type === 'invite' ? 1 : 0.7}
                 onPress={() => {
@@ -172,7 +202,9 @@ export default function NotificationsScreen() {
                       </>
                     ) : item.type === 'reaction' ? (
                       <>
-                        Someone reacted to your photo in{' '}
+                        {(item.reactionCount ?? 1) > 1
+                          ? `${item.reactionCount} people reacted to your photos in `
+                          : 'Someone reacted to your photo in '}
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
                       </>
                     ) : (
@@ -208,9 +240,10 @@ export default function NotificationsScreen() {
                 )}
               </TouchableOpacity>
             );
-          }}
-        />
-      )}
+          })}
+          </View>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -227,7 +260,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 2,
   },
   badgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
+  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40, paddingBottom: 80 },
   emptyIconWrap: {
     width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A',
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,
@@ -235,6 +268,8 @@ const styles = StyleSheet.create({
   emptyIconCheck: { position: 'absolute', bottom: 6, right: 6 },
   emptyText: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', textAlign: 'center' },
   emptySubtext: { fontSize: 15, color: '#888888', textAlign: 'center', lineHeight: 22 },
+  fill: { flex: 1 },
+  scrollContent: { flexGrow: 1 },
   list: { paddingHorizontal: 16, paddingBottom: 32, gap: 12 },
   card: {
     flexDirection: 'row', alignItems: 'center',
