@@ -2,6 +2,7 @@
   "expo": {
     "name": "capsule",
     "slug": "capsule",
+    "scheme": "capsule",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -59,7 +60,8 @@
           "icon": "./assets/icon.png",
           "color": "#FF6B35"
         }
-      ]
+      ],
+      "expo-web-browser"
     ],
     "extra": {
       "eas": {

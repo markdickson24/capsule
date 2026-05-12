@@ -6,6 +6,8 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
+import { Ionicons } from '@expo/vector-icons';
+import { signInWithGoogle } from '../../lib/googleAuth';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
@@ -15,23 +17,30 @@ export default function LoginScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [error, setError] = useState('');
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing fields', 'Please enter your email and password.');
+      setError('Please enter your email and password.');
       return;
     }
-
     setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({
+    setError('');
+    const { error: err } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
     });
     setLoading(false);
+    if (err) setError(err.message);
+  }
 
-    if (error) {
-      Alert.alert('Login failed', error.message);
-    }
+  async function handleGoogle() {
+    setGoogleLoading(true);
+    setError('');
+    const { error: err } = await signInWithGoogle();
+    if (err) setError(err);
+    setGoogleLoading(false);
   }
 
   return (
@@ -65,10 +74,25 @@ export default function LoginScreen({ navigation }: Props) {
         </View>
 
         <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-          {loading ? (
-            <ActivityIndicator color="#fff" />
+          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign In</Text>}
+        </TouchableOpacity>
+
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        <View style={styles.divider}>
+          <View style={styles.dividerLine} />
+          <Text style={styles.dividerText}>or</Text>
+          <View style={styles.dividerLine} />
+        </View>
+
+        <TouchableOpacity style={styles.googleButton} onPress={handleGoogle} disabled={googleLoading}>
+          {googleLoading ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
           ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
+            <>
+              <Ionicons name="logo-google" size={20} color="#FFFFFF" />
+              <Text style={styles.googleButtonText}>Continue with Google</Text>
+            </>
           )}
         </TouchableOpacity>
 
@@ -108,4 +132,18 @@ const styles = StyleSheet.create({
   buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   switchText: { color: '#888888', textAlign: 'center', fontSize: 15 },
   link: { color: '#FF6B35', fontWeight: '600' },
+  error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
+  divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  dividerLine: { flex: 1, height: 1, backgroundColor: '#2A2A2A' },
+  dividerText: { color: '#555555', fontSize: 14 },
+  googleButton: {
+    backgroundColor: '#4285F4',
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  googleButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
 });
