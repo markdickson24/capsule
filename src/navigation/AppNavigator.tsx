@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -6,6 +6,7 @@ import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
+import { supabase } from '../lib/supabase';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
 import CameraScreen from '../screens/app/CameraScreen';
@@ -29,6 +30,21 @@ const TAB_CONFIG: Record<string, TabConfig> = {
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    async function fetchCount() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      const { count } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', session.user.id)
+        .is('read_at', null);
+      setUnreadCount(count ?? 0);
+    }
+    fetchCount();
+  }, [state.index]);
 
   return (
     <View style={[styles.wrapper, { paddingBottom: insets.bottom }]}>
@@ -58,6 +74,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             );
           }
 
+          const showBadge = route.name === 'Notifications' && unreadCount > 0;
+
           return (
             <TouchableOpacity
               key={route.key}
@@ -65,11 +83,20 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               onPress={onPress}
               activeOpacity={0.7}
             >
-              <Ionicons
-                name={isFocused ? config.iconFilled : config.icon}
-                size={22}
-                color={isFocused ? '#FF6B35' : '#555555'}
-              />
+              <View>
+                <Ionicons
+                  name={isFocused ? config.iconFilled : config.icon}
+                  size={22}
+                  color={isFocused ? '#FF6B35' : '#555555'}
+                />
+                {showBadge && (
+                  <View style={styles.badge}>
+                    <Text style={styles.badgeText}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
               <Text style={[styles.label, isFocused && styles.labelActive]}>
                 {config.label}
               </Text>
@@ -128,6 +155,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ translateY: -10 }],
+  },
+  badge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    backgroundColor: '#FF3B30',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  badgeText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '700',
   },
   cameraBtn: {
     width: 58,
