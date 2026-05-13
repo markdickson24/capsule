@@ -26,8 +26,11 @@ No test suite or linter configured yet.
 
 ```
 src/
+  context/
+    ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
   hooks/
     useAuth.ts              # Session listener, returns { session, loading }
+    useDeepLinks.ts         # Handles capsule://join/<id> and capsule://reset-password
     usePushNotifications.ts # Token registration + notification tap routing
   lib/
     supabase.ts             # Supabase client (platform-split storage adapter)
@@ -40,7 +43,8 @@ src/
   screens/
     auth/  WelcomeScreen, LoginScreen, SignUpScreen
     app/   HomeScreen, CreateScreen, CapsuleDetailScreen, CameraScreen,
-           PreviewScreen, NotificationsScreen, ProfileScreen, PublicProfileScreen
+           PreviewScreen, NotificationsScreen, ProfileScreen, PublicProfileScreen,
+           ResetPasswordScreen, EditCapsuleScreen, ManageMembersScreen, SettingsScreen
   types/
     navigation.ts           # AuthStackParamList, AppTabParamList, AppStackParamList
     database.ts             # Capsule and other DB row types
@@ -76,11 +80,19 @@ RootNavigator (App.tsx)
     PublicProfile     { userId: string }
     Preview           { uri: string; mediaType: 'photo'|'video'; facing?: 'front'|'back' }
                       (animation: 'none')
+    ResetPassword     (no params — session set via deep link before navigating here)
+    EditCapsule       { capsuleId: string }
+    ManageMembers     { capsuleId: string }
+    Settings          (no params — accent color picker)
 ```
 
 **`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
 
-**Deep links** — `capsule://join/<capsuleId>` is handled by `useDeepLinks` (`src/hooks/useDeepLinks.ts`), called from `RootNavigator` in `App.tsx`. On receipt: inserts a pending `capsule_members` row + `notifications` row (type: 'invite') if the user isn't already a member, then navigates to the Notifications tab. The scheme `capsule://` is registered in `app.json`.
+**Deep links** — handled by `useDeepLinks` (`src/hooks/useDeepLinks.ts`), called from `RootNavigator` in `App.tsx`. Two routes:
+- `capsule://join/<capsuleId>` — inserts pending `capsule_members` + `notifications` row (type: 'invite') if not already a member, navigates to Notifications tab.
+- `capsule://reset-password#access_token=...&refresh_token=...` — calls `supabase.auth.setSession()` with tokens from the URL fragment, then navigates to `ResetPassword` screen.
+
+The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also receives a `linking={{ prefixes: ['capsule://'] }}` prop. **Custom URL schemes only work in native builds, not Expo Go.**
 
 ---
 
@@ -126,8 +138,8 @@ Defined in `supabase-schema.sql`.
 
 | Table | Key columns |
 |---|---|
-| `users` | id, email, display_name, bio, avatar_url, push_token, auth_provider, subscription_tier, created_at |
-| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at |
+| `users` | id, email, display_name, bio, avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), created_at |
+| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active) |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending) |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
@@ -225,13 +237,27 @@ For equal-width thumbnail rows, use `flex: 1, aspectRatio: 1` — **not** `width
 
 ---
 
+## Theme System
+
+The primary accent color is user-customizable. All app screens use `useTheme()` from `src/context/ThemeContext.tsx` — never hardcode `#FF6B35` in app screens.
+
+```tsx
+const { accentColor, setAccentColor } = useTheme();
+```
+
+`ThemeProvider` wraps `NavigationContainer` in `App.tsx`. It loads `users.accent_color` from Supabase on login and resets to the default on logout. `setAccentColor` updates state instantly and persists to Supabase in the background.
+
+**Auth screens (LoginScreen, SignUpScreen, WelcomeScreen) keep the static `#FF6B35`** — no user is loaded at that point.
+
+**For StyleSheet.create():** keep `#FF6B35` as a static fallback in style definitions. Apply `accentColor` as an inline override in JSX: `style={[styles.btn, { backgroundColor: accentColor }]}`.
+
 ## Design System
 
 Dark theme throughout.
 
 | Token | Value |
 |---|---|
-| Primary (orange) | `#FF6B35` |
+| Primary (accent) | `accentColor` from `useTheme()` — default `#FF6B35` |
 | Background | `#0A0A0A` |
 | Surface | `#1A1A1A` |
 | Border | `#2A2A2A` |
@@ -247,10 +273,29 @@ Tab bar height: 60px, background `#111111`, top border `#1E1E1E`.
 
 ---
 
+## Owner-Only Capsule Actions
+
+All of the following are owner-only and silently no-op / navigate away if not owner:
+
+- **Edit capsule** (`EditCapsuleScreen`) — title, description, unlock date, contribution lock date. Accessible via "Edit" button in CapsuleDetail header and long-press on a card in HomeScreen. Blocked if capsule is already unlocked.
+- **Archive capsule** — sets `archived_at`. Hides from main feed; appears in collapsible "Archived" section on Home with a Restore button. Available from EditCapsule and CapsuleDetail danger zones.
+- **Delete capsule** — clears storage files from `capsule-media` bucket first, then deletes the capsule row (cascades to members, media, reactions, notifications). Confirmation alert required. Available from EditCapsule and CapsuleDetail danger zones.
+- **Manage members** (`ManageMembersScreen`) — lists all members (joined + pending). Trash icon removes a member after confirmation. Accessible via "Manage" button in CapsuleDetail members section.
+
+## Settings Screen (`SettingsScreen`)
+
+HSV color picker built with `expo-linear-gradient`:
+- 2D saturation/brightness panel: two stacked `LinearGradient`s (white→hue horizontal, transparent→black vertical)
+- Hue slider: full-spectrum `LinearGradient` strip
+- Touch via `onStartShouldSetResponder` / `onResponderMove` — `locationX`/`locationY` from `nativeEvent` are relative to the touched view (no page coordinate math needed)
+- Hex input for precision — updates the HSV state on valid 6-char hex
+- Save button writes to `users.accent_color` via `ThemeContext.setAccentColor`
+
 ## Utilities
 
 - `src/lib/uuid.ts` — `randomUUID()`. Use this instead of `crypto.randomUUID()` — `crypto` global is not reliably typed in the Expo TS config.
 - `src/lib/googleAuth.ts` — `signInWithGoogle()`. Returns `{ error?: string }`.
+- `src/context/ThemeContext.tsx` — `useTheme()` returns `{ accentColor, setAccentColor }`. `ThemeProvider` must wrap the app.
 
 ## Environment
 
