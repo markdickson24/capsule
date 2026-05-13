@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
-  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
+  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch, Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
@@ -89,6 +89,8 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [fetching, setFetching] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -143,6 +145,41 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     navigation.goBack();
   }
 
+  async function handleArchive() {
+    setArchiving(true);
+    await supabase.from('capsules').update({ archived_at: new Date().toISOString() }).eq('id', capsuleId);
+    setArchiving(false);
+    navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+  }
+
+  async function handleDelete() {
+    Alert.alert(
+      'Delete Capsule',
+      'This permanently deletes the capsule and all its media. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            const { data: mediaRows } = await supabase
+              .from('media')
+              .select('storage_key, thumbnail_key')
+              .eq('capsule_id', capsuleId);
+            const keys = (mediaRows ?? []).flatMap((m: any) =>
+              [m.storage_key, m.thumbnail_key].filter(Boolean)
+            );
+            if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
+            await supabase.from('capsules').delete().eq('id', capsuleId);
+            setDeleting(false);
+            navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+          },
+        },
+      ]
+    );
+  }
+
   if (fetching) {
     return (
       <SafeAreaView style={styles.container}>
@@ -193,6 +230,26 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
         </TouchableOpacity>
+
+        <View style={styles.dangerZone}>
+          <Text style={styles.dangerLabel}>Danger Zone</Text>
+          <TouchableOpacity style={styles.archiveBtn} onPress={handleArchive} disabled={archiving || deleting}>
+            {archiving ? <ActivityIndicator color="#888888" size="small" /> : (
+              <>
+                <Ionicons name="archive-outline" size={18} color="#888888" />
+                <Text style={styles.archiveBtnText}>Archive Capsule</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} disabled={archiving || deleting}>
+            {deleting ? <ActivityIndicator color="#FF3B30" size="small" /> : (
+              <>
+                <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                <Text style={styles.deleteBtnText}>Delete Capsule</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -239,4 +296,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   saveButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  dangerZone: { gap: 10, marginTop: 8, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
+  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#444444', textTransform: 'uppercase', letterSpacing: 0.5 },
+  archiveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 14, paddingVertical: 16,
+    backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  archiveBtnText: { color: '#888888', fontSize: 16, fontWeight: '600' },
+  deleteBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 14, paddingVertical: 16,
+    backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#3A1A1A',
+  },
+  deleteBtnText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
 });

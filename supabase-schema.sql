@@ -23,7 +23,8 @@ create table public.capsules (
   contribution_lock_at timestamptz,
   status text not null default 'draft' check (status in ('draft', 'active', 'unlocked')),
   visibility text not null default 'invite' check (visibility in ('private', 'invite')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  archived_at timestamptz
 );
 
 -- Capsule members table

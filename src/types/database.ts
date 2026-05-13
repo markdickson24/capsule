@@ -26,6 +26,7 @@ export interface Capsule {
   status: CapsuleStatus;
   visibility: CapsuleVisibility;
   created_at: string;
+  archived_at: string | null;
 }
 
 export interface CapsuleMember {

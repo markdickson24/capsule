@@ -61,12 +61,33 @@ function CapsuleCard({ capsule, onPress, onLongPress }: { capsule: CapsuleWithCo
   );
 }
 
+function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCountdown; onPress: () => void; onRestore: () => void }) {
+  return (
+    <TouchableOpacity style={styles.archivedCard} onPress={onPress}>
+      <View style={styles.archivedCardInner}>
+        <Ionicons name="archive-outline" size={18} color="#555555" />
+        <View style={styles.archivedCardText}>
+          <Text style={styles.archivedTitle} numberOfLines={1}>{capsule.title}</Text>
+          <Text style={styles.archivedDate}>
+            {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </Text>
+        </View>
+        <TouchableOpacity style={styles.restoreBtn} onPress={onRestore}>
+          <Text style={styles.restoreBtnText}>Restore</Text>
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [capsules, setCapsules] = useState<CapsuleWithCountdown[]>([]);
+  const [archivedCapsules, setArchivedCapsules] = useState<CapsuleWithCountdown[]>([]);
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
 
   async function fetchCapsules() {
     const { data: { user } } = await supabase.auth.getUser();
@@ -81,11 +102,12 @@ export default function HomeScreen() {
 
     if (error || !data) return;
 
-    const enriched: CapsuleWithCountdown[] = data
+    const all: CapsuleWithCountdown[] = data
       .map((row: any) => row.capsules)
       .filter(Boolean);
 
-    setCapsules(enriched);
+    setCapsules(all.filter(c => !c.archived_at));
+    setArchivedCapsules(all.filter(c => c.archived_at && c.owner_id === user.id));
   }
 
   useFocusEffect(useCallback(() => {
@@ -97,6 +119,11 @@ export default function HomeScreen() {
     setRefreshing(true);
     await fetchCapsules();
     setRefreshing(false);
+  }
+
+  async function restoreCapsule(capsuleId: string) {
+    await supabase.from('capsules').update({ archived_at: null }).eq('id', capsuleId);
+    await fetchCapsules();
   }
 
   if (loading) {
@@ -114,7 +141,7 @@ export default function HomeScreen() {
         {capsules.length > 0 && <Text style={styles.count}>{capsules.length} total</Text>}
       </View>
 
-      {capsules.length === 0 ? (
+      {capsules.length === 0 && archivedCapsules.length === 0 ? (
         <View style={styles.empty}>
           <View style={styles.emptyArt}>
             <View style={styles.emptyArtBack}><Ionicons name="camera-outline" size={52} color="#FFFFFF" /></View>
@@ -149,6 +176,25 @@ export default function HomeScreen() {
           )}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
+          ListFooterComponent={
+            archivedCapsules.length > 0 ? (
+              <View style={styles.archivedSection}>
+                <TouchableOpacity style={styles.archivedHeader} onPress={() => setShowArchived(v => !v)}>
+                  <Ionicons name="archive-outline" size={16} color="#555555" />
+                  <Text style={styles.archivedHeaderText}>Archived ({archivedCapsules.length})</Text>
+                  <Ionicons name={showArchived ? 'chevron-up' : 'chevron-down'} size={16} color="#555555" />
+                </TouchableOpacity>
+                {showArchived && archivedCapsules.map(c => (
+                  <ArchivedCard
+                    key={c.id}
+                    capsule={c}
+                    onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: c.id })}
+                    onRestore={() => restoreCapsule(c.id)}
+                  />
+                ))}
+              </View>
+            ) : null
+          }
         />
       )}
     </SafeAreaView>
@@ -186,4 +232,30 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },
+  archivedSection: { marginTop: 8, marginHorizontal: 0 },
+  archivedHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingVertical: 12, paddingHorizontal: 4,
+  },
+  archivedHeaderText: { flex: 1, fontSize: 14, color: '#555555', fontWeight: '600' },
+  archivedCard: {
+    backgroundColor: '#111111',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    marginBottom: 8,
+  },
+  archivedCardInner: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 12 },
+  archivedCardText: { flex: 1, gap: 2 },
+  archivedTitle: { fontSize: 15, fontWeight: '600', color: '#666666' },
+  archivedDate: { fontSize: 12, color: '#444444' },
+  restoreBtn: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  restoreBtnText: { color: '#AAAAAA', fontSize: 13, fontWeight: '600' },
 });

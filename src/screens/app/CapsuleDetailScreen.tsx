@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList,
+  Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList, Alert,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -1018,6 +1018,58 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             )}
           </View>
         )}
+
+        {isOwner && (
+          <View style={styles.dangerZone}>
+            <Text style={styles.dangerLabel}>Danger Zone</Text>
+            <TouchableOpacity
+              style={styles.archiveBtn}
+              onPress={async () => {
+                const isArchived = !!(capsule as any).archived_at;
+                if (isArchived) {
+                  await supabase.from('capsules').update({ archived_at: null }).eq('id', capsuleId);
+                } else {
+                  await supabase.from('capsules').update({ archived_at: new Date().toISOString() }).eq('id', capsuleId);
+                }
+                navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+              }}
+            >
+              <Ionicons name="archive-outline" size={18} color="#888888" />
+              <Text style={styles.archiveBtnText}>
+                {(capsule as any).archived_at ? 'Restore Capsule' : 'Archive Capsule'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.deleteBtn}
+              onPress={() => {
+                Alert.alert(
+                  'Delete Capsule',
+                  'This permanently deletes the capsule and all its media. This cannot be undone.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete',
+                      style: 'destructive',
+                      onPress: async () => {
+                        const { data: mediaRows } = await supabase
+                          .from('media').select('storage_key, thumbnail_key').eq('capsule_id', capsuleId);
+                        const keys = (mediaRows ?? []).flatMap((m: any) =>
+                          [m.storage_key, m.thumbnail_key].filter(Boolean)
+                        );
+                        if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
+                        await supabase.from('capsules').delete().eq('id', capsuleId);
+                        navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+                      },
+                    },
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+              <Text style={styles.deleteBtnText}>Delete Capsule</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       <MediaGalleryModal
@@ -1145,6 +1197,20 @@ const styles = StyleSheet.create({
   },
   addPhotoBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   errorText: { color: '#FF3B30', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  dangerZone: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
+  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#444444', textTransform: 'uppercase', letterSpacing: 0.5 },
+  archiveBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 14, paddingVertical: 16,
+    backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  archiveBtnText: { color: '#888888', fontSize: 16, fontWeight: '600' },
+  deleteBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 14, paddingVertical: 16,
+    backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#3A1A1A',
+  },
+  deleteBtnText: { color: '#FF3B30', fontSize: 16, fontWeight: '600' },
   revealOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: '#000000CC', justifyContent: 'center', alignItems: 'center', gap: 12,
