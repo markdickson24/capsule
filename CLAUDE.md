@@ -78,7 +78,9 @@ RootNavigator (App.tsx)
                       (animation: 'none')
 ```
 
-**`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
+**`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
+
+**Deep links** — `capsule://join/<capsuleId>` is handled by `useDeepLinks` (`src/hooks/useDeepLinks.ts`), called from `RootNavigator` in `App.tsx`. On receipt: inserts a pending `capsule_members` row + `notifications` row (type: 'invite') if the user isn't already a member, then navigates to the Notifications tab. The scheme `capsule://` is registered in `app.json`.
 
 ---
 

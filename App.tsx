@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from './src/hooks/useAuth';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
+import { useDeepLinks } from './src/hooks/useDeepLinks';
 import { navigationRef } from './src/lib/navigationRef';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -11,6 +12,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 function RootNavigator() {
   const { session, loading } = useAuth();
   usePushNotifications(session?.user.id);
+  useDeepLinks();
 
   if (loading) {
     return (

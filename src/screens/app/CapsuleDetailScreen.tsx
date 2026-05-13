@@ -220,7 +220,9 @@ function InviteModal({
   }
 
   async function shareLink() {
-    await Share.share({ message: `Join my Capsule! Use this invite code: ${capsuleId}` });
+    await Share.share({
+      message: `Join my Capsule "${capsuleTitle}"! Tap to join: capsule://join/${capsuleId}`,
+    });
   }
 
   return (
