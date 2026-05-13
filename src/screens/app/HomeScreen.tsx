@@ -40,10 +40,10 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
   return <Text style={styles.countdownText}>{hoursLeft}h left</Text>;
 }
 
-function CapsuleCard({ capsule, onPress }: { capsule: CapsuleWithCountdown; onPress: () => void }) {
+function CapsuleCard({ capsule, onPress, onLongPress }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void }) {
   const isLocked = capsule.status !== 'unlocked';
   return (
-    <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]} onPress={onPress}>
+    <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]} onPress={onPress} onLongPress={onLongPress} delayLongPress={400}>
       <View style={styles.cardTop}>
         <Ionicons
           name={isLocked ? 'time-outline' : 'lock-open-outline'}
@@ -64,12 +64,14 @@ function CapsuleCard({ capsule, onPress }: { capsule: CapsuleWithCountdown; onPr
 export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [capsules, setCapsules] = useState<CapsuleWithCountdown[]>([]);
+  const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   async function fetchCapsules() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
+    setUserId(user.id);
 
     const { data, error } = await supabase
       .from('capsule_members')
@@ -138,6 +140,11 @@ export default function HomeScreen() {
             <CapsuleCard
               capsule={item}
               onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: item.id })}
+              onLongPress={
+                item.owner_id === userId && item.status !== 'unlocked'
+                  ? () => navigation.navigate('EditCapsule', { capsuleId: item.id })
+                  : undefined
+              }
             />
           )}
           contentContainerStyle={styles.list}

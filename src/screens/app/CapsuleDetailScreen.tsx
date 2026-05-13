@@ -805,7 +805,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   if (error || !capsule) {
     return (
       <SafeAreaView style={styles.container}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.topBar} onPress={() => navigation.goBack()}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.errorText}>{error || 'Capsule not found.'}</Text>
@@ -833,9 +833,20 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Back</Text>
-      </TouchableOpacity>
+      <View style={styles.topBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
+          <Text style={styles.backText}>← Back</Text>
+        </TouchableOpacity>
+        {isOwner && isLocked && (
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => navigation.navigate('EditCapsule', { capsuleId: capsule.id })}
+          >
+            <Ionicons name="pencil-outline" size={18} color="#FF6B35" />
+            <Text style={styles.editBtnText}>Edit</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
@@ -1051,8 +1062,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  backBtn: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
+  topBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4,
+  },
   backText: { color: '#FF6B35', fontSize: 16, fontWeight: '600' },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  editBtnText: { color: '#FF6B35', fontSize: 15, fontWeight: '600' },
   scroll: { paddingHorizontal: 24, paddingBottom: 48, gap: 16 },
   hero: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 8 },
   statusBadge: {
