@@ -880,9 +880,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Members</Text>
           {isOwner && (
-            <TouchableOpacity style={styles.inviteBtn} onPress={() => setShowInvite(true)}>
-              <Text style={styles.inviteBtnText}>+ Invite</Text>
-            </TouchableOpacity>
+            <View style={styles.memberActions}>
+              <TouchableOpacity
+                style={styles.manageBtn}
+                onPress={() => navigation.navigate('ManageMembers', { capsuleId })}
+              >
+                <Text style={styles.manageBtnText}>Manage</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.inviteBtn} onPress={() => setShowInvite(true)}>
+                <Text style={styles.inviteBtnText}>+ Invite</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
 
@@ -1144,6 +1152,13 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   photoCount: { fontSize: 14, color: '#555555' },
+  memberActions: { flexDirection: 'row', gap: 8 },
+  manageBtn: {
+    backgroundColor: '#1A1A1A', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  manageBtnText: { color: '#888888', fontWeight: '600', fontSize: 14 },
   inviteBtn: {
     backgroundColor: '#FF6B3520', borderRadius: 8,
     paddingHorizontal: 12, paddingVertical: 6,

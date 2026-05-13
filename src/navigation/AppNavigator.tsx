@@ -17,6 +17,7 @@ import PublicProfileScreen from '../screens/app/PublicProfileScreen';
 import PreviewScreen from '../screens/app/PreviewScreen';
 import ResetPasswordScreen from '../screens/app/ResetPasswordScreen';
 import EditCapsuleScreen from '../screens/app/EditCapsuleScreen';
+import ManageMembersScreen from '../screens/app/ManageMembersScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -222,6 +223,7 @@ export default function AppNavigator() {
       />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       <Stack.Screen name="EditCapsule" component={EditCapsuleScreen} />
+      <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
     </Stack.Navigator>
   );
 }

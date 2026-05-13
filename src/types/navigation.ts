@@ -19,6 +19,7 @@ export type AppStackParamList = {
   Preview: { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back' };
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };
+  ManageMembers: { capsuleId: string };
 };
 
 export type RootStackParamList = {
