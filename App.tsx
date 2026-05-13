@@ -25,9 +25,13 @@ function RootNavigator() {
   return session ? <AppNavigator /> : <AuthNavigator />;
 }
 
+const linking = {
+  prefixes: ['capsule://'],
+};
+
 export default function App() {
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} linking={linking}>
       <StatusBar style="light" />
       <RootNavigator />
     </NavigationContainer>
