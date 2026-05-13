@@ -137,7 +137,7 @@ export default function CreateScreen() {
 
     if (capsuleError) {
       setLoading(false);
-      setError(capsuleError.message);
+      setError('Failed to create capsule. Please try again.');
       return;
     }
 
@@ -150,7 +150,7 @@ export default function CreateScreen() {
 
     if (memberError) {
       setLoading(false);
-      setError('Capsule created but failed to set owner: ' + memberError.message);
+      setError('Capsule created but could not set owner. Please try again.');
       return;
     }
 

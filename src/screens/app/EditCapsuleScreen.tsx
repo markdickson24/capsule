@@ -144,7 +144,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
       .eq('id', capsuleId);
     setSaving(false);
 
-    if (err) { setError(err.message); return; }
+    if (err) { setError('Failed to save changes. Please try again.'); return; }
     navigation.goBack();
   }
 
