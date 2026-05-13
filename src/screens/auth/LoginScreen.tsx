@@ -19,6 +19,10 @@ export default function LoginScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showForgot, setShowForgot] = useState(false);
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
@@ -33,6 +37,18 @@ export default function LoginScreen({ navigation }: Props) {
     });
     setLoading(false);
     if (err) setError(err.message);
+  }
+
+  async function handleForgot() {
+    if (!resetEmail.trim()) { setError('Enter your email address.'); return; }
+    setResetLoading(true);
+    setError('');
+    const { error: err } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+      redirectTo: 'capsule://reset-password',
+    });
+    setResetLoading(false);
+    if (err) { setError(err.message); return; }
+    setResetSent(true);
   }
 
   async function handleGoogle() {
@@ -78,6 +94,38 @@ export default function LoginScreen({ navigation }: Props) {
         </TouchableOpacity>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
+
+        {!showForgot ? (
+          <TouchableOpacity onPress={() => { setShowForgot(true); setError(''); }}>
+            <Text style={styles.forgotText}>Forgot password?</Text>
+          </TouchableOpacity>
+        ) : resetSent ? (
+          <View style={styles.resetSuccess}>
+            <Text style={styles.resetSuccessText}>Check your email for a reset link.</Text>
+            <TouchableOpacity onPress={() => { setShowForgot(false); setResetSent(false); setResetEmail(''); }}>
+              <Text style={styles.link}>Back to sign in</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.forgotForm}>
+            <TextInput
+              style={styles.input}
+              placeholder="Your email address"
+              placeholderTextColor="#555"
+              value={resetEmail}
+              onChangeText={setResetEmail}
+              autoCapitalize="none"
+              keyboardType="email-address"
+              autoFocus
+            />
+            <TouchableOpacity style={styles.resetButton} onPress={handleForgot} disabled={resetLoading}>
+              {resetLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Send Reset Link</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => { setShowForgot(false); setError(''); }}>
+              <Text style={styles.forgotText}>Back to sign in</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.divider}>
           <View style={styles.dividerLine} />
@@ -133,6 +181,18 @@ const styles = StyleSheet.create({
   switchText: { color: '#888888', textAlign: 'center', fontSize: 15 },
   link: { color: '#FF6B35', fontWeight: '600' },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
+  forgotText: { color: '#888888', fontSize: 14, textAlign: 'center' },
+  forgotForm: { gap: 12 },
+  resetButton: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FF6B35',
+  },
+  resetSuccess: { gap: 8, alignItems: 'center' },
+  resetSuccessText: { color: '#30D158', fontSize: 14, textAlign: 'center' },
   divider: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#2A2A2A' },
   dividerText: { color: '#555555', fontSize: 14 },

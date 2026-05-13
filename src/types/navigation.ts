@@ -17,6 +17,7 @@ export type AppStackParamList = {
   CapsuleDetail: { capsuleId: string };
   PublicProfile: { userId: string };
   Preview: { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back' };
+  ResetPassword: undefined;
 };
 
 export type RootStackParamList = {

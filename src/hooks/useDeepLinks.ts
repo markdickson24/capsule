@@ -13,6 +13,22 @@ function navigateWhenReady(fn: () => void) {
 
 async function handleUrl(url: string | null) {
   if (!url) return;
+
+  // Password reset: capsule://reset-password#access_token=...&refresh_token=...
+  if (url.includes('reset-password')) {
+    const fragment = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
+    if (!fragment) return;
+    const params = new URLSearchParams(fragment);
+    const access_token = params.get('access_token');
+    const refresh_token = params.get('refresh_token');
+    if (!access_token || !refresh_token) return;
+    await supabase.auth.setSession({ access_token, refresh_token });
+    navigateWhenReady(() => {
+      (navigationRef as any).navigate('ResetPassword');
+    });
+    return;
+  }
+
   const match = url.match(/capsule:\/\/join\/([a-zA-Z0-9-]+)/);
   if (!match) return;
   const capsuleId = match[1];
