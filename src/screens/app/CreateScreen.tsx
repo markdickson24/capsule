@@ -1,7 +1,7 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
-  TouchableOpacity, ScrollView, ActivityIndicator,
+  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -9,168 +9,96 @@ import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 type Permission = 'contributor' | 'viewer';
 
-interface DateFields {
-  month: string;
-  day: string;
-  year: string;
-  hour: string;
-  minute: string;
-}
-
-function buildDate(fields: DateFields): Date | null {
-  const { month, day, year, hour, minute } = fields;
-  if (!month || !day || !year) return null;
-  const m = parseInt(month), d = parseInt(day), y = parseInt(year);
-  const h = parseInt(hour || '0'), min = parseInt(minute || '0');
-  if (isNaN(m) || isNaN(d) || isNaN(y)) return null;
-  if (m < 1 || m > 12 || d < 1 || d > 31 || y < 2024) return null;
-  const date = new Date(y, m - 1, d, h, min);
-  return isNaN(date.getTime()) ? null : date;
-}
-
 function formatDate(date: Date) {
   return date.toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+    month: 'long', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
   });
 }
 
-function DatePicker({ label, optional, fields, onChange }: {
+function defaultUnlockDate() {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 1);
+  return d;
+}
+
+function DatePickerField({ label, optional, value, onChange }: {
   label: string;
   optional?: boolean;
-  fields: DateFields;
-  onChange: (fields: DateFields) => void;
+  value: Date | null;
+  onChange: (date: Date | null) => void;
 }) {
-  const dayRef = useRef<TextInput>(null);
-  const yearRef = useRef<TextInput>(null);
-  const hourRef = useRef<TextInput>(null);
-  const minuteRef = useRef<TextInput>(null);
-
-  const date = buildDate(fields);
+  const fallback = defaultUnlockDate();
+  const isEnabled = !optional || value !== null;
+  const selected = value ?? fallback;
 
   return (
     <View style={styles.section}>
-      <Text style={styles.label}>
-        {label}{optional && <Text style={styles.optional}> (optional)</Text>}
-      </Text>
-      <View style={styles.dateRow}>
-        <View style={styles.dateFieldWrap}>
-          <TextInput
-            style={styles.dateInput}
-            placeholder="MM"
-            placeholderTextColor="#555"
-            value={fields.month}
-            onChangeText={(v) => {
-              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
-              onChange({ ...fields, month: cleaned });
-              if (cleaned.length === 2) dayRef.current?.focus();
-            }}
-            keyboardType="number-pad"
-            maxLength={2}
+      <View style={styles.dateHeader}>
+        <Text style={styles.label}>{label}</Text>
+        {optional ? (
+          <Switch
+            value={isEnabled}
+            onValueChange={(on) => onChange(on ? fallback : null)}
+            trackColor={{ false: '#2A2A2A', true: '#FF6B35' }}
+            thumbColor="#FFFFFF"
           />
-          <Text style={styles.dateLabel}>Month</Text>
-        </View>
-
-        <Text style={styles.dateSep}>/</Text>
-
-        <View style={styles.dateFieldWrap}>
-          <TextInput
-            ref={dayRef}
-            style={styles.dateInput}
-            placeholder="DD"
-            placeholderTextColor="#555"
-            value={fields.day}
-            onChangeText={(v) => {
-              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
-              onChange({ ...fields, day: cleaned });
-              if (cleaned.length === 2) yearRef.current?.focus();
-            }}
-            keyboardType="number-pad"
-            maxLength={2}
-          />
-          <Text style={styles.dateLabel}>Day</Text>
-        </View>
-
-        <Text style={styles.dateSep}>/</Text>
-
-        <View style={[styles.dateFieldWrap, styles.dateFieldWide]}>
-          <TextInput
-            ref={yearRef}
-            style={styles.dateInput}
-            placeholder="YYYY"
-            placeholderTextColor="#555"
-            value={fields.year}
-            onChangeText={(v) => {
-              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 4);
-              onChange({ ...fields, year: cleaned });
-              if (cleaned.length === 4) hourRef.current?.focus();
-            }}
-            keyboardType="number-pad"
-            maxLength={4}
-          />
-          <Text style={styles.dateLabel}>Year</Text>
-        </View>
-
-        <View style={styles.dateFieldWrap}>
-          <TextInput
-            ref={hourRef}
-            style={styles.dateInput}
-            placeholder="HH"
-            placeholderTextColor="#555"
-            value={fields.hour}
-            onChangeText={(v) => {
-              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
-              onChange({ ...fields, hour: cleaned });
-              if (cleaned.length === 2) minuteRef.current?.focus();
-            }}
-            keyboardType="number-pad"
-            maxLength={2}
-          />
-          <Text style={styles.dateLabel}>Hour</Text>
-        </View>
-
-        <Text style={styles.dateSep}>:</Text>
-
-        <View style={styles.dateFieldWrap}>
-          <TextInput
-            ref={minuteRef}
-            style={styles.dateInput}
-            placeholder="MM"
-            placeholderTextColor="#555"
-            value={fields.minute}
-            onChangeText={(v) => {
-              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
-              onChange({ ...fields, minute: cleaned });
-            }}
-            keyboardType="number-pad"
-            maxLength={2}
-          />
-          <Text style={styles.dateLabel}>Min</Text>
-        </View>
+        ) : (
+          <Ionicons name="calendar-outline" size={18} color="#888888" />
+        )}
       </View>
 
-      {date && <Text style={styles.datePreview}>📅 {formatDate(date)}</Text>}
+      {isEnabled && (
+        <>
+          <View style={styles.dateDisplayBox}>
+            <Text style={styles.dateDisplayText}>{formatDate(selected)}</Text>
+          </View>
+          <DateTimePicker
+            value={selected}
+            mode="date"
+            display={Platform.OS === 'web' ? 'default' : 'spinner'}
+            onChange={(_, date) => {
+              if (!date) return;
+              const merged = new Date(selected);
+              merged.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
+              onChange(merged);
+            }}
+            minimumDate={new Date()}
+            themeVariant="dark"
+            style={styles.spinner}
+          />
+          <DateTimePicker
+            value={selected}
+            mode="time"
+            display={Platform.OS === 'web' ? 'default' : 'spinner'}
+            onChange={(_, date) => {
+              if (!date) return;
+              const merged = new Date(selected);
+              merged.setHours(date.getHours(), date.getMinutes());
+              onChange(merged);
+            }}
+            themeVariant="dark"
+            style={styles.spinner}
+          />
+        </>
+      )}
     </View>
   );
 }
-
-const emptyDate: DateFields = { month: '', day: '', year: '', hour: '', minute: '' };
 
 export default function CreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [unlockFields, setUnlockFields] = useState<DateFields>(emptyDate);
-  const [contribFields, setContribFields] = useState<DateFields>(emptyDate);
+  const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
+  const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-
-  const unlockDate = buildDate(unlockFields);
-  const contributionLockDate = buildDate(contribFields);
 
   async function handleCreate() {
     setError('');
@@ -178,7 +106,7 @@ export default function CreateScreen() {
     if (!title.trim()) { setError('Give your capsule a name.'); return; }
     if (!unlockDate) { setError('Set a valid unlock date.'); return; }
     if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
-    if (contributionLockDate && contributionLockDate >= unlockDate) {
+    if (contribLockDate && contribLockDate >= unlockDate) {
       setError('Contribution lock must be before the unlock date.');
       return;
     }
@@ -199,7 +127,7 @@ export default function CreateScreen() {
         title: title.trim(),
         description: description.trim() || null,
         unlock_at: unlockDate.toISOString(),
-        contribution_lock_at: contributionLockDate?.toISOString() ?? null,
+        contribution_lock_at: contribLockDate?.toISOString() ?? null,
         status: 'active',
         visibility: 'invite',
       });
@@ -257,8 +185,8 @@ export default function CreateScreen() {
           />
         </View>
 
-        <DatePicker label="Unlock Date" fields={unlockFields} onChange={setUnlockFields} />
-        <DatePicker label="Stop Contributions On" optional fields={contribFields} onChange={setContribFields} />
+        <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+        <DatePickerField label="Stop Contributions On" optional value={contribLockDate} onChange={setContribLockDate} />
 
         <View style={styles.section}>
           <Text style={styles.label}>Invited people can</Text>
@@ -282,11 +210,11 @@ export default function CreateScreen() {
 
         <TouchableOpacity style={styles.createButton} onPress={handleCreate} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : (
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.createButtonText}>Lock Capsule</Text>
-                <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
-              </View>
-            )}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={styles.createButtonText}>Lock Capsule</Text>
+              <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+            </View>
+          )}
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -312,23 +240,17 @@ const styles = StyleSheet.create({
     borderColor: '#2A2A2A',
   },
   textarea: { minHeight: 80, textAlignVertical: 'top' },
-  dateRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
-  dateFieldWrap: { alignItems: 'center', gap: 4 },
-  dateFieldWide: { width: 64 },
-  dateInput: {
+  dateHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  dateDisplayBox: {
     backgroundColor: '#1A1A1A',
-    borderRadius: 10,
+    borderRadius: 12,
+    paddingHorizontal: 16,
     paddingVertical: 14,
-    color: '#FFFFFF',
-    fontSize: 16,
     borderWidth: 1,
     borderColor: '#2A2A2A',
-    width: 48,
-    textAlign: 'center',
   },
-  dateLabel: { fontSize: 10, color: '#555555', textTransform: 'uppercase', letterSpacing: 0.3 },
-  dateSep: { color: '#555555', fontSize: 20, paddingTop: 12 },
-  datePreview: { fontSize: 13, color: '#FF6B35', paddingLeft: 4 },
+  dateDisplayText: { color: '#FFFFFF', fontSize: 18, fontWeight: '600' },
+  spinner: { marginTop: -8 },
   toggle: { flexDirection: 'row', gap: 8 },
   toggleOption: {
     flex: 1, paddingVertical: 14, borderRadius: 12,
