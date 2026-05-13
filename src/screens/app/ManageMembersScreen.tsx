@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { Avatar } from './ProfileScreen';
+import { useTheme } from '../../context/ThemeContext';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'ManageMembers'>;
 
@@ -26,6 +27,7 @@ const roleLabel: Record<string, string> = {
 };
 
 export default function ManageMembersScreen({ route, navigation }: Props) {
+  const { accentColor } = useTheme();
   const { capsuleId } = route.params;
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [currentUserId, setCurrentUserId] = useState('');
@@ -78,7 +80,7 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color="#FF6B35" style={{ marginTop: 80 }} />
+        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
       </SafeAreaView>
     );
   }
@@ -86,7 +88,7 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Back</Text>
+        <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
       </TouchableOpacity>
 
       <Text style={styles.title}>Members</Text>
@@ -108,8 +110,8 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
               <View style={styles.info}>
                 <Text style={styles.name}>{displayName}</Text>
                 <View style={styles.badges}>
-                  <View style={[styles.roleBadge, isOwner && styles.roleBadgeOwner]}>
-                    <Text style={[styles.roleText, isOwner && styles.roleTextOwner]}>
+                  <View style={[styles.roleBadge, isOwner && [styles.roleBadgeOwner, { borderColor: `${accentColor}50` }]]}>
+                    <Text style={[styles.roleText, isOwner && [styles.roleTextOwner, { color: accentColor }]]}>
                       {roleLabel[item.role] ?? item.role}
                     </Text>
                   </View>

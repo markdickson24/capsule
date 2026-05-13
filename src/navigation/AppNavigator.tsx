@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import { supabase } from '../lib/supabase';
+import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
 import CameraScreen from '../screens/app/CameraScreen';
@@ -18,6 +19,7 @@ import PreviewScreen from '../screens/app/PreviewScreen';
 import ResetPasswordScreen from '../screens/app/ResetPasswordScreen';
 import EditCapsuleScreen from '../screens/app/EditCapsuleScreen';
 import ManageMembersScreen from '../screens/app/ManageMembersScreen';
+import SettingsScreen from '../screens/app/SettingsScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -33,6 +35,7 @@ const TAB_CONFIG: Record<string, TabConfig> = {
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { accentColor } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
@@ -66,7 +69,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               <View key={route.key} style={styles.cameraSlot}>
                 <View style={styles.cameraRing}>
                   <TouchableOpacity
-                    style={[styles.cameraBtn, isFocused && styles.cameraBtnActive]}
+                    style={[styles.cameraBtn, { backgroundColor: accentColor }, isFocused && styles.cameraBtnActive]}
                     onPress={onPress}
                     activeOpacity={0.85}
                   >
@@ -90,7 +93,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 <Ionicons
                   name={isFocused ? config.iconFilled : config.icon}
                   size={22}
-                  color={isFocused ? '#FF6B35' : '#555555'}
+                  color={isFocused ? accentColor : '#555555'}
                 />
                 {showBadge && (
                   <View style={styles.badge}>
@@ -100,10 +103,10 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                   </View>
                 )}
               </View>
-              <Text style={[styles.label, isFocused && styles.labelActive]}>
+              <Text style={[styles.label, isFocused && { color: accentColor }]}>
                 {config.label}
               </Text>
-              {isFocused && <View style={styles.underline} />}
+              {isFocused && <View style={[styles.underline, { backgroundColor: accentColor }]} />}
             </TouchableOpacity>
           );
         })}
@@ -224,6 +227,7 @@ export default function AppNavigator() {
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       <Stack.Screen name="EditCapsule" component={EditCapsuleScreen} />
       <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} />
     </Stack.Navigator>
   );
 }

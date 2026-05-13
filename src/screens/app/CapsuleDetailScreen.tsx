@@ -15,6 +15,7 @@ import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
+import { useTheme } from '../../context/ThemeContext';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -82,6 +83,7 @@ function ProgressRing({ progress, size = 160, stroke = 10, color = '#FF6B35', tr
 }
 
 function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: string | null }) {
+  const { accentColor } = useTheme();
   const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
@@ -109,14 +111,14 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
   return (
     <View style={cds.wrap}>
       <View style={{ width: 180, height: 180 }}>
-        <ProgressRing progress={progress} size={180} stroke={12} />
+        <ProgressRing progress={progress} size={180} stroke={12} color={accentColor} />
         <View style={cds.center}>
-          <Ionicons name="lock-closed" size={48} color="#FF6B35" />
+          <Ionicons name="lock-closed" size={48} color={accentColor} />
         </View>
       </View>
       <Text style={cds.title}>Capsule locked</Text>
       <Text style={cds.date}>Unlocks {unlockDateStr}</Text>
-      <Text style={cds.left}>{timeStr}</Text>
+      <Text style={[cds.left, { color: accentColor }]}>{timeStr}</Text>
     </View>
   );
 }
@@ -173,6 +175,7 @@ function InviteModal({
   onClose: () => void;
   onInvited: () => void;
 }) {
+  const { accentColor } = useTheme();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserResult[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
@@ -231,7 +234,7 @@ function InviteModal({
         <View style={ms.header}>
           <Text style={ms.title}>Invite People</Text>
           <TouchableOpacity onPress={onClose}>
-            <Text style={ms.done}>Done</Text>
+            <Text style={[ms.done, { color: accentColor }]}>Done</Text>
           </TouchableOpacity>
         </View>
 
@@ -252,12 +255,12 @@ function InviteModal({
           <View style={ms.results}>
             {results.map(u => (
               <View key={u.id} style={ms.row}>
-                <View style={ms.avatar}>
-                  <Text style={ms.avatarText}>{u.display_name[0].toUpperCase()}</Text>
+                <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
+                  <Text style={[ms.avatarText, { color: accentColor }]}>{u.display_name[0].toUpperCase()}</Text>
                 </View>
                 <Text style={ms.name}>{u.display_name}</Text>
                 <TouchableOpacity
-                  style={ms.inviteBtn}
+                  style={[ms.inviteBtn, { backgroundColor: accentColor }]}
                   onPress={() => invite(u.id)}
                   disabled={inviting === u.id}
                 >
@@ -304,6 +307,7 @@ function ReactionsBar({
   onAdd: (mediaId: string, emoji: string) => void;
   onRemove: (reactionId: string) => void;
 }) {
+  const { accentColor } = useTheme();
   const [showPicker, setShowPicker] = useState(false);
 
   const groups = REACTION_EMOJIS
@@ -337,7 +341,7 @@ function ReactionsBar({
         {groups.map(g => (
           <TouchableOpacity
             key={g.emoji}
-            style={[rs.pill, g.myReactionId && rs.pillMine]}
+            style={[rs.pill, g.myReactionId && [rs.pillMine, { borderColor: accentColor }]]}
             onPress={() => g.myReactionId ? onRemove(g.myReactionId) : onAdd(mediaId, g.emoji)}
           >
             <Text style={{ fontSize: 16 }}>{g.emoji}</Text>
@@ -581,6 +585,7 @@ function MediaGalleryModal({
 }
 
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
+  const { accentColor } = useTheme();
   const { capsuleId } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
@@ -797,7 +802,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color="#FF6B35" style={{ marginTop: 80 }} />
+        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
       </SafeAreaView>
     );
   }
@@ -806,7 +811,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     return (
       <SafeAreaView style={styles.container}>
         <TouchableOpacity style={styles.topBar} onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.errorText}>{error || 'Capsule not found.'}</Text>
       </SafeAreaView>
@@ -835,15 +840,15 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
         </TouchableOpacity>
         {isOwner && isLocked && (
           <TouchableOpacity
             style={styles.editBtn}
             onPress={() => navigation.navigate('EditCapsule', { capsuleId: capsule.id })}
           >
-            <Ionicons name="pencil-outline" size={18} color="#FF6B35" />
-            <Text style={styles.editBtnText}>Edit</Text>
+            <Ionicons name="pencil-outline" size={18} color={accentColor} />
+            <Text style={[styles.editBtnText, { color: accentColor }]}>Edit</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -887,8 +892,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               >
                 <Text style={styles.manageBtnText}>Manage</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.inviteBtn} onPress={() => setShowInvite(true)}>
-                <Text style={styles.inviteBtnText}>+ Invite</Text>
+              <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: `${accentColor}20` }]} onPress={() => setShowInvite(true)}>
+                <Text style={[styles.inviteBtnText, { color: accentColor }]}>+ Invite</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -965,7 +970,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                   style={styles.viewAllBtn}
                   onPress={() => setShowGallery(true)}
                 >
-                  <Text style={styles.viewAllText}>See all {photos.length}</Text>
+                  <Text style={[styles.viewAllText, { color: accentColor }]}>See all {photos.length}</Text>
                 </TouchableOpacity>
               )}
             </>
@@ -980,7 +985,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             <Ionicons name="lock-closed-outline" size={32} color="#555555" />
             <Text style={styles.lockedText}>Media reveals on {unlockDate}</Text>
             {photos.length > 0 && (
-              <Text style={styles.lockedCount}>{photos.length} {photos.length === 1 ? 'memory' : 'memories'} waiting</Text>
+              <Text style={[styles.lockedCount, { color: accentColor }]}>{photos.length} {photos.length === 1 ? 'memory' : 'memories'} waiting</Text>
             )}
           </View>
         )}
@@ -992,7 +997,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
             {uploading ? (
               <View style={styles.uploadingRow}>
-                <ActivityIndicator color="#FF6B35" size="small" />
+                <ActivityIndicator color={accentColor} size="small" />
                 <Text style={styles.uploadingText}>
                   Uploading {uploadCount.done}/{uploadCount.total}…
                 </Text>
@@ -1018,7 +1023,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </View>
             ) : (
               <TouchableOpacity
-                style={styles.addPhotoBtn}
+                style={[styles.addPhotoBtn, { backgroundColor: accentColor }]}
                 onPress={() => { setUploadError(''); setShowPickerOptions(true); }}
               >
                 <Text style={styles.addPhotoBtnText}>+ Add Photos</Text>

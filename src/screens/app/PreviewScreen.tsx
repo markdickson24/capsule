@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { randomUUID } from '../../lib/uuid';
 import { AppStackParamList } from '../../types/navigation';
+import { useTheme } from '../../context/ThemeContext';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Preview'>;
 
@@ -22,6 +23,7 @@ type CapsuleOption = {
 };
 
 export default function PreviewScreen({ route, navigation }: Props) {
+  const { accentColor } = useTheme();
   const { uri, mediaType, facing } = route.params;
   const player = useVideoPlayer(mediaType === 'video' ? uri : null, p => {
     p.loop = true;
@@ -176,7 +178,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
                 const selected = selectedId === item.capsule_id;
                 return (
                   <TouchableOpacity
-                    style={[styles.chip, selected && styles.chipSelected]}
+                    style={[styles.chip, selected && [styles.chipSelected, { backgroundColor: accentColor, borderColor: accentColor }]]}
                     onPress={() => setSelectedId(item.capsule_id)}
                   >
                     {selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
@@ -192,7 +194,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
           <TouchableOpacity
-            style={[styles.addBtn, (!selectedId || uploading) && styles.addBtnDisabled]}
+            style={[styles.addBtn, { backgroundColor: accentColor }, (!selectedId || uploading) && styles.addBtnDisabled]}
             onPress={upload}
             disabled={!selectedId || uploading}
           >

@@ -7,7 +7,11 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { useTheme } from '../../context/ThemeContext';
+import { AppStackParamList } from '../../types/navigation';
 
 type Profile = {
   id: string;
@@ -16,7 +20,9 @@ type Profile = {
   avatar_url: string | null;
 };
 
-export function Avatar({ url, name, size }: { url: string | null; name: string; size: number }) {
+export function Avatar({ url, name, size, accent }: { url: string | null; name: string; size: number; accent?: string }) {
+  const { accentColor } = useTheme();
+  const bg = accent ?? accentColor;
   if (url) {
     return (
       <Image
@@ -26,7 +32,7 @@ export function Avatar({ url, name, size }: { url: string | null; name: string; 
     );
   }
   return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#FF6B35', alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: '#fff', fontSize: size * 0.38, fontWeight: '700' }}>
         {(name[0] ?? '?').toUpperCase()}
       </Text>
@@ -82,6 +88,7 @@ function EditProfileModal({
   onClose: () => void;
   onSaved: (updated: Profile) => void;
 }) {
+  const { accentColor } = useTheme();
   const [displayName, setDisplayName] = useState(profile.display_name);
   const [bio, setBio] = useState(profile.bio ?? '');
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
@@ -137,14 +144,14 @@ function EditProfileModal({
             </TouchableOpacity>
             <Text style={es.title}>Edit Profile</Text>
             <TouchableOpacity onPress={save} disabled={saving}>
-              <Text style={[es.saveBtn, saving && { opacity: 0.4 }]}>{saving ? 'Saving…' : 'Save'}</Text>
+              <Text style={[es.saveBtn, { color: accentColor }, saving && { opacity: 0.4 }]}>{saving ? 'Saving…' : 'Save'}</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView contentContainerStyle={es.body}>
             <TouchableOpacity style={es.avatarWrap} onPress={pickAvatar}>
               <Avatar url={previewUrl} name={displayName || '?'} size={88} />
-              <Text style={es.changePhoto}>Change Photo</Text>
+              <Text style={[es.changePhoto, { color: accentColor }]}>Change Photo</Text>
             </TouchableOpacity>
 
             <Text style={es.label}>Display Name</Text>
@@ -180,6 +187,8 @@ function EditProfileModal({
 }
 
 export default function ProfileScreen() {
+  const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
+  const { accentColor } = useTheme();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEdit, setShowEdit] = useState(false);
@@ -200,7 +209,7 @@ export default function ProfileScreen() {
   }
 
   if (loading) {
-    return <SafeAreaView style={styles.center}><ActivityIndicator color="#FF6B35" /></SafeAreaView>;
+    return <SafeAreaView style={styles.center}><ActivityIndicator color={accentColor} /></SafeAreaView>;
   }
 
   return (
@@ -210,8 +219,12 @@ export default function ProfileScreen() {
         <Text style={styles.name}>{profile?.display_name}</Text>
         {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
-        <TouchableOpacity style={styles.editBtn} onPress={() => setShowEdit(true)}>
-          <Text style={styles.editBtnText}>Edit Profile</Text>
+        <TouchableOpacity style={[styles.editBtn, { borderColor: accentColor }]} onPress={() => setShowEdit(true)}>
+          <Text style={[styles.editBtnText, { color: accentColor }]}>Edit Profile</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.editBtn, { borderColor: accentColor }]} onPress={() => navigation.navigate('Settings')}>
+          <Text style={[styles.editBtnText, { color: accentColor }]}>Appearance</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.signOutBtn} onPress={() => setConfirming(true)}>

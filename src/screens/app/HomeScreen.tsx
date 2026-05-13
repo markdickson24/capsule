@@ -9,6 +9,7 @@ import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
+import { useTheme } from '../../context/ThemeContext';
 
 type CapsuleWithCountdown = Capsule;
 
@@ -21,6 +22,7 @@ function getTimeLeft(unlockAt: string) {
 }
 
 function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string }) {
+  const { accentColor } = useTheme();
   const [timeLeft, setTimeLeft] = useState(() => getTimeLeft(unlockAt));
 
   useEffect(() => {
@@ -36,8 +38,8 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
     </View>
   );
   const { daysLeft, hoursLeft } = timeLeft;
-  if (daysLeft > 0) return <Text style={styles.countdownText}>{daysLeft}d {hoursLeft}h left</Text>;
-  return <Text style={styles.countdownText}>{hoursLeft}h left</Text>;
+  if (daysLeft > 0) return <Text style={[styles.countdownText, { color: accentColor }]}>{daysLeft}d {hoursLeft}h left</Text>;
+  return <Text style={[styles.countdownText, { color: accentColor }]}>{hoursLeft}h left</Text>;
 }
 
 function CapsuleCard({ capsule, onPress, onLongPress }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void }) {
@@ -81,6 +83,7 @@ function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCou
 }
 
 export default function HomeScreen() {
+  const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [capsules, setCapsules] = useState<CapsuleWithCountdown[]>([]);
   const [archivedCapsules, setArchivedCapsules] = useState<CapsuleWithCountdown[]>([]);
@@ -129,7 +132,7 @@ export default function HomeScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color="#FF6B35" style={{ marginTop: 80 }} />
+        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
       </SafeAreaView>
     );
   }
@@ -153,7 +156,7 @@ export default function HomeScreen() {
             Lock photos and videos in time.{'\n'}Open them together when the moment arrives.
           </Text>
           <TouchableOpacity
-            style={styles.emptyBtn}
+            style={[styles.emptyBtn, { backgroundColor: accentColor }]}
             onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
           >
             <Text style={styles.emptyBtnText}>Create a Capsule</Text>
@@ -175,7 +178,7 @@ export default function HomeScreen() {
             />
           )}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
           ListFooterComponent={
             archivedCapsules.length > 0 ? (
               <View style={styles.archivedSection}>

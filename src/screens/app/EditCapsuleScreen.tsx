@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useTheme } from '../../context/ThemeContext';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'EditCapsule'>;
 
@@ -24,6 +25,7 @@ function DatePickerField({ label, optional, value, onChange }: {
   value: Date | null;
   onChange: (date: Date | null) => void;
 }) {
+  const { accentColor } = useTheme();
   const fallback = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
   const isEnabled = !optional || value !== null;
   const selected = value ?? fallback;
@@ -36,7 +38,7 @@ function DatePickerField({ label, optional, value, onChange }: {
           <Switch
             value={isEnabled}
             onValueChange={(on) => onChange(on ? fallback : null)}
-            trackColor={{ false: '#2A2A2A', true: '#FF6B35' }}
+            trackColor={{ false: '#2A2A2A', true: accentColor }}
             thumbColor="#FFFFFF"
           />
         ) : (
@@ -82,6 +84,7 @@ function DatePickerField({ label, optional, value, onChange }: {
 }
 
 export default function EditCapsuleScreen({ route, navigation }: Props) {
+  const { accentColor } = useTheme();
   const { capsuleId } = route.params;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -183,7 +186,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   if (fetching) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color="#FF6B35" style={{ marginTop: 80 }} />
+        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
       </SafeAreaView>
     );
   }
@@ -191,7 +194,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-        <Text style={styles.backText}>← Back</Text>
+        <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
       </TouchableOpacity>
 
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -227,7 +230,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+        <TouchableOpacity style={[styles.saveButton, { backgroundColor: accentColor }]} onPress={handleSave} disabled={saving}>
           {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
         </TouchableOpacity>
 

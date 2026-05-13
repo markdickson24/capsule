@@ -20,6 +20,7 @@ export type AppStackParamList = {
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };
   ManageMembers: { capsuleId: string };
+  Settings: undefined;
 };
 
 export type RootStackParamList = {

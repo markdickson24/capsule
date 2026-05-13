@@ -10,6 +10,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
+import { useTheme } from '../../context/ThemeContext';
 
 const MAX_RECORD_SECONDS = 30;
 const HOLD_THRESHOLD_MS = 300;
@@ -29,6 +30,7 @@ function getPinchDistance(touches: ArrayLike<{ pageX: number; pageY: number }>) 
 }
 
 export default function CameraScreen() {
+  const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const isFocused = useIsFocused();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -198,10 +200,10 @@ export default function CameraScreen() {
   if (!cameraPermission.granted) {
     return (
       <SafeAreaView style={styles.permContainer}>
-        <Ionicons name="camera-outline" size={52} color="#FF6B35" />
+        <Ionicons name="camera-outline" size={52} color={accentColor} />
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permSubtext}>Allow Capsule to use your camera</Text>
-        <TouchableOpacity style={styles.permBtn} onPress={requestCameraPermission}>
+        <TouchableOpacity style={[styles.permBtn, { backgroundColor: accentColor }]} onPress={requestCameraPermission}>
           <Text style={styles.permBtnText}>Grant Access</Text>
         </TouchableOpacity>
       </SafeAreaView>

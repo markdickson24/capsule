@@ -8,6 +8,7 @@ import { useDeepLinks } from './src/hooks/useDeepLinks';
 import { navigationRef } from './src/lib/navigationRef';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
+import { ThemeProvider } from './src/context/ThemeContext';
 
 function RootNavigator() {
   const { session, loading } = useAuth();
@@ -31,10 +32,12 @@ const linking = {
 
 export default function App() {
   return (
-    <NavigationContainer ref={navigationRef} linking={linking}>
-      <StatusBar style="light" />
-      <RootNavigator />
-    </NavigationContainer>
+    <ThemeProvider>
+      <NavigationContainer ref={navigationRef} linking={linking}>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </NavigationContainer>
+    </ThemeProvider>
   );
 }
 

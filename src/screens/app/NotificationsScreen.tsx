@@ -8,6 +8,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
+import { useTheme } from '../../context/ThemeContext';
 
 type NotificationRow = {
   id: string;
@@ -26,6 +27,7 @@ type PendingMember = {
 };
 
 export default function NotificationsScreen() {
+  const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
   const [pendingMap, setPendingMap] = useState<Record<string, string>>({}); // capsule_id → member row id
@@ -153,7 +155,7 @@ export default function NotificationsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color="#FF6B35" style={{ marginTop: 80 }} />
+        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
       </SafeAreaView>
     );
   }
@@ -164,12 +166,12 @@ export default function NotificationsScreen() {
         style={styles.fill}
         contentContainerStyle={styles.scrollContent}
         alwaysBounceVertical
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FF6B35" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
       >
         <View style={styles.header}>
           <Text style={styles.title}>Notifications</Text>
           {pendingCount > 0 && (
-            <View style={styles.badge}>
+            <View style={[styles.badge, { backgroundColor: accentColor }]}>
               <Text style={styles.badgeText}>{pendingCount}</Text>
             </View>
           )}
@@ -219,7 +221,7 @@ export default function NotificationsScreen() {
                   size={28}
                   color={
                     item.type === 'unlock' ? '#30D158'
-                    : item.type === 'reaction' ? '#FF6B35'
+                    : item.type === 'reaction' ? accentColor
                     : '#888888'
                   }
                 />
@@ -249,7 +251,7 @@ export default function NotificationsScreen() {
 
                 {item.type === 'invite' && isPending && (
                   <TouchableOpacity
-                    style={styles.acceptBtn}
+                    style={[styles.acceptBtn, { backgroundColor: accentColor }]}
                     onPress={() => accept(item)}
                     disabled={accepting === item.id}
                   >

@@ -8,6 +8,7 @@ import { supabase } from '../../lib/supabase';
 import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
+import { useTheme } from '../../context/ThemeContext';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'PublicProfile'>;
 
@@ -22,6 +23,7 @@ function InviteToCapsuleModal({
   userId: string;
   onClose: () => void;
 }) {
+  const { accentColor } = useTheme();
   const [capsules, setCapsules] = useState<OwnedCapsule[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviting, setInviting] = useState<string | null>(null);
@@ -78,10 +80,10 @@ function InviteToCapsuleModal({
       <SafeAreaView style={is.container}>
         <View style={is.header}>
           <Text style={is.title}>Invite to Capsule</Text>
-          <TouchableOpacity onPress={onClose}><Text style={is.done}>Done</Text></TouchableOpacity>
+          <TouchableOpacity onPress={onClose}><Text style={[is.done, { color: accentColor }]}>Done</Text></TouchableOpacity>
         </View>
         {loading ? (
-          <ActivityIndicator color="#FF6B35" style={{ marginTop: 40 }} />
+          <ActivityIndicator color={accentColor} style={{ marginTop: 40 }} />
         ) : capsules.length === 0 ? (
           <Text style={is.empty}>No active capsules to invite them to.</Text>
         ) : (
@@ -97,7 +99,7 @@ function InviteToCapsuleModal({
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={is.inviteBtn}
+                    style={[is.inviteBtn, { backgroundColor: accentColor }]}
                     onPress={() => invite(c.id)}
                     disabled={inviting === c.id}
                   >
@@ -114,6 +116,7 @@ function InviteToCapsuleModal({
 }
 
 export default function PublicProfileScreen({ route, navigation }: Props) {
+  const { accentColor } = useTheme();
   const { userId } = route.params;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [mutualCapsules, setMutualCapsules] = useState<MutualCapsule[]>([]);
@@ -151,7 +154,7 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
   }
 
   if (loading) {
-    return <SafeAreaView style={styles.container}><ActivityIndicator color="#FF6B35" style={{ marginTop: 80 }} /></SafeAreaView>;
+    return <SafeAreaView style={styles.container}><ActivityIndicator color={accentColor} style={{ marginTop: 80 }} /></SafeAreaView>;
   }
 
   const isOwnProfile = userId === currentUserId;
@@ -160,7 +163,7 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
     <SafeAreaView style={styles.container}>
       <View style={styles.navBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>← Back</Text>
+          <Text style={[styles.back, { color: accentColor }]}>← Back</Text>
         </TouchableOpacity>
       </View>
 
@@ -170,7 +173,7 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
         {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
         {!isOwnProfile && (
-          <TouchableOpacity style={styles.inviteBtn} onPress={() => setShowInvite(true)}>
+          <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: accentColor }]} onPress={() => setShowInvite(true)}>
             <Text style={styles.inviteBtnText}>Invite to Capsule</Text>
           </TouchableOpacity>
         )}

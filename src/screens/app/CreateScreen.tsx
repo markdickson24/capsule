@@ -10,6 +10,7 @@ import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useTheme } from '../../context/ThemeContext';
 
 type Permission = 'contributor' | 'viewer';
 
@@ -32,6 +33,7 @@ function DatePickerField({ label, optional, value, onChange }: {
   value: Date | null;
   onChange: (date: Date | null) => void;
 }) {
+  const { accentColor } = useTheme();
   const fallback = defaultUnlockDate();
   const isEnabled = !optional || value !== null;
   const selected = value ?? fallback;
@@ -44,7 +46,7 @@ function DatePickerField({ label, optional, value, onChange }: {
           <Switch
             value={isEnabled}
             onValueChange={(on) => onChange(on ? fallback : null)}
-            trackColor={{ false: '#2A2A2A', true: '#FF6B35' }}
+            trackColor={{ false: '#2A2A2A', true: accentColor }}
             thumbColor="#FFFFFF"
           />
         ) : (
@@ -91,6 +93,7 @@ function DatePickerField({ label, optional, value, onChange }: {
 }
 
 export default function CreateScreen() {
+  const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -192,23 +195,23 @@ export default function CreateScreen() {
           <Text style={styles.label}>Invited people can</Text>
           <View style={styles.toggle}>
             <TouchableOpacity
-              style={[styles.toggleOption, defaultRole === 'contributor' && styles.toggleActive]}
+              style={[styles.toggleOption, defaultRole === 'contributor' && [styles.toggleActive, { borderColor: accentColor }]]}
               onPress={() => setDefaultRole('contributor')}
             >
-              <Text style={[styles.toggleText, defaultRole === 'contributor' && styles.toggleTextActive]}>Add photos</Text>
+              <Text style={[styles.toggleText, defaultRole === 'contributor' && [styles.toggleTextActive, { color: accentColor }]]}>Add photos</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.toggleOption, defaultRole === 'viewer' && styles.toggleActive]}
+              style={[styles.toggleOption, defaultRole === 'viewer' && [styles.toggleActive, { borderColor: accentColor }]]}
               onPress={() => setDefaultRole('viewer')}
             >
-              <Text style={[styles.toggleText, defaultRole === 'viewer' && styles.toggleTextActive]}>View only</Text>
+              <Text style={[styles.toggleText, defaultRole === 'viewer' && [styles.toggleTextActive, { color: accentColor }]]}>View only</Text>
             </TouchableOpacity>
           </View>
         </View>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <TouchableOpacity style={styles.createButton} onPress={handleCreate} disabled={loading}>
+        <TouchableOpacity style={[styles.createButton, { backgroundColor: accentColor }]} onPress={handleCreate} disabled={loading}>
           {loading ? <ActivityIndicator color="#fff" /> : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={styles.createButtonText}>Lock Capsule</Text>
