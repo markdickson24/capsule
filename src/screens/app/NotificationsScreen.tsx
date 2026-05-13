@@ -43,6 +43,7 @@ export default function NotificationsScreen() {
         .from('notifications')
         .select('id, capsule_id, type, sent_at, read_at, capsules(title)')
         .eq('user_id', userId)
+        .is('read_at', null)
         .order('sent_at', { ascending: false }),
       supabase
         .from('capsule_members')
@@ -91,6 +92,29 @@ export default function NotificationsScreen() {
     fetchAll().finally(() => setLoading(false));
   }, []));
 
+  function dismiss(item: DisplayNotification) {
+    // Optimistic remove
+    if (item.type === 'reaction') {
+      setNotifications(prev => prev.filter(n => !(n.type === 'reaction' && n.capsule_id === item.capsule_id)));
+    } else {
+      setNotifications(prev => prev.filter(n => n.id !== item.id));
+    }
+    // Persist read_at in background
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session) return;
+      const now = new Date().toISOString();
+      if (item.type === 'reaction') {
+        supabase.from('notifications')
+          .update({ read_at: now })
+          .eq('user_id', session.user.id)
+          .eq('capsule_id', item.capsule_id)
+          .eq('type', 'reaction');
+      } else {
+        supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
+      }
+    });
+  }
+
   async function accept(notif: DisplayNotification) {
     const memberId = pendingMap[notif.capsule_id];
     if (!memberId) return;
@@ -101,6 +125,7 @@ export default function NotificationsScreen() {
       .eq('id', memberId);
 
     if (!error) {
+      dismiss(notif);
       setPendingMap(prev => {
         const next = { ...prev };
         delete next[notif.capsule_id];
@@ -173,9 +198,14 @@ export default function NotificationsScreen() {
               <TouchableOpacity
                 key={key}
                 style={styles.card}
-                activeOpacity={item.type === 'invite' ? 1 : 0.7}
+                activeOpacity={0.7}
                 onPress={() => {
                   if (item.type === 'unlock' || item.type === 'reaction') {
+                    dismiss(item);
+                    navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
+                  } else if (item.type === 'invite' && !pendingMap[item.capsule_id]) {
+                    // accepted invite — tap to open capsule and dismiss
+                    dismiss(item);
                     navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
                   }
                 }}
