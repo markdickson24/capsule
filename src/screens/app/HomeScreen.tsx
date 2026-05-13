@@ -43,9 +43,10 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
 }
 
 function CapsuleCard({ capsule, onPress, onLongPress }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void }) {
+  const { accentColor } = useTheme();
   const isLocked = capsule.status !== 'unlocked';
   return (
-    <TouchableOpacity style={[styles.card, !isLocked && styles.cardUnlocked]} onPress={onPress} onLongPress={onLongPress} delayLongPress={400}>
+    <TouchableOpacity style={[styles.card, !isLocked && { borderColor: `${accentColor}40` }]} onPress={onPress} onLongPress={onLongPress} delayLongPress={400}>
       <View style={styles.cardTop}>
         <Ionicons
           name={isLocked ? 'time-outline' : 'lock-open-outline'}

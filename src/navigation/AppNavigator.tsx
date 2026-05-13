@@ -69,7 +69,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               <View key={route.key} style={styles.cameraSlot}>
                 <View style={styles.cameraRing}>
                   <TouchableOpacity
-                    style={[styles.cameraBtn, { backgroundColor: accentColor }, isFocused && styles.cameraBtnActive]}
+                    style={[styles.cameraBtn, { backgroundColor: accentColor, shadowColor: accentColor }, isFocused && styles.cameraBtnActive]}
                     onPress={onPress}
                     activeOpacity={0.85}
                   >
