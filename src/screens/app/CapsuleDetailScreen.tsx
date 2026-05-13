@@ -49,6 +49,86 @@ const roleLabel: Record<string, string> = {
   viewer: 'Viewer',
 };
 
+function ProgressRing({ progress, size = 160, stroke = 10, color = '#FF6B35', trackColor = '#2A2A2A' }: {
+  progress: number; size?: number; stroke?: number; color?: string; trackColor?: string;
+}) {
+  const p = Math.min(1, Math.max(0, progress));
+  const half = size / 2;
+  const deg = p * 360;
+  const rightRot = -135 + Math.min(deg, 180);
+  const leftRot = -135 + Math.max(deg - 180, 0);
+  return (
+    <View style={{ width: size, height: size }}>
+      <View style={{ position: 'absolute', left: half, width: half, height: size, overflow: 'hidden' }}>
+        <View style={{
+          position: 'absolute', left: -half, width: size, height: size,
+          borderRadius: half, borderWidth: stroke,
+          borderTopColor: color, borderRightColor: color,
+          borderBottomColor: trackColor, borderLeftColor: trackColor,
+          transform: [{ rotate: `${rightRot}deg` }],
+        }} />
+      </View>
+      <View style={{ position: 'absolute', left: 0, width: half, height: size, overflow: 'hidden' }}>
+        <View style={{
+          position: 'absolute', left: 0, width: size, height: size,
+          borderRadius: half, borderWidth: stroke,
+          borderTopColor: trackColor, borderRightColor: trackColor,
+          borderBottomColor: color, borderLeftColor: color,
+          transform: [{ rotate: `${leftRot}deg` }],
+        }} />
+      </View>
+    </View>
+  );
+}
+
+function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: string | null }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
+  const unlock = new Date(unlockAt).getTime();
+  const created = createdAt
+    ? new Date(createdAt).getTime()
+    : unlock - 365 * 24 * 60 * 60 * 1000;
+  const remaining = Math.max(0, unlock - now);
+  const progress = (unlock - created) > 0 ? remaining / (unlock - created) : 0;
+
+  const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const timeStr = remaining <= 0
+    ? 'Unlocking soon'
+    : days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
+
+  const unlockDateStr = new Date(unlockAt).toLocaleDateString('en-US', {
+    month: 'long', day: 'numeric', year: 'numeric',
+  });
+
+  return (
+    <View style={cds.wrap}>
+      <View style={{ width: 180, height: 180 }}>
+        <ProgressRing progress={progress} size={180} stroke={12} />
+        <View style={cds.center}>
+          <Ionicons name="lock-closed" size={48} color="#FF6B35" />
+        </View>
+      </View>
+      <Text style={cds.title}>Capsule locked</Text>
+      <Text style={cds.date}>Unlocks {unlockDateStr}</Text>
+      <Text style={cds.left}>{timeStr}</Text>
+    </View>
+  );
+}
+
+const cds = StyleSheet.create({
+  wrap: { alignItems: 'center', gap: 10, paddingVertical: 24 },
+  center: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  title: { fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
+  date: { fontSize: 15, color: '#888888' },
+  left: { fontSize: 24, fontWeight: '800', color: '#FF6B35' },
+});
+
 function getTimeLeft(unlockAt: string) {
   const diff = new Date(unlockAt).getTime() - Date.now();
   if (diff <= 0) return null;
@@ -774,19 +854,14 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <Text style={styles.description}>{capsule.description}</Text>
         ) : null}
 
-        <View style={styles.timeCard}>
-          {isLocked && timeLeft ? (
-            <>
-              <Text style={styles.timeLabel}>Time remaining</Text>
-              <Text style={styles.timeValue}>
-                {timeLeft.days > 0 ? `${timeLeft.days}d ${timeLeft.hours}h` : `${timeLeft.hours}h`}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.timeLabel}>{isLocked ? 'Unlocking soon' : 'Unlocked'}</Text>
-          )}
-          <Text style={styles.timeDate}>{unlockDate} at {unlockTime}</Text>
-        </View>
+        {isLocked ? (
+          <CountdownRing unlockAt={capsule.unlock_at} createdAt={(capsule as any).created_at} />
+        ) : (
+          <View style={styles.timeCard}>
+            <Text style={styles.timeLabel}>Unlocked</Text>
+            <Text style={styles.timeDate}>{unlockDate} at {unlockTime}</Text>
+          </View>
+        )}
 
         {/* Members */}
         <View style={styles.sectionRow}>
@@ -992,7 +1067,6 @@ const styles = StyleSheet.create({
     padding: 20, borderWidth: 1, borderColor: '#2A2A2A', gap: 4,
   },
   timeLabel: { fontSize: 13, color: '#555555', textTransform: 'uppercase', letterSpacing: 0.5 },
-  timeValue: { fontSize: 32, fontWeight: '800', color: '#FF6B35' },
   timeDate: { fontSize: 14, color: '#888888' },
   sectionRow: {
     flexDirection: 'row', alignItems: 'center',
