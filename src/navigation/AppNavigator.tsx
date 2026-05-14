@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator } from 'react-native';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
@@ -21,6 +22,7 @@ import ResetPasswordScreen from '../screens/app/ResetPasswordScreen';
 import EditCapsuleScreen from '../screens/app/EditCapsuleScreen';
 import ManageMembersScreen from '../screens/app/ManageMembersScreen';
 import SettingsScreen from '../screens/app/SettingsScreen';
+import OnboardingScreen from '../screens/app/OnboardingScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -211,8 +213,40 @@ function TabNavigator() {
 }
 
 export default function AppNavigator() {
+  const { accentColor } = useTheme();
+  const [initialRoute, setInitialRoute] = useState<'Onboarding' | 'Tabs' | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const session = sessionStore.get();
+    if (!session) { setInitialRoute('Tabs'); return; }
+    supabase
+      .from('users')
+      .select('onboarded_at')
+      .eq('id', session.user.id)
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          setInitialRoute('Tabs');
+          return;
+        }
+        setInitialRoute((data as any)?.onboarded_at ? 'Tabs' : 'Onboarding');
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (initialRoute === null) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0A0A0A', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color={accentColor} size="large" />
+      </View>
+    );
+  }
+
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
+      <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ gestureEnabled: false }} />
       <Stack.Screen name="Tabs" component={TabNavigator} />
       <Stack.Screen name="CapsuleDetail" component={CapsuleDetailScreen} />
       <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />

@@ -3,13 +3,13 @@ import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
   TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
-import { AppStackParamList } from '../../types/navigation';
+import { AppStackParamList, AppTabParamList } from '../../types/navigation';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
 
@@ -96,8 +96,9 @@ function DatePickerField({ label, optional, value, onChange }: {
 export default function CreateScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
+  const route = useRoute<RouteProp<AppTabParamList, 'Create'>>();
+  const [title, setTitle] = useState(route.params?.presetTitle ?? '');
+  const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');

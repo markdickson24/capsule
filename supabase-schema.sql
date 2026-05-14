@@ -10,7 +10,8 @@ create table public.users (
   avatar_url text,
   auth_provider text not null default 'email',
   subscription_tier text not null default 'free' check (subscription_tier in ('free', 'pro')),
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  onboarded_at timestamptz
 );
 
 -- Capsules table
