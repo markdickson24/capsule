@@ -5,8 +5,22 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-Deno.serve(async () => {
-  // Flip all active capsules whose unlock time has passed
+const CRON_SECRET = Deno.env.get('CRON_SECRET');
+let lastCallTime = 0;
+const RATE_LIMIT_MS = 55_000;
+
+Deno.serve(async (req) => {
+  const auth = req.headers.get('Authorization');
+  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
+    return new Response('Unauthorized', { status: 401 });
+  }
+
+  const now = Date.now();
+  if (now - lastCallTime < RATE_LIMIT_MS) {
+    return new Response(JSON.stringify({ error: 'Rate limited' }), { status: 429 });
+  }
+  lastCallTime = now;
+
   const { data: unlocked, error } = await supabase
     .from('capsules')
     .update({ status: 'unlocked' })
@@ -15,14 +29,13 @@ Deno.serve(async () => {
     .select('id, title');
 
   if (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    return new Response(JSON.stringify({ error: 'Internal error' }), { status: 500 });
   }
 
   if (!unlocked?.length) {
     return new Response(JSON.stringify({ unlocked: 0 }));
   }
 
-  // Collect push tokens for all members of unlocked capsules
   const messages: object[] = [];
 
   for (const capsule of unlocked) {

@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 
@@ -41,7 +42,7 @@ export function Avatar({ url, name, size, accent }: { url: string | null; name: 
 }
 
 async function uploadAvatar(uri: string, userId: string): Promise<string | null> {
-  const { data: { session } } = await supabase.auth.getSession();
+  const session = sessionStore.get();
   if (!session) return null;
 
   const path = `${userId}/avatar.jpg`;
@@ -197,15 +198,18 @@ export default function ProfileScreen() {
   useEffect(() => { loadProfile(); }, []);
 
   async function loadProfile() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
-    const { data } = await supabase
-      .from('users')
-      .select('id, display_name, bio, avatar_url')
-      .eq('id', session.user.id)
-      .single();
-    if (data) setProfile(data as Profile);
-    setLoading(false);
+    try {
+      const session = sessionStore.get();
+      if (!session) return;
+      const { data } = await supabase
+        .from('users')
+        .select('id, display_name, bio, avatar_url')
+        .eq('id', session.user.id)
+        .single();
+      if (data) setProfile(data as Profile);
+    } finally {
+      setLoading(false);
+    }
   }
 
   if (loading) {

@@ -6,6 +6,7 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
@@ -107,6 +108,8 @@ export default function CreateScreen() {
     setError('');
 
     if (!title.trim()) { setError('Give your capsule a name.'); return; }
+    if (title.trim().length > 100) { setError('Name must be 100 characters or less.'); return; }
+    if (description.trim().length > 500) { setError('Description must be 500 characters or less.'); return; }
     if (!unlockDate) { setError('Set a valid unlock date.'); return; }
     if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
     if (contribLockDate && contribLockDate >= unlockDate) {
@@ -116,7 +119,7 @@ export default function CreateScreen() {
 
     setLoading(true);
 
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionStore.get();
     const user = session?.user;
     if (!user || !session) { setLoading(false); setError('Not logged in — try signing out and back in.'); return; }
 
@@ -172,6 +175,7 @@ export default function CreateScreen() {
             placeholderTextColor="#555"
             value={title}
             onChangeText={setTitle}
+            maxLength={100}
           />
         </View>
 
@@ -185,6 +189,7 @@ export default function CreateScreen() {
             onChangeText={setDescription}
             multiline
             numberOfLines={3}
+            maxLength={500}
           />
         </View>
 

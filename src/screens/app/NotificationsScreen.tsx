@@ -6,6 +6,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
@@ -36,7 +37,7 @@ export default function NotificationsScreen() {
   const [accepting, setAccepting] = useState<string | null>(null);
 
   async function fetchAll() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionStore.get();
     const userId = session?.user?.id;
     if (!userId) return;
 
@@ -102,19 +103,18 @@ export default function NotificationsScreen() {
       setNotifications(prev => prev.filter(n => n.id !== item.id));
     }
     // Persist read_at in background
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) return;
-      const now = new Date().toISOString();
-      if (item.type === 'reaction') {
-        supabase.from('notifications')
-          .update({ read_at: now })
-          .eq('user_id', session.user.id)
-          .eq('capsule_id', item.capsule_id)
-          .eq('type', 'reaction');
-      } else {
-        supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
-      }
-    });
+    const session = sessionStore.get();
+    if (!session) return;
+    const now = new Date().toISOString();
+    if (item.type === 'reaction') {
+      supabase.from('notifications')
+        .update({ read_at: now })
+        .eq('user_id', session.user.id)
+        .eq('capsule_id', item.capsule_id)
+        .eq('type', 'reaction');
+    } else {
+      supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
+    }
   }
 
   async function accept(notif: DisplayNotification) {

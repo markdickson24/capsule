@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -98,7 +99,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     async function load() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = sessionStore.get();
       if (!session) { navigation.goBack(); return; }
 
       const { data, error: err } = await supabase
@@ -119,12 +120,14 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
       );
       setFetching(false);
     }
-    load();
+    load().catch(() => navigation.goBack());
   }, [capsuleId]);
 
   async function handleSave() {
     setError('');
     if (!title.trim()) { setError('Give your capsule a name.'); return; }
+    if (title.trim().length > 100) { setError('Name must be 100 characters or less.'); return; }
+    if (description.trim().length > 500) { setError('Description must be 500 characters or less.'); return; }
     if (!unlockDate) { setError('Set a valid unlock date.'); return; }
     if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
     if (contribLockDate && contribLockDate >= unlockDate) {
@@ -209,6 +212,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
             placeholderTextColor="#555"
             value={title}
             onChangeText={setTitle}
+            maxLength={100}
           />
         </View>
 
@@ -222,6 +226,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
             onChangeText={setDescription}
             multiline
             numberOfLines={3}
+            maxLength={500}
           />
         </View>
 

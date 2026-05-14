@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
+import { sessionStore } from '../lib/sessionStore';
 
 const DEFAULT_ACCENT = '#FF6B35';
 
@@ -34,7 +35,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   async function setAccentColor(color: string) {
     setAccentColorState(color);
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionStore.get();
     if (session) {
       await supabase.from('users').update({ accent_color: color }).eq('id', session.user.id);
     }

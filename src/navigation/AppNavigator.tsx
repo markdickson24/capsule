@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
@@ -7,6 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import { supabase } from '../lib/supabase';
+import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
@@ -40,7 +41,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
   useEffect(() => {
     async function fetchCount() {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = sessionStore.get();
       if (!session) return;
       const { count } = await supabase
         .from('notifications')
@@ -69,7 +70,10 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               <View key={route.key} style={styles.cameraSlot}>
                 <View style={styles.cameraRing}>
                   <TouchableOpacity
-                    style={[styles.cameraBtn, { backgroundColor: accentColor, shadowColor: accentColor }, isFocused && styles.cameraBtnActive]}
+                    style={[styles.cameraBtn, { backgroundColor: accentColor }, isFocused && styles.cameraBtnActive, Platform.select({
+                      default: { shadowColor: accentColor, shadowOpacity: isFocused ? 0.75 : 0.5, shadowRadius: isFocused ? 16 : 12, shadowOffset: { width: 0, height: 4 } },
+                      web: {},
+                    })]}
                     onPress={onPress}
                     activeOpacity={0.85}
                   >
@@ -186,16 +190,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B35',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#FF6B35',
-    shadowOpacity: 0.5,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
     elevation: 8,
   },
-  cameraBtnActive: {
-    shadowOpacity: 0.75,
-    shadowRadius: 16,
-  },
+  cameraBtnActive: {},
 });
 
 function TabNavigator() {

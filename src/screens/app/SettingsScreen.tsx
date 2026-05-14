@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
-  TouchableOpacity, TextInput, ActivityIndicator,
+  TouchableOpacity, TextInput, ActivityIndicator, Platform,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -163,7 +163,10 @@ export default function SettingsScreen({ navigation }: Props) {
           />
           <View
             pointerEvents="none"
-            style={[styles.hueThumb, { left: hueThumbLeft - 10 }]}
+            style={[styles.hueThumb, { left: hueThumbLeft - 10 }, Platform.select({
+              default: { shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
+              web: {},
+            })]}
           />
         </View>
 
@@ -240,10 +243,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderWidth: 3,
     borderColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 2 },
   },
   hexRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   hexLabel: { fontSize: 12, fontWeight: '700', color: '#555555', letterSpacing: 1, width: 36 },

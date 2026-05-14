@@ -10,6 +10,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
@@ -54,8 +55,9 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     async function fetchCapsules() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      const session = sessionStore.get();
+      if (!session) return;
+      const user = session.user;
       const { data } = await supabase
         .from('capsule_members')
         .select('capsule_id, role, capsules(id, title, status)')
@@ -80,7 +82,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
     setError('');
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = sessionStore.get();
       if (!session) { setUploading(false); return; }
 
       const mimeType = mediaType === 'video' ? 'video/mp4' : 'image/jpeg';

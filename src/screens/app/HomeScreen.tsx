@@ -6,6 +6,7 @@ import {
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
@@ -94,8 +95,9 @@ export default function HomeScreen() {
   const [showArchived, setShowArchived] = useState(false);
 
   async function fetchCapsules() {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    const session = sessionStore.get();
+    if (!session) return;
+    const user = session.user;
     setUserId(user.id);
 
     const { data, error } = await supabase

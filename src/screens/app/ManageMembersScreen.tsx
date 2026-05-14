@@ -6,6 +6,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { Avatar } from './ProfileScreen';
@@ -35,7 +36,7 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   const [removing, setRemoving] = useState<string | null>(null);
 
   async function fetchMembers() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionStore.get();
     if (!session) { navigation.goBack(); return; }
     setCurrentUserId(session.user.id);
 

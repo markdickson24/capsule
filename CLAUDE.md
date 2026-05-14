@@ -296,6 +296,32 @@ HSV color picker built with `expo-linear-gradient`:
 - `src/lib/uuid.ts` — `randomUUID()`. Use this instead of `crypto.randomUUID()` — `crypto` global is not reliably typed in the Expo TS config.
 - `src/lib/googleAuth.ts` — `signInWithGoogle()`. Returns `{ error?: string }`.
 - `src/context/ThemeContext.tsx` — `useTheme()` returns `{ accentColor, setAccentColor }`. `ThemeProvider` must wrap the app.
+- `src/lib/sessionStore.ts` — `sessionStore.get()` / `sessionStore.set()`. Module-level session cache, updated by `useAuth` on every `onAuthStateChange` event. **Always use `sessionStore.get()` instead of `await supabase.auth.getSession()` inside screens.** `getSession()` on web hangs when the access token is expired because it blocks on an internal refresh network call. `sessionStore.get()` is synchronous and never hangs.
+
+## Web Auth Gotchas
+
+`supabase.auth.getSession()` on web hangs indefinitely when the stored access token is expired and the refresh network call is slow or blocked. The Supabase internal `initializePromise` does not resolve until the refresh completes, so both `getSession()` and the `INITIAL_SESSION` auth event can be blocked simultaneously.
+
+**Pattern to use everywhere:**
+```ts
+// WRONG — hangs on web if token is expired
+const { data: { session } } = await supabase.auth.getSession();
+
+// RIGHT — reads cached session set by onAuthStateChange, synchronous
+import { sessionStore } from '../../lib/sessionStore';
+const session = sessionStore.get();
+```
+
+`sessionStore` (`src/lib/sessionStore.ts`) seeds itself synchronously on web by reading Supabase's `sb-<projectRef>-auth-token` entry from `localStorage` at module load. This means `sessionStore.get()` returns the persisted session before Supabase has finished its async init — so the app never has to wait on `initializePromise`.
+
+`useAuth` (`src/hooks/useAuth.ts`) uses that synchronous seed: on web, `loading` starts as `false` and the initial `session` comes straight from `sessionStore`, so the root spinner never blocks. On native, a 1.5s fallback timeout forces `loading` off in case SecureStore-backed init lags. `onAuthStateChange` then updates state when Supabase eventually catches up.
+
+**Push notifications on web:** `expo-notifications` triggers side effects at import time that warn on web. Solved with platform-specific files:
+- `usePushNotifications.native.ts` — full implementation (native only)
+- `usePushNotifications.web.ts` — no-op stub (web)
+- `usePushNotifications.ts` — no-op stub (TypeScript resolution fallback)
+
+**Shadow props on web:** `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset` are deprecated in React Native Web. Wrap in `Platform.select({ default: { shadow... }, web: {} })` applied as an inline style override, and remove from `StyleSheet.create`.
 
 ## Environment
 

@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
@@ -182,6 +183,7 @@ function InviteModal({
   const [invitedIds, setInvitedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inviteTimestamps = useRef<number[]>([]);
 
   function onSearch(text: string) {
     setQuery(text);
@@ -204,6 +206,13 @@ function InviteModal({
   }
 
   async function invite(userId: string) {
+    const now = Date.now();
+    inviteTimestamps.current = inviteTimestamps.current.filter(t => now - t < 60_000);
+    if (inviteTimestamps.current.length >= 10) {
+      setError('Too many invites — please wait a moment before sending more.');
+      return;
+    }
+    inviteTimestamps.current.push(now);
     setInviting(userId);
     setError('');
     const { error: err } = await supabase.from('capsule_members').insert({
@@ -400,8 +409,7 @@ function MediaViewerModal({
   }, []);
 
   async function loadReactions() {
-    const { data: { session } } = await supabase.auth.getSession();
-    setCurrentUserId(session?.user.id ?? '');
+    setCurrentUserId(sessionStore.get()?.user.id ?? '');
     const mediaIds = items.map(i => i.id);
     const { data } = await supabase
       .from('reactions')
@@ -411,7 +419,7 @@ function MediaViewerModal({
   }
 
   async function addReaction(mediaId: string, emoji: string) {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionStore.get();
     if (!session) return;
     // Prevent duplicate
     if (reactions.some(r => r.media_id === mediaId && r.emoji === emoji && r.user_id === session.user.id)) return;
@@ -657,8 +665,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   async function load() {
-    const { data: { user } } = await supabase.auth.getUser();
-    setCurrentUserId(user?.id ?? '');
+    setCurrentUserId(sessionStore.get()?.user.id ?? '');
 
     const [capsuleRes, membersRes] = await Promise.all([
       supabase.from('capsules').select('*').eq('id', capsuleId).single(),
@@ -677,10 +684,9 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
 
     await fetchPhotos();
-    setLoading(false);
   }
 
-  useEffect(() => { load(); }, [capsuleId]);
+  useEffect(() => { load().finally(() => setLoading(false)); }, [capsuleId]);
 
   useEffect(() => {
     const channel = supabase
@@ -708,7 +714,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     setUploadCount({ done: 0, total: assets.length });
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const session = sessionStore.get();
       if (!session) { setUploading(false); return; }
 
       let failed = 0;

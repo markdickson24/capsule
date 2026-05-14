@@ -22,6 +22,10 @@ export default function SignUpScreen({ navigation }: Props) {
       Alert.alert('Missing fields', 'Please fill in all fields.');
       return;
     }
+    if (displayName.trim().length > 30) {
+      Alert.alert('Name too long', 'Display name must be 30 characters or less.');
+      return;
+    }
     if (password.length < 8) {
       Alert.alert('Weak password', 'Password must be at least 8 characters.');
       return;
@@ -60,6 +64,7 @@ export default function SignUpScreen({ navigation }: Props) {
             value={displayName}
             onChangeText={setDisplayName}
             autoCapitalize="words"
+            maxLength={30}
           />
           <TextInput
             style={styles.input}

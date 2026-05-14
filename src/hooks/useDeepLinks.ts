@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Linking } from 'react-native';
 import { supabase } from '../lib/supabase';
+import { sessionStore } from '../lib/sessionStore';
 import { navigationRef } from '../lib/navigationRef';
 
 function navigateWhenReady(fn: () => void) {
@@ -33,7 +34,7 @@ async function handleUrl(url: string | null) {
   if (!match) return;
   const capsuleId = match[1];
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const session = sessionStore.get();
   if (!session) return;
   const userId = session.user.id;
 

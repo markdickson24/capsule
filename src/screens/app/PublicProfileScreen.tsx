@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
 import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
@@ -33,30 +34,32 @@ function InviteToCapsuleModal({
   useEffect(() => { loadCapsules(); }, []);
 
   async function loadCapsules() {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session) return;
+    try {
+      const session = sessionStore.get();
+      if (!session) return;
 
-    // Capsules the target user is already in
-    const { data: existing } = await supabase
-      .from('capsule_members')
-      .select('capsule_id')
-      .eq('user_id', userId);
+      const { data: existing } = await supabase
+        .from('capsule_members')
+        .select('capsule_id')
+        .eq('user_id', userId);
 
-    const excludeIds = (existing ?? []).map((r: any) => r.capsule_id);
+      const excludeIds = (existing ?? []).map((r: any) => r.capsule_id);
 
-    let query = supabase
-      .from('capsules')
-      .select('id, title')
-      .eq('owner_id', session.user.id)
-      .eq('status', 'active');
+      let query = supabase
+        .from('capsules')
+        .select('id, title')
+        .eq('owner_id', session.user.id)
+        .eq('status', 'active');
 
-    if (excludeIds.length > 0) {
-      query = query.not('id', 'in', `(${excludeIds.join(',')})`);
+      if (excludeIds.length > 0) {
+        query = query.not('id', 'in', `(${excludeIds.join(',')})`);
+      }
+
+      const { data } = await query;
+      setCapsules((data ?? []) as OwnedCapsule[]);
+    } finally {
+      setLoading(false);
     }
-
-    const { data } = await query;
-    setCapsules((data ?? []) as OwnedCapsule[]);
-    setLoading(false);
   }
 
   async function invite(capsuleId: string) {
@@ -124,10 +127,10 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
   const [showInvite, setShowInvite] = useState(false);
   const [currentUserId, setCurrentUserId] = useState('');
 
-  useEffect(() => { load(); }, [userId]);
+  useEffect(() => { load().finally(() => setLoading(false)); }, [userId]);
 
   async function load() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const session = sessionStore.get();
     const cuid = session?.user.id ?? '';
     setCurrentUserId(cuid);
 
@@ -149,8 +152,6 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
         .in('capsule_id', myCapsuleIds);
       setMutualCapsules((mutual ?? []) as MutualCapsule[]);
     }
-
-    setLoading(false);
   }
 
   if (loading) {
