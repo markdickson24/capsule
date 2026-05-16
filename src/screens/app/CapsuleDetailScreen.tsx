@@ -4,7 +4,7 @@ import {
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
   Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -232,6 +232,7 @@ function InviteModal({
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaProvider>
       <SafeAreaView style={ms.container}>
         <View style={ms.header}>
           <Text style={ms.title}>Invite People</Text>
@@ -285,6 +286,7 @@ function InviteModal({
           <Text style={ms.shareBtnText}>Share Invite Link</Text>
         </TouchableOpacity>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
@@ -545,6 +547,7 @@ function MediaGalleryModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaProvider>
       <SafeAreaView style={gal.container}>
         <View style={gal.header}>
           <Text style={gal.title}>All Media</Text>
@@ -581,6 +584,7 @@ function MediaGalleryModal({
           columnWrapperStyle={{ gap: 2 }}
         />
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

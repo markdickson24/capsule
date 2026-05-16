@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   ScrollView, ActivityIndicator, Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
@@ -81,6 +81,7 @@ function InviteToCapsuleModal({
 
   return (
     <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaProvider>
       <SafeAreaView style={is.container}>
         <View style={is.header}>
           <Text style={is.title}>Invite to Capsule</Text>
@@ -115,6 +116,7 @@ function InviteToCapsuleModal({
           </ScrollView>
         )}
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }
