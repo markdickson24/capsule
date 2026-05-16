@@ -60,6 +60,8 @@ supabase/
     unlock-capsules/        # Edge function: marks active capsules with unlock_at <= now() as unlocked
                             # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
                             # by a pg_cron job that reads the secret from Supabase Vault.
+  migrations/               # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
+                            # is the original schema and has drifted — the migrations are the source of truth.
 ```
 
 ---
