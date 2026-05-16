@@ -202,13 +202,13 @@ export default function CreateScreen() {
           <Text style={styles.label}>Invited people can</Text>
           <View style={styles.toggle}>
             <TouchableOpacity
-              style={[styles.toggleOption, defaultRole === 'contributor' && [styles.toggleActive, { borderColor: accentColor }]]}
+              style={[styles.toggleOption, defaultRole === 'contributor' && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
               onPress={() => setDefaultRole('contributor')}
             >
               <Text style={[styles.toggleText, defaultRole === 'contributor' && [styles.toggleTextActive, { color: accentColor }]]}>Add photos</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.toggleOption, defaultRole === 'viewer' && [styles.toggleActive, { borderColor: accentColor }]]}
+              style={[styles.toggleOption, defaultRole === 'viewer' && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
               onPress={() => setDefaultRole('viewer')}
             >
               <Text style={[styles.toggleText, defaultRole === 'viewer' && [styles.toggleTextActive, { color: accentColor }]]}>View only</Text>
