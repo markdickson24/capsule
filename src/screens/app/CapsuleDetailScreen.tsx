@@ -141,38 +141,29 @@ function getTimeLeft(unlockAt: string) {
   return { days, hours };
 }
 
-async function sendInviteNotification(userId: string, capsuleTitle: string, inviterName: string) {
-  const { data } = await supabase
-    .from('users')
-    .select('push_token')
-    .eq('id', userId)
-    .single();
-  const token = (data as any)?.push_token;
-  if (!token) return;
-  fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-    body: JSON.stringify({
-      to: token,
-      title: 'You were invited to a Capsule!',
-      body: `${inviterName} invited you to "${capsuleTitle}"`,
-      data: { screen: 'Notifications' },
-      sound: 'default',
-    }),
-  });
+async function sendInviteNotification(capsuleId: string, inviteeId: string) {
+  // The push is sent by the send-invite-push edge function, which reads the
+  // invitee's push_token server-side (clients have no read access to it).
+  // Best-effort — the in-app notification is created by the notify_on_invite
+  // DB trigger regardless of whether the push succeeds.
+  try {
+    await supabase.functions.invoke('send-invite-push', {
+      body: { capsuleId, inviteeId },
+    });
+  } catch {
+    // ignore
+  }
 }
 
 function InviteModal({
   capsuleId,
   capsuleTitle,
-  inviterName,
   existingMemberIds,
   onClose,
   onInvited,
 }: {
   capsuleId: string;
   capsuleTitle: string;
-  inviterName: string;
   existingMemberIds: string[];
   onClose: () => void;
   onInvited: () => void;
@@ -227,7 +218,7 @@ function InviteModal({
       setInvitedIds(prev => [...prev, userId]);
       setResults(prev => prev.filter(u => u.id !== userId));
       onInvited();
-      sendInviteNotification(userId, capsuleTitle, inviterName);
+      sendInviteNotification(capsuleId, userId);
     }
     setInviting(null);
   }
@@ -1105,7 +1096,6 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         <InviteModal
           capsuleId={capsuleId}
           capsuleTitle={capsule?.title ?? ''}
-          inviterName={members.find(m => m.user_id === currentUserId)?.users?.display_name ?? 'Someone'}
           existingMemberIds={existingMemberIds}
           onClose={() => setShowInvite(false)}
           onInvited={load}

@@ -60,6 +60,8 @@ supabase/
     unlock-capsules/        # Edge function: marks active capsules with unlock_at <= now() as unlocked
                             # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
                             # by a pg_cron job that reads the secret from Supabase Vault.
+    send-invite-push/       # Edge function: sends the "you were invited" push. Reads the invitee's
+                            # push_token with the service role so clients never need read access to it.
   migrations/               # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
                             # is the original schema and has drifted — the migrations are the source of truth.
 ```
@@ -169,7 +171,7 @@ Defined in `supabase-schema.sql`.
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
 | `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone), sent_at, read_at |
 
-**`users` column privileges:** the `users` SELECT policy is `USING (true)` (every signed-in user can read every profile — needed for search and public profiles). To stop that exposing contact info, `email` and `phone` are removed from the `authenticated` SELECT grant at the **column level**. Never `select('email')` / `select('phone')` / `select('*')` on `users` from client code — it will fail. The current user's email is on the auth session (`session.user.email`), not this table.
+**`users` column privileges:** the `users` SELECT policy is `USING (true)` (every signed-in user can read every profile — needed for search and public profiles). To stop that exposing sensitive fields, `email`, `phone`, and `push_token` are removed from the `authenticated` SELECT grant at the **column level**. Never `select('email')` / `select('phone')` / `select('push_token')` / `select('*')` on `users` from client code — it will fail. The current user's email is on the auth session (`session.user.email`), not this table. Reading another user's `push_token` is server-only (see the `send-invite-push` edge function).
 
 **Triggers:**
 - `handle_new_user()` — auto-creates `users` row on `auth.users` insert
@@ -214,7 +216,7 @@ Defined in `supabase-schema.sql`.
 - Registers Expo push token (native only) and stores in `users.push_token`
 - Notification tap handler: reads `data.capsuleId` or `data.screen` from notification payload, navigates via `navigationRef`
 - Notification display config: `showAlert`, `playSound`, `showBanner`, `showList` all true
-- Invite notifications are sent client-side from `CapsuleDetailScreen.sendInviteNotification()` via `https://exp.host/--/api/v2/push/send`
+- Invite push notifications are sent by the `send-invite-push` edge function. `CapsuleDetailScreen.sendInviteNotification()` calls it via `supabase.functions.invoke()`; the function verifies the caller owns the capsule, reads the invitee's `push_token` with the service role, and posts to Expo. The in-app notification row itself is created server-side by the `notify_on_invite` trigger.
 - Reaction notifications are created server-side by the `notify_on_reaction` trigger
 
 ---
