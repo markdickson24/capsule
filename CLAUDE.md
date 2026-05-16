@@ -365,7 +365,7 @@ A capsule's `unlock_mode` (`time` | `proximity` | `both`) controls how it opens:
 
 **Check-in UI** — `CheckInCard` (`CapsuleDetailScreen`) renders for locked `proximity`/`both` capsules in place of / alongside the `CountdownRing` (proximity-only hides the ring; `both` shows both). It has a "We're here — check in" button that requests foreground location via `expo-location`, calls `supabase.rpc('check_in', …)`, and shows `N of M here` progress. The capsule's realtime channel fires the reveal animation for everyone when the last check-in flips `status` to `unlocked`.
 
-Status: the unlock-mode picker in Create/Edit is not built yet (Phase 3), so capsules can't be set to `proximity`/`both` from the UI — only via direct DB update for now.
+**Unlock-mode picker** — `CreateScreen` and `EditCapsuleScreen` have an "Unlock When" selector (Date / Together / Both). Choosing Proximity hides the unlock-date field and skips its validation; `unlock_at` is `not null` so it still gets a placeholder value (unused for `proximity`).
 
 ## Utilities
 

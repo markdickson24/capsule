@@ -11,10 +11,23 @@ import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList, AppTabParamList } from '../../types/navigation';
+import { UnlockMode } from '../../types/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
 
 type Permission = 'contributor' | 'viewer';
+
+const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
+  { mode: 'time', label: 'Date' },
+  { mode: 'proximity', label: 'Together' },
+  { mode: 'both', label: 'Both' },
+];
+
+function unlockModeHint(mode: UnlockMode) {
+  if (mode === 'time') return 'Opens on the date you set.';
+  if (mode === 'proximity') return 'Opens when all members are in the same place.';
+  return 'Opens once the date has passed and all members are together.';
+}
 
 function formatDate(date: Date) {
   return date.toLocaleDateString('en-US', {
@@ -103,6 +116,7 @@ export default function CreateScreen() {
   const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
+  const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -112,11 +126,13 @@ export default function CreateScreen() {
     if (!title.trim()) { setError('Give your capsule a name.'); return; }
     if (title.trim().length > 100) { setError('Name must be 100 characters or less.'); return; }
     if (description.trim().length > 500) { setError('Description must be 500 characters or less.'); return; }
-    if (!unlockDate) { setError('Set a valid unlock date.'); return; }
-    if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
-    if (contribLockDate && contribLockDate >= unlockDate) {
-      setError('Contribution lock must be before the unlock date.');
-      return;
+    if (unlockMode !== 'proximity') {
+      if (!unlockDate) { setError('Set a valid unlock date.'); return; }
+      if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
+      if (contribLockDate && contribLockDate >= unlockDate) {
+        setError('Contribution lock must be before the unlock date.');
+        return;
+      }
     }
 
     setLoading(true);
@@ -134,8 +150,9 @@ export default function CreateScreen() {
         owner_id: user.id,
         title: title.trim(),
         description: description.trim() || null,
-        unlock_at: unlockDate.toISOString(),
+        unlock_at: (unlockDate ?? defaultUnlockDate()).toISOString(),
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
+        unlock_mode: unlockMode,
         status: 'active',
         visibility: 'invite',
       });
@@ -195,7 +212,25 @@ export default function CreateScreen() {
           />
         </View>
 
-        <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+        <View style={styles.section}>
+          <Text style={styles.label}>Unlock When</Text>
+          <View style={styles.toggle}>
+            {UNLOCK_MODES.map(({ mode, label }) => (
+              <TouchableOpacity
+                key={mode}
+                style={[styles.toggleOption, unlockMode === mode && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
+                onPress={() => setUnlockMode(mode)}
+              >
+                <Text style={[styles.toggleText, unlockMode === mode && [styles.toggleTextActive, { color: accentColor }]]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.modeHint}>{unlockModeHint(unlockMode)}</Text>
+        </View>
+
+        {unlockMode !== 'proximity' && (
+          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+        )}
         <DatePickerField label="Stop Contributions On" optional value={contribLockDate} onChange={setContribLockDate} />
 
         <View style={styles.section}>
@@ -269,6 +304,7 @@ const styles = StyleSheet.create({
   toggleActive: { borderColor: '#FF6B35', backgroundColor: '#2A1500' },
   toggleText: { color: '#666666', fontWeight: '600', fontSize: 15 },
   toggleTextActive: { color: '#FF6B35' },
+  modeHint: { fontSize: 13, color: '#888888' },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
   createButton: {
     backgroundColor: '#FF6B35', borderRadius: 16,

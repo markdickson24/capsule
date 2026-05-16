@@ -9,11 +9,24 @@ import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
+import { UnlockMode } from '../../types/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'EditCapsule'>;
+
+const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
+  { mode: 'time', label: 'Date' },
+  { mode: 'proximity', label: 'Together' },
+  { mode: 'both', label: 'Both' },
+];
+
+function unlockModeHint(mode: UnlockMode) {
+  if (mode === 'time') return 'Opens on the date you set.';
+  if (mode === 'proximity') return 'Opens when all members are in the same place.';
+  return 'Opens once the date has passed and all members are together.';
+}
 
 function formatDate(date: Date) {
   return date.toLocaleDateString('en-US', {
@@ -93,6 +106,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [description, setDescription] = useState('');
   const [unlockDate, setUnlockDate] = useState<Date | null>(null);
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
+  const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [fetching, setFetching] = useState(true);
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -121,6 +135,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
       setContribLockDate(
         (data as any).contribution_lock_at ? new Date((data as any).contribution_lock_at) : null
       );
+      setUnlockMode((data as any).unlock_mode ?? 'time');
       setFetching(false);
     }
     load().catch(() => navigation.goBack());
@@ -131,11 +146,13 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     if (!title.trim()) { setError('Give your capsule a name.'); return; }
     if (title.trim().length > 100) { setError('Name must be 100 characters or less.'); return; }
     if (description.trim().length > 500) { setError('Description must be 500 characters or less.'); return; }
-    if (!unlockDate) { setError('Set a valid unlock date.'); return; }
-    if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
-    if (contribLockDate && contribLockDate >= unlockDate) {
-      setError('Contribution lock must be before the unlock date.');
-      return;
+    if (unlockMode !== 'proximity') {
+      if (!unlockDate) { setError('Set a valid unlock date.'); return; }
+      if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
+      if (contribLockDate && contribLockDate >= unlockDate) {
+        setError('Contribution lock must be before the unlock date.');
+        return;
+      }
     }
 
     setSaving(true);
@@ -144,8 +161,9 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
       .update({
         title: title.trim(),
         description: description.trim() || null,
-        unlock_at: unlockDate.toISOString(),
+        unlock_at: (unlockDate ?? new Date()).toISOString(),
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
+        unlock_mode: unlockMode,
       })
       .eq('id', capsuleId);
     setSaving(false);
@@ -221,7 +239,25 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
           />
         </View>
 
-        <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+        <View style={styles.section}>
+          <Text style={styles.label}>Unlock When</Text>
+          <View style={styles.toggle}>
+            {UNLOCK_MODES.map(({ mode, label }) => (
+              <TouchableOpacity
+                key={mode}
+                style={[styles.toggleOption, unlockMode === mode && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
+                onPress={() => setUnlockMode(mode)}
+              >
+                <Text style={[styles.toggleText, unlockMode === mode && [styles.toggleTextActive, { color: accentColor }]]}>{label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.modeHint}>{unlockModeHint(unlockMode)}</Text>
+        </View>
+
+        {unlockMode !== 'proximity' && (
+          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+        )}
         <DatePickerField label="Stop Contributions On" optional value={contribLockDate} onChange={setContribLockDate} />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -297,6 +333,15 @@ const styles = StyleSheet.create({
   },
   dateDisplayText: { color: '#FFFFFF', fontSize: 18, fontWeight: '600' },
   spinner: { marginTop: -8 },
+  toggle: { flexDirection: 'row', gap: 8 },
+  toggleOption: {
+    flex: 1, paddingVertical: 14, borderRadius: 12,
+    borderWidth: 1, borderColor: '#2A2A2A', alignItems: 'center', backgroundColor: '#1A1A1A',
+  },
+  toggleActive: { borderColor: '#FF6B35', backgroundColor: '#2A1500' },
+  toggleText: { color: '#666666', fontWeight: '600', fontSize: 15 },
+  toggleTextActive: { color: '#FF6B35' },
+  modeHint: { fontSize: 13, color: '#888888' },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
   saveButton: {
     backgroundColor: '#FF6B35',
