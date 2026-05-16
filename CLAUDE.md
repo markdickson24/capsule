@@ -262,6 +262,7 @@ For equal-width thumbnail rows, use `flex: 1, aspectRatio: 1` — **not** `width
 - `expo-file-system` APIs (`getInfoAsync`, `uploadAsync`) are native-only — always guard with `Platform.OS !== 'web'`. Use `expo-file-system/legacy` import path.
 - `Alert.alert` does not work reliably on web — use inline error state rendered as `<Text>` for errors, and `<ConfirmModal>` (`src/components/ConfirmModal.tsx`) for confirmation dialogs. A multi-button `Alert.alert` silently no-ops on web, so any action gated behind its callback never runs.
 - `DateTimePicker` with `display="spinner"` renders the native iOS wheel picker. Use `Platform.OS === 'web' ? 'default' : 'spinner'` for cross-platform.
+- Import `SafeAreaView` from `react-native-safe-area-context`, never from `react-native` (the latter is deprecated). The provider is supplied by React Navigation's `NavigationContainer`, so no explicit `SafeAreaProvider` is needed.
 
 ---
 

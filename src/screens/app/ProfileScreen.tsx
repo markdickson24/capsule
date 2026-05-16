@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity,
   TextInput, Modal, Image, ActivityIndicator, Platform,
   ScrollView, KeyboardAvoidingView, Pressable,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';

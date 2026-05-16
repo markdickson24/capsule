@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import {
-  View, Text, StyleSheet, SafeAreaView, TextInput,
+  View, Text, StyleSheet, TextInput,
   TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
