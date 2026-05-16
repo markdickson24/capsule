@@ -26,28 +26,39 @@ No test suite or linter configured yet.
 
 ```
 src/
+  components/
+    ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
   context/
     ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
   hooks/
     useAuth.ts              # Session listener, returns { session, loading }
     useDeepLinks.ts         # Handles capsule://join/<id> and capsule://reset-password
-    usePushNotifications.ts # Token registration + notification tap routing
+    usePushNotifications.native.ts  # Token registration + tap routing (iOS/Android only)
+    usePushNotifications.web.ts     # No-op stub for web
+    usePushNotifications.ts         # TS fallback stub
   lib/
-    supabase.ts             # Supabase client (platform-split storage adapter)
+    supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
+    sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load)
     uuid.ts                 # randomUUID() helper
     googleAuth.ts           # signInWithGoogle() via expo-auth-session
     navigationRef.ts        # Imperative nav ref for use outside components
   navigation/
-    AppNavigator.tsx        # Tabs + stack screens, CustomTabBar
+    AppNavigator.tsx        # Onboarding gate + Tabs + stack screens, CustomTabBar
     AuthNavigator.tsx       # Welcome → Login → SignUp
   screens/
     auth/  WelcomeScreen, LoginScreen, SignUpScreen
     app/   HomeScreen, CreateScreen, CapsuleDetailScreen, CameraScreen,
            PreviewScreen, NotificationsScreen, ProfileScreen, PublicProfileScreen,
-           ResetPasswordScreen, EditCapsuleScreen, ManageMembersScreen, SettingsScreen
+           ResetPasswordScreen, EditCapsuleScreen, ManageMembersScreen, SettingsScreen,
+           OnboardingScreen
   types/
-    navigation.ts           # AuthStackParamList, AppTabParamList, AppStackParamList
-    database.ts             # Capsule and other DB row types
+    navigation.ts           # AuthStackParamList, AppTabParamList, AppStackParamList (includes Onboarding)
+    database.ts             # Capsule, User, etc. row types — keep in sync with the DB
+supabase/
+  functions/
+    unlock-capsules/        # Edge function: marks active capsules with unlock_at <= now() as unlocked
+                            # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
+                            # by a pg_cron job that reads the secret from Supabase Vault.
 ```
 
 ---
@@ -66,10 +77,13 @@ src/
 
 ## Navigation Structure
 
+`AppNavigator` reads `users.onboarded_at` on mount and sets `initialRouteName` to `Onboarding` (if null) or `Tabs` (if set). Existing users were backfilled to `now()`, so only new sign-ups hit the wizard.
+
 ```
 RootNavigator (App.tsx)
   AuthNavigator  →  Welcome, Login, SignUp
   AppNavigator
+    Onboarding      ← initial route if users.onboarded_at IS NULL
     Tabs (CustomTabBar)
       Home
       Create
@@ -84,7 +98,10 @@ RootNavigator (App.tsx)
     EditCapsule       { capsuleId: string }
     ManageMembers     { capsuleId: string }
     Settings          (no params — accent color picker)
+    Onboarding        (no params — 4-step wizard, see Onboarding section)
 ```
+
+Tab `Create` accepts optional `{ presetTitle, presetDescription }` route params (used by Onboarding step 4 preset cards to prefill the form).
 
 **`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
 
@@ -107,6 +124,10 @@ The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also 
 **Never query `capsule_members` inside a `capsule_members` policy.** Always go through a security definer function or use the `capsules` table directly.
 
 All RLS policies use `(select auth.uid())` not `auth.uid()` directly — avoids query planner issues.
+
+**Contribution lock is enforced at TWO layers** (both must allow):
+1. `media` table INSERT policy checks `c.contribution_lock_at IS NULL OR now() < c.contribution_lock_at` (joins `capsule_members` for membership + role).
+2. `storage.objects` INSERT policy for the `capsule-media` bucket (`Contributors can upload to their capsules`) does the **same check** — extracts the capsule_id from the path's first folder segment (`(storage.foldername(name))[1]`) and validates membership/role/lock. The bucket-level policy was previously wide open; tightening it closed a hole where a malicious user could spam storage without ever inserting the linking `media` row.
 
 ---
 
@@ -138,7 +159,7 @@ Defined in `supabase-schema.sql`.
 
 | Table | Key columns |
 |---|---|
-| `users` | id, email, display_name, bio, avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), created_at |
+| `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), onboarded_at (null = needs wizard), created_at |
 | `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active) |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending) |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
@@ -282,14 +303,42 @@ All of the following are owner-only and silently no-op / navigate away if not ow
 - **Delete capsule** — clears storage files from `capsule-media` bucket first, then deletes the capsule row (cascades to members, media, reactions, notifications). Confirmation alert required. Available from EditCapsule and CapsuleDetail danger zones.
 - **Manage members** (`ManageMembersScreen`) — lists all members (joined + pending). Trash icon removes a member after confirmation. Accessible via "Manage" button in CapsuleDetail members section.
 
+## Onboarding (`OnboardingScreen`)
+
+A 4-step wizard that runs after new sign-ups. Gated by `users.onboarded_at`:
+- AppNavigator on mount queries `users.onboarded_at`. If null → `initialRouteName = 'Onboarding'`. Otherwise → `'Tabs'`. On query error, falls through to Tabs (don't strand the user).
+- The wizard writes `display_name`, optionally `avatar_url` / `bio` / `accent_color`, and sets `onboarded_at = now()` in a single update on completion.
+- Final step uses `navigation.replace('Tabs', { screen: 'Home' })` (no back stack to the wizard).
+
+Steps:
+1. **Name + avatar.** Display name required (max 30). Avatar via `expo-image-picker` → resize to 400px → upload to `avatars/${userId}/avatar.jpg` (web: arrayBuffer; native: FileSystem.uploadAsync).
+2. **Accent color.** Reuses the shared `<ColorPicker>` component (`src/components/ColorPicker.tsx`). On completion, also calls `ThemeContext.setAccentColor` so the change is reflected everywhere immediately.
+3. **Bio.** 80-char free-text (mirrors the DB `check (char_length(bio) <= 80)` constraint).
+4. **First-capsule preset.** Four cards (Vacation memories, Baby's first year, Wedding day, Year in review) — tapping one calls `navigation.replace('Tabs', { screen: 'Create', params: { presetTitle, presetDescription } })`, which CreateScreen reads via `useRoute()` to prefill the form. "Skip & finish" goes straight to Home.
+
+Footer renders only the buttons that apply for the current step. Step 1: just `Next`. Steps 2–3: `Back | Skip | Next`. Step 4: `Back | Skip & finish` (preset cards are themselves the primary action). Don't render placeholder `<View>`s for missing buttons or they'll consume row width.
+
 ## Settings Screen (`SettingsScreen`)
 
-HSV color picker built with `expo-linear-gradient`:
+Wraps the shared `<ColorPicker>` from `src/components/ColorPicker.tsx`. Tracks a `pending` color (local state) so the user can preview/cancel before committing. Save writes to `users.accent_color` via `ThemeContext.setAccentColor` and navigates back. The original color is passed as `originalValue` to show a small "before" swatch.
+
+## ColorPicker (`src/components/ColorPicker.tsx`)
+
+Controlled component. Props: `{ value: string; onChange: (hex) => void; originalValue?: string }`. Internals:
 - 2D saturation/brightness panel: two stacked `LinearGradient`s (white→hue horizontal, transparent→black vertical)
 - Hue slider: full-spectrum `LinearGradient` strip
 - Touch via `onStartShouldSetResponder` / `onResponderMove` — `locationX`/`locationY` from `nativeEvent` are relative to the touched view (no page coordinate math needed)
 - Hex input for precision — updates the HSV state on valid 6-char hex
-- Save button writes to `users.accent_color` via `ThemeContext.setAccentColor`
+- Exports `hsvToHex(h, s, v)` and `hexToHsv(hex)` for callers that need raw conversions
+
+## Unlock Cron (`supabase/functions/unlock-capsules`)
+
+Edge function that marks `status = 'active'` capsules whose `unlock_at <= now()` as `'unlocked'` and sends Expo push notifications to all joined members.
+
+- **Trigger:** `pg_cron` job `unlock-capsules` runs `* * * * *` (every minute).
+- **Auth:** `Authorization: Bearer <CRON_SECRET>` required (`if (CRON_SECRET && auth !== ...)` in the function). The function's `CRON_SECRET` env var is set in Supabase Dashboard → Functions → unlock-capsules → Secrets. The matching value is also stored in Supabase Vault as `cron_unlock_capsules_secret`, and the cron command reads it at execution time via `(select decrypted_secret from vault.decrypted_secrets where name = 'cron_unlock_capsules_secret')`.
+- **Idempotency:** the `.eq('status', 'active')` filter means repeat calls within a minute don't re-unlock or re-notify. The in-memory rate-limit (`lastCallTime`) in the function is dead code on edge runtimes — it doesn't survive cold starts — but doesn't matter because the work is idempotent.
+- **Rotating the secret:** update Vault (`select vault.update_secret(secret_id, new_value)`) AND set the new value on the function's env vars. Order doesn't matter for safety — the function uses module-load env, so a redeploy is needed for the function to pick up the new value (deploying the same code via `mcp__supabase__deploy_edge_function` works).
 
 ## Utilities
 

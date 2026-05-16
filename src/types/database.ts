@@ -3,7 +3,7 @@ export type CapsuleStatus = 'draft' | 'active' | 'unlocked';
 export type CapsuleVisibility = 'private' | 'invite';
 export type MemberRole = 'owner' | 'contributor' | 'viewer';
 export type MediaType = 'photo' | 'video';
-export type NotificationType = 'invite' | 'unlock' | 'contribution_nudge' | 'milestone';
+export type NotificationType = 'invite' | 'unlock' | 'contribution_nudge' | 'milestone' | 'reaction';
 
 export interface User {
   id: string;
@@ -14,6 +14,10 @@ export interface User {
   auth_provider: string;
   subscription_tier: SubscriptionTier;
   created_at: string;
+  push_token: string | null;
+  bio: string | null;
+  accent_color: string;
+  onboarded_at: string | null;
 }
 
 export interface Capsule {
