@@ -28,6 +28,7 @@ No test suite or linter configured yet.
 src/
   components/
     ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
+    ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
   context/
     ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
   hooks/
@@ -253,7 +254,7 @@ For equal-width thumbnail rows, use `flex: 1, aspectRatio: 1` — **not** `width
 
 - **Never use percentage widths (`width: '33.33%'`) inside a ScrollView on iOS** — they compute to 0. Use `flex: 1` + `aspectRatio`.
 - `expo-file-system` APIs (`getInfoAsync`, `uploadAsync`) are native-only — always guard with `Platform.OS !== 'web'`. Use `expo-file-system/legacy` import path.
-- `Alert.alert` does not work reliably on web — use inline error state rendered as `<Text>`.
+- `Alert.alert` does not work reliably on web — use inline error state rendered as `<Text>` for errors, and `<ConfirmModal>` (`src/components/ConfirmModal.tsx`) for confirmation dialogs. A multi-button `Alert.alert` silently no-ops on web, so any action gated behind its callback never runs.
 - `DateTimePicker` with `display="spinner"` renders the native iOS wheel picker. Use `Platform.OS === 'web' ? 'default' : 'spinner'` for cross-platform.
 
 ---
@@ -300,7 +301,7 @@ All of the following are owner-only and silently no-op / navigate away if not ow
 
 - **Edit capsule** (`EditCapsuleScreen`) — title, description, unlock date, contribution lock date. Accessible via "Edit" button in CapsuleDetail header and long-press on a card in HomeScreen. Blocked if capsule is already unlocked.
 - **Archive capsule** — sets `archived_at`. Hides from main feed; appears in collapsible "Archived" section on Home with a Restore button. Available from EditCapsule and CapsuleDetail danger zones.
-- **Delete capsule** — clears storage files from `capsule-media` bucket first, then deletes the capsule row (cascades to members, media, reactions, notifications). Confirmation alert required. Available from EditCapsule and CapsuleDetail danger zones.
+- **Delete capsule** — clears storage files from `capsule-media` bucket first, then deletes the capsule row (cascades to members, media, reactions, notifications). Confirmation required via `<ConfirmModal>` (not `Alert.alert` — that no-ops on web). Available from EditCapsule and CapsuleDetail danger zones.
 - **Manage members** (`ManageMembersScreen`) — lists all members (joined + pending). Trash icon removes a member after confirmation. Accessible via "Manage" button in CapsuleDetail members section.
 
 ## Onboarding (`OnboardingScreen`)
@@ -330,6 +331,12 @@ Controlled component. Props: `{ value: string; onChange: (hex) => void; original
 - Touch via `onStartShouldSetResponder` / `onResponderMove` — `locationX`/`locationY` from `nativeEvent` are relative to the touched view (no page coordinate math needed)
 - Hex input for precision — updates the HSV state on valid 6-char hex
 - Exports `hsvToHex(h, s, v)` and `hexToHsv(hex)` for callers that need raw conversions
+
+## ConfirmModal (`src/components/ConfirmModal.tsx`)
+
+Cross-platform confirmation dialog — **use instead of `Alert.alert` for any confirm/cancel decision**, because a multi-button `Alert.alert` silently no-ops on web (the destructive action gated behind its callback never runs).
+
+Controlled component. Props: `{ visible, title, message, confirmLabel?, cancelLabel?, destructive?, loading?, onConfirm, onCancel }`. Renders a transparent `Modal` with a dark-theme card. `destructive` colors the confirm button `#FF3B30`; `loading` swaps the confirm label for a spinner and disables both buttons. The caller owns the `visible` state and the async work — keep `visible` true and `loading` true while the action runs, then close. Used for delete confirmation in `EditCapsuleScreen` and `CapsuleDetailScreen`.
 
 ## Unlock Cron (`supabase/functions/unlock-capsules`)
 
