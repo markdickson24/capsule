@@ -165,8 +165,8 @@ Defined in `supabase-schema.sql`.
 | Table | Key columns |
 |---|---|
 | `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), onboarded_at (null = needs wizard), created_at |
-| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active) |
-| `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending) |
+| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100) |
+| `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), checkin_lat, checkin_lng, checkin_at |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
 | `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone), sent_at, read_at |
@@ -347,12 +347,23 @@ Controlled component. Props: `{ visible, title, message, confirmLabel?, cancelLa
 
 ## Unlock Cron (`supabase/functions/unlock-capsules`)
 
-Edge function that marks `status = 'active'` capsules whose `unlock_at <= now()` as `'unlocked'` and sends Expo push notifications to all joined members.
+Edge function that marks `status = 'active'` capsules whose `unlock_at <= now()` as `'unlocked'` and sends Expo push notifications to all joined members. Only acts on `unlock_mode = 'time'` capsules — `proximity`/`both` capsules unlock via the `check_in` RPC instead (see Proximity Unlock).
 
 - **Trigger:** `pg_cron` job `unlock-capsules` runs `* * * * *` (every minute).
 - **Auth:** `Authorization: Bearer <CRON_SECRET>` required (`if (CRON_SECRET && auth !== ...)` in the function). The function's `CRON_SECRET` env var is set in Supabase Dashboard → Functions → unlock-capsules → Secrets. The matching value is also stored in Supabase Vault as `cron_unlock_capsules_secret`, and the cron command reads it at execution time via `(select decrypted_secret from vault.decrypted_secrets where name = 'cron_unlock_capsules_secret')`.
 - **Idempotency:** the `.eq('status', 'active')` filter means repeat calls within a minute don't re-unlock or re-notify. The in-memory rate-limit (`lastCallTime`) in the function is dead code on edge runtimes — it doesn't survive cold starts — but doesn't matter because the work is idempotent.
 - **Rotating the secret:** update Vault (`select vault.update_secret(secret_id, new_value)`) AND set the new value on the function's env vars. Order doesn't matter for safety — the function uses module-load env, so a redeploy is needed for the function to pick up the new value (deploying the same code via `mcp__supabase__deploy_edge_function` works).
+
+## Proximity Unlock
+
+A capsule's `unlock_mode` (`time` | `proximity` | `both`) controls how it opens:
+- `time` — unlocks on `unlock_at` via the `unlock-capsules` cron (the original behavior).
+- `proximity` — unlocks when all joined members are physically together.
+- `both` — requires the date to have passed **and** members to be together.
+
+**`check_in(p_capsule_id, p_lat, p_lng)` RPC** (`SECURITY DEFINER`) — a member calls it with their current GPS location. It records the location on their `capsule_members` row (`checkin_lat/lng/at`), then unlocks the capsule if every joined member has checked in within the last 10 minutes and the largest distance between any two of them is `<= proximity_radius_m` (default 100m). It's `SECURITY DEFINER` so any joined member — not just the owner — can trigger the unlock; it authorizes inline (caller must be a joined member). Returns `{ unlocked, checked_in, total, within_range }`. Distance is computed by the `_haversine_m` helper.
+
+Status: backend only so far. The check-in UI (CapsuleDetailScreen) and the unlock-mode picker (Create/Edit) are not built yet.
 
 ## Utilities
 

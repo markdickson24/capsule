@@ -3,6 +3,7 @@ export type CapsuleStatus = 'draft' | 'active' | 'unlocked';
 export type CapsuleVisibility = 'private' | 'invite';
 export type MemberRole = 'owner' | 'contributor' | 'viewer';
 export type MediaType = 'photo' | 'video';
+export type UnlockMode = 'time' | 'proximity' | 'both';
 export type NotificationType = 'invite' | 'unlock' | 'contribution_nudge' | 'milestone' | 'reaction';
 
 export interface User {
@@ -31,6 +32,8 @@ export interface Capsule {
   visibility: CapsuleVisibility;
   created_at: string;
   archived_at: string | null;
+  unlock_mode: UnlockMode;
+  proximity_radius_m: number;
 }
 
 export interface CapsuleMember {
@@ -40,6 +43,9 @@ export interface CapsuleMember {
   role: MemberRole;
   invited_at: string;
   joined_at: string | null;
+  checkin_lat: number | null;
+  checkin_lng: number | null;
+  checkin_at: string | null;
 }
 
 export interface Media {

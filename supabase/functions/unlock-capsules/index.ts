@@ -25,6 +25,7 @@ Deno.serve(async (req) => {
     .from('capsules')
     .update({ status: 'unlocked' })
     .eq('status', 'active')
+    .eq('unlock_mode', 'time')
     .lte('unlock_at', new Date().toISOString())
     .select('id, title');
 
