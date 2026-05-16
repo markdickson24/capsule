@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList, Alert,
+  Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import ConfirmModal from '../../components/ConfirmModal';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -608,6 +609,22 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
   const [showPickerOptions, setShowPickerOptions] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  async function confirmDelete() {
+    setDeleting(true);
+    const { data: mediaRows } = await supabase
+      .from('media').select('storage_key, thumbnail_key').eq('capsule_id', capsuleId);
+    const keys = (mediaRows ?? []).flatMap((m: any) =>
+      [m.storage_key, m.thumbnail_key].filter(Boolean)
+    );
+    if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
+    await supabase.from('capsules').delete().eq('id', capsuleId);
+    setDeleting(false);
+    setShowDeleteConfirm(false);
+    navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+  }
   const revealOpacity = useRef(new Animated.Value(0)).current;
   const revealScale = useRef(new Animated.Value(0.8)).current;
   const [showReveal, setShowReveal] = useState(false);
@@ -1060,29 +1077,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.deleteBtn}
-              onPress={() => {
-                Alert.alert(
-                  'Delete Capsule',
-                  'This permanently deletes the capsule and all its media. This cannot be undone.',
-                  [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                      text: 'Delete',
-                      style: 'destructive',
-                      onPress: async () => {
-                        const { data: mediaRows } = await supabase
-                          .from('media').select('storage_key, thumbnail_key').eq('capsule_id', capsuleId);
-                        const keys = (mediaRows ?? []).flatMap((m: any) =>
-                          [m.storage_key, m.thumbnail_key].filter(Boolean)
-                        );
-                        if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
-                        await supabase.from('capsules').delete().eq('id', capsuleId);
-                        navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
-                      },
-                    },
-                  ]
-                );
-              }}
+              onPress={() => setShowDeleteConfirm(true)}
             >
               <Ionicons name="trash-outline" size={18} color="#FF3B30" />
               <Text style={styles.deleteBtnText}>Delete Capsule</Text>
@@ -1127,6 +1122,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <Text style={styles.revealSub}>Your capsule is now open</Text>
         </Animated.View>
       )}
+
+      <ConfirmModal
+        visible={showDeleteConfirm}
+        title="Delete Capsule"
+        message="This permanently deletes the capsule and all its media. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </SafeAreaView>
   );
 }

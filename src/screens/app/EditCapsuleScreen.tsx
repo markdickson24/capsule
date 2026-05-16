@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, SafeAreaView, TextInput,
-  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch, Alert,
+  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
 } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
+import ConfirmModal from '../../components/ConfirmModal';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'EditCapsule'>;
 
@@ -95,6 +96,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -158,32 +160,20 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   }
 
-  async function handleDelete() {
-    Alert.alert(
-      'Delete Capsule',
-      'This permanently deletes the capsule and all its media. This cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setDeleting(true);
-            const { data: mediaRows } = await supabase
-              .from('media')
-              .select('storage_key, thumbnail_key')
-              .eq('capsule_id', capsuleId);
-            const keys = (mediaRows ?? []).flatMap((m: any) =>
-              [m.storage_key, m.thumbnail_key].filter(Boolean)
-            );
-            if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
-            await supabase.from('capsules').delete().eq('id', capsuleId);
-            setDeleting(false);
-            navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
-          },
-        },
-      ]
+  async function confirmDelete() {
+    setDeleting(true);
+    const { data: mediaRows } = await supabase
+      .from('media')
+      .select('storage_key, thumbnail_key')
+      .eq('capsule_id', capsuleId);
+    const keys = (mediaRows ?? []).flatMap((m: any) =>
+      [m.storage_key, m.thumbnail_key].filter(Boolean)
     );
+    if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
+    await supabase.from('capsules').delete().eq('id', capsuleId);
+    setDeleting(false);
+    setShowDeleteConfirm(false);
+    navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   }
 
   if (fetching) {
@@ -249,7 +239,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
               </>
             )}
           </TouchableOpacity>
-          <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} disabled={archiving || deleting}>
+          <TouchableOpacity style={styles.deleteBtn} onPress={() => setShowDeleteConfirm(true)} disabled={archiving || deleting}>
             {deleting ? <ActivityIndicator color="#FF3B30" size="small" /> : (
               <>
                 <Ionicons name="trash-outline" size={18} color="#FF3B30" />
@@ -259,6 +249,17 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      <ConfirmModal
+        visible={showDeleteConfirm}
+        title="Delete Capsule"
+        message="This permanently deletes the capsule and all its media. This cannot be undone."
+        confirmLabel="Delete"
+        destructive
+        loading={deleting}
+        onConfirm={confirmDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </SafeAreaView>
   );
 }
