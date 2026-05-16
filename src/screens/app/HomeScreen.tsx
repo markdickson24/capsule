@@ -231,7 +231,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
   },
-  cardUnlocked: { borderColor: '#FF6B3540' },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   countdownText: { fontSize: 13, fontWeight: '700', color: '#FF6B35' },
   unlockedBadge: { flexDirection: 'row', alignItems: 'center' },

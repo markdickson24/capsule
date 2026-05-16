@@ -285,6 +285,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF6B35', borderRadius: 14,
     paddingVertical: 16, alignItems: 'center',
   },
-  addBtnDisabled: { backgroundColor: '#552010' },
+  addBtnDisabled: { backgroundColor: '#2A2A2A' },
   addBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
 });

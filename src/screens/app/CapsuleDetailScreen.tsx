@@ -343,7 +343,7 @@ function ReactionsBar({
         {groups.map(g => (
           <TouchableOpacity
             key={g.emoji}
-            style={[rs.pill, g.myReactionId && [rs.pillMine, { borderColor: accentColor }]]}
+            style={[rs.pill, g.myReactionId && [rs.pillMine, { borderColor: accentColor, backgroundColor: `${accentColor}40` }]]}
             onPress={() => g.myReactionId ? onRemove(g.myReactionId) : onAdd(mediaId, g.emoji)}
           >
             <Text style={{ fontSize: 16 }}>{g.emoji}</Text>
