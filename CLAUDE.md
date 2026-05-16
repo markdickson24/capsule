@@ -169,6 +169,8 @@ Defined in `supabase-schema.sql`.
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
 | `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone), sent_at, read_at |
 
+**`users` column privileges:** the `users` SELECT policy is `USING (true)` (every signed-in user can read every profile — needed for search and public profiles). To stop that exposing contact info, `email` and `phone` are removed from the `authenticated` SELECT grant at the **column level**. Never `select('email')` / `select('phone')` / `select('*')` on `users` from client code — it will fail. The current user's email is on the auth session (`session.user.email`), not this table.
+
 **Triggers:**
 - `handle_new_user()` — auto-creates `users` row on `auth.users` insert
 - `notify_on_reaction()` — inserts reaction notification (not to self)
