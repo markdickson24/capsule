@@ -9,6 +9,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import * as Location from 'expo-location';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
@@ -589,6 +590,95 @@ function MediaGalleryModal({
   );
 }
 
+function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
+  capsuleId: string;
+  accentColor: string;
+  dateGate: boolean;
+  onUnlocked: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<{ checkedIn: number; total: number; inRange: boolean } | null>(null);
+  const [error, setError] = useState('');
+
+  async function handleCheckIn() {
+    setError('');
+    setBusy(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setError('Location permission is needed to check in.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const { data, error: rpcErr } = await supabase.rpc('check_in', {
+        p_capsule_id: capsuleId,
+        p_lat: pos.coords.latitude,
+        p_lng: pos.coords.longitude,
+      });
+      if (rpcErr || !data) { setError('Check-in failed. Please try again.'); return; }
+      const r = data as { unlocked: boolean; checked_in: number; total: number; within_range: boolean };
+      setProgress({ checkedIn: r.checked_in, total: r.total, inRange: r.within_range });
+      if (r.unlocked) onUnlocked();
+    } catch {
+      setError('Could not get your location. Make sure location services are on.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const allHere = progress && progress.checkedIn === progress.total;
+
+  return (
+    <View style={chk.card}>
+      <Ionicons name="location-outline" size={30} color={accentColor} />
+      <Text style={chk.title}>Unlocks when everyone's together</Text>
+      <Text style={chk.sub}>
+        {progress
+          ? `${progress.checkedIn} of ${progress.total} ${progress.total === 1 ? 'member' : 'members'} here`
+          : 'Tap below to share your location with the group.'}
+      </Text>
+      {allHere && !progress!.inRange ? (
+        <Text style={chk.hint}>Everyone's checked in, but you're too far apart.</Text>
+      ) : null}
+      {dateGate ? <Text style={chk.hint}>Also waiting on the unlock date.</Text> : null}
+      {error ? <Text style={chk.error}>{error}</Text> : null}
+      <TouchableOpacity
+        style={[chk.btn, { backgroundColor: accentColor }]}
+        onPress={handleCheckIn}
+        disabled={busy}
+      >
+        {busy
+          ? <ActivityIndicator color="#FFFFFF" />
+          : <Text style={chk.btnText}>We're here — check in</Text>}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const chk = StyleSheet.create({
+  card: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    padding: 24,
+    alignItems: 'center',
+    gap: 8,
+  },
+  title: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
+  sub: { fontSize: 14, color: '#888888', textAlign: 'center' },
+  hint: { fontSize: 13, color: '#888888', textAlign: 'center' },
+  error: { fontSize: 13, color: '#FF3B30', textAlign: 'center' },
+  btn: {
+    marginTop: 8,
+    alignSelf: 'stretch',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+  },
+  btnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+});
+
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const { accentColor } = useTheme();
   const { capsuleId } = route.params;
@@ -892,7 +982,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         ) : null}
 
         {isLocked ? (
-          <CountdownRing unlockAt={capsule.unlock_at} createdAt={(capsule as any).created_at} />
+          <>
+            {capsule.unlock_mode !== 'proximity' && (
+              <CountdownRing unlockAt={capsule.unlock_at} createdAt={(capsule as any).created_at} />
+            )}
+            {capsule.unlock_mode !== 'time' && (
+              <CheckInCard
+                capsuleId={capsuleId}
+                accentColor={accentColor}
+                dateGate={capsule.unlock_mode === 'both' && new Date(capsule.unlock_at) > new Date()}
+                onUnlocked={load}
+              />
+            )}
+          </>
         ) : (
           <View style={styles.timeCard}>
             <Text style={styles.timeLabel}>Unlocked</Text>

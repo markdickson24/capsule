@@ -363,7 +363,9 @@ A capsule's `unlock_mode` (`time` | `proximity` | `both`) controls how it opens:
 
 **`check_in(p_capsule_id, p_lat, p_lng)` RPC** (`SECURITY DEFINER`) — a member calls it with their current GPS location. It records the location on their `capsule_members` row (`checkin_lat/lng/at`), then unlocks the capsule if every joined member has checked in within the last 10 minutes and the largest distance between any two of them is `<= proximity_radius_m` (default 100m). It's `SECURITY DEFINER` so any joined member — not just the owner — can trigger the unlock; it authorizes inline (caller must be a joined member). Returns `{ unlocked, checked_in, total, within_range }`. Distance is computed by the `_haversine_m` helper.
 
-Status: backend only so far. The check-in UI (CapsuleDetailScreen) and the unlock-mode picker (Create/Edit) are not built yet.
+**Check-in UI** — `CheckInCard` (`CapsuleDetailScreen`) renders for locked `proximity`/`both` capsules in place of / alongside the `CountdownRing` (proximity-only hides the ring; `both` shows both). It has a "We're here — check in" button that requests foreground location via `expo-location`, calls `supabase.rpc('check_in', …)`, and shows `N of M here` progress. The capsule's realtime channel fires the reveal animation for everyone when the last check-in flips `status` to `unlocked`.
+
+Status: the unlock-mode picker in Create/Edit is not built yet (Phase 3), so capsules can't be set to `proximity`/`both` from the UI — only via direct DB update for now.
 
 ## Utilities
 

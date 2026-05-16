@@ -55,6 +55,12 @@
       ],
       "expo-video",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Capsule uses your location to unlock capsules when all members are together."
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
