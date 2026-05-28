@@ -11,6 +11,8 @@ import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import { SkeletonCircle } from '../../components/Skeleton';
+import SkeletonBox from '../../components/Skeleton';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'PublicProfile'>;
 
@@ -158,7 +160,24 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
   }
 
   if (loading) {
-    return <SafeAreaView style={styles.container}><ActivityIndicator color={accentColor} style={{ marginTop: 80 }} /></SafeAreaView>;
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.navBar}>
+          <SkeletonBox width={60} height={16} borderRadius={6} />
+        </View>
+        <View style={styles.body}>
+          <SkeletonCircle size={88} />
+          <SkeletonBox width={160} height={20} borderRadius={8} style={{ marginTop: 12 }} />
+          <SkeletonBox width={220} height={14} borderRadius={6} />
+          <SkeletonBox width="100%" height={48} borderRadius={12} style={{ marginTop: 12 }} />
+          <View style={{ alignSelf: 'stretch', marginTop: 24, gap: 12 }}>
+            <SkeletonBox width={130} height={12} borderRadius={4} />
+            <SkeletonBox width="100%" height={48} borderRadius={0} />
+            <SkeletonBox width="100%" height={48} borderRadius={0} />
+          </View>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   const isOwnProfile = userId === currentUserId;

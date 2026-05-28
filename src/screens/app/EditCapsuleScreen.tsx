@@ -13,6 +13,7 @@ import { UnlockMode } from '../../types/database';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import SkeletonBox, { SkeletonFormField } from '../../components/Skeleton';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'EditCapsule'>;
 
@@ -198,7 +199,24 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   if (fetching) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
+        <View style={styles.backBtn}>
+          <SkeletonBox width={60} height={16} borderRadius={6} />
+        </View>
+        <View style={styles.scroll}>
+          <SkeletonBox width={160} height={28} borderRadius={8} />
+          <SkeletonBox width={220} height={14} borderRadius={6} style={{ marginTop: 4 }} />
+          <SkeletonFormField style={{ marginTop: 24 }} />
+          <SkeletonFormField style={{ marginTop: 16 }} />
+          <View style={{ gap: 8, marginTop: 16 }}>
+            <SkeletonBox width={100} height={12} borderRadius={4} />
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <SkeletonBox height={48} borderRadius={12} style={{ flex: 1 }} />
+              <SkeletonBox height={48} borderRadius={12} style={{ flex: 1 }} />
+              <SkeletonBox height={48} borderRadius={12} style={{ flex: 1 }} />
+            </View>
+          </View>
+          <SkeletonBox width="100%" height={54} borderRadius={16} style={{ marginTop: 32 }} />
+        </View>
       </SafeAreaView>
     );
   }

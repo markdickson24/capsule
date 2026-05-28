@@ -20,6 +20,7 @@ import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -911,7 +912,34 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
+        <View style={styles.topBar}>
+          <SkeletonBox width={60} height={16} borderRadius={6} />
+        </View>
+        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+          {/* Hero */}
+          <View style={{ alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <SkeletonBox width={40} height={40} borderRadius={10} />
+            <SkeletonBox width={70} height={22} borderRadius={10} />
+          </View>
+          {/* Title + description */}
+          <SkeletonBox width="65%" height={22} borderRadius={8} style={{ alignSelf: 'center' }} />
+          <SkeletonText lines={2} lineHeight={14} gap={8} style={{ marginTop: 8, paddingHorizontal: 24 }} />
+          {/* Countdown ring placeholder */}
+          <View style={{ alignItems: 'center', marginVertical: 20 }}>
+            <SkeletonCircle size={160} />
+          </View>
+          {/* Members section */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <SkeletonBox width={80} height={14} borderRadius={6} />
+          </View>
+          <SkeletonMemberRow />
+          <SkeletonMemberRow />
+          {/* Media section */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 16, marginBottom: 8 }}>
+            <SkeletonBox width={60} height={14} borderRadius={6} />
+          </View>
+          <SkeletonMediaGrid count={3} />
+        </ScrollView>
       </SafeAreaView>
     );
   }

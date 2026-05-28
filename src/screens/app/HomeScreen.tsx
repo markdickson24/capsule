@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, RefreshControl, ActivityIndicator,
+  TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import { SkeletonCard } from '../../components/Skeleton';
 
 type CapsuleWithCountdown = Capsule;
 
@@ -136,7 +137,14 @@ export default function HomeScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
+        <View style={styles.header}>
+          <View style={{ width: 160, height: 28, borderRadius: 8, backgroundColor: '#1A1A1A' }} />
+        </View>
+        <View style={styles.list}>
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </View>
       </SafeAreaView>
     );
   }

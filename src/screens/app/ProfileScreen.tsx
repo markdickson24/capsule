@@ -14,6 +14,7 @@ import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
+import { SkeletonProfileCard } from '../../components/Skeleton';
 
 type Profile = {
   id: string;
@@ -216,7 +217,11 @@ export default function ProfileScreen() {
   }
 
   if (loading) {
-    return <SafeAreaView style={styles.center}><ActivityIndicator color={accentColor} /></SafeAreaView>;
+    return (
+      <SafeAreaView style={styles.container}>
+        <SkeletonProfileCard />
+      </SafeAreaView>
+    );
   }
 
   return (

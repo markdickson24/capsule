@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { Avatar } from './ProfileScreen';
 import { useTheme } from '../../context/ThemeContext';
+import { SkeletonMemberRow } from '../../components/Skeleton';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'ManageMembers'>;
 
@@ -82,7 +83,18 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
-        <ActivityIndicator color={accentColor} style={{ marginTop: 80 }} />
+        <View style={styles.backBtn}>
+          <View style={{ width: 60, height: 16, borderRadius: 6, backgroundColor: '#1A1A1A' }} />
+        </View>
+        <View style={{ width: 120, height: 28, borderRadius: 8, backgroundColor: '#1A1A1A', marginLeft: 24, marginTop: 8 }} />
+        <View style={{ width: 180, height: 14, borderRadius: 6, backgroundColor: '#1A1A1A', marginLeft: 24, marginTop: 8, marginBottom: 16 }} />
+        <View style={styles.list}>
+          <SkeletonMemberRow />
+          <View style={styles.sep} />
+          <SkeletonMemberRow />
+          <View style={styles.sep} />
+          <SkeletonMemberRow />
+        </View>
       </SafeAreaView>
     );
   }
