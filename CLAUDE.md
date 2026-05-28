@@ -20,6 +20,7 @@ No test suite or linter configured yet.
 - **React Native + Expo ~54** (single codebase for iOS, Android, web)
 - **Supabase** — auth, PostgreSQL, storage, RLS, realtime
 - **React Navigation v7** — native stack + custom bottom tabs
+- **expo-location** — foreground GPS for proximity check-in (native only)
 - **TypeScript** ~5.9
 
 ### Project Structure
@@ -223,7 +224,7 @@ Defined in `supabase-schema.sql`.
 
 ## CapsuleDetailScreen Key Patterns
 
-Large file (~1250 lines). Key sub-components and patterns:
+Large file (~1400 lines). Key sub-components and patterns:
 
 **`ProgressRing`** — pure RN circular progress indicator. Two-half-clip technique: each half uses a full ring with two adjacent border colors (orange + track) clipped to its side, rotated to reveal the correct amount.
 - Right half: `borderTopColor + borderRightColor = orange`, rest = trackColor
@@ -407,3 +408,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=...
 ```
 
 App config: `app.json`. Bundle ID: `com.markdickson.capsule`. EAS Project ID: `2e004e6f-2e9d-4309-a172-46b6976eb3d9`.
+
+**EAS build profiles** (`eas.json`):
+- `production` — iOS: `simulator: false`, `autoIncrement: true` (bumps `buildNumber` each build). `appVersionSource: "remote"` so version is managed by EAS, not `app.json`.
+- No `preview` profile defined yet — Android preview APKs use `eas build --profile preview` with the default config.

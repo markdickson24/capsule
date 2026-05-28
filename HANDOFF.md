@@ -1,6 +1,6 @@
 # Capsule — Agent Handoff
 
-_Last updated: 2026-05-16_
+_Last updated: 2026-05-27_
 
 ---
 
@@ -34,6 +34,22 @@ contribute → time-lock → simultaneous unlock.
 ---
 
 ## What's Been Done (recent → older)
+
+### Proximity unlock
+- Three unlock modes: `time` (original), `proximity` (GPS-based), `both`.
+- `check_in` RPC (`SECURITY DEFINER`) records a member's GPS location, unlocks the
+  capsule when every joined member is within `proximity_radius_m` and checked in
+  within the last 10 minutes. Distance via `_haversine_m` helper.
+- `CheckInCard` UI in `CapsuleDetailScreen` — requests foreground location via
+  `expo-location`, shows `N of M here` progress, realtime channel fires the reveal
+  animation when the last check-in flips status.
+- Unlock-mode picker added to `CreateScreen` and `EditCapsuleScreen` (Date /
+  Together / Both). The cron only acts on `unlock_mode = 'time'`.
+- Migration: `20260516152146_proximity_unlock.sql`.
+
+### EAS build improvements
+- iOS production profile auto-increments `buildNumber` on each build
+  (`eas.json` → `autoIncrement: true`).
 
 ### Security & data hardening
 - **Supabase advisor sweep** — one migration cleared 11 of 16 security warnings
@@ -79,16 +95,16 @@ contribute → time-lock → simultaneous unlock.
 
 ## Next Steps
 
-1. **Beta test** — `eas build --profile preview` for Android testers now;
-   iOS testers wait on the Apple Developer Program purchase.
-2. **Watch Supabase free-tier usage during the beta** — 1 GB storage, 5 GB/mo
+1. **Apple Developer Program** — still needed for TestFlight and ad-hoc iOS
+   distribution. Once purchased: `eas build --platform ios --profile production`.
+2. **Beta test** — `eas build --profile preview` for Android testers now;
+   iOS testers wait on step 1.
+3. **Watch Supabase free-tier usage during the beta** — 1 GB storage, 5 GB/mo
    egress. Egress (every photo *view*) is the likely first limit. Dashboard →
    Reports → Usage. Videos eat storage far faster than photos.
-3. **No test suite or linter** — `npx tsc --noEmit` has pre-existing errors
+4. **No test suite or linter** — `npx tsc --noEmit` has pre-existing errors
    (`@expo/vector-icons` resolution, a few Supabase `as` casts). Worth a real
    typecheck pass before a public launch.
-4. **TestFlight build** once the Apple account is sorted:
-   `eas build --platform ios --profile production`.
 
 ---
 
@@ -111,6 +127,8 @@ contribute → time-lock → simultaneous unlock.
 - Custom URL schemes (`capsule://`) only work in native builds, not Expo Go.
 - Never `select('email' | 'phone' | 'push_token' | '*')` on `users` from client
   code — those columns are revoked from `authenticated`; it will fail.
+- **`expo-location`** is native-only — guard with `Platform.OS !== 'web'` if
+  referencing it. Used by `CheckInCard` for proximity check-in GPS.
 
 ---
 
@@ -128,7 +146,8 @@ contribute → time-lock → simultaneous unlock.
 | Deep links | `src/hooks/useDeepLinks.ts` |
 | Push notifications (native only) | `src/hooks/usePushNotifications.native.ts` |
 | Onboarding wizard | `src/screens/app/OnboardingScreen.tsx` |
-| Capsule detail (~1300 lines) | `src/screens/app/CapsuleDetailScreen.tsx` |
+| Capsule detail (~1400 lines) | `src/screens/app/CapsuleDetailScreen.tsx` |
+| Proximity check-in RPC | `check_in` (in `20260516152146_proximity_unlock.sql`) |
 | Edge functions | `supabase/functions/unlock-capsules/`, `send-invite-push/` |
 | DB migrations (source of truth) | `supabase/migrations/` |
 | DB schema (original, has drifted) | `supabase-schema.sql` |
