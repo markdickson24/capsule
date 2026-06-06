@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput,
-  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
+  TouchableOpacity, ScrollView, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -10,8 +10,9 @@ import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { UnlockMode } from '../../types/database';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
+import DatePickerField from '../../components/DatePicker';
+import { cache } from '../../lib/cache';
 import ConfirmModal from '../../components/ConfirmModal';
 import SkeletonBox, { SkeletonFormField } from '../../components/Skeleton';
 
@@ -27,77 +28,6 @@ function unlockModeHint(mode: UnlockMode) {
   if (mode === 'time') return 'Opens on the date you set.';
   if (mode === 'proximity') return 'Opens when all members are in the same place.';
   return 'Opens once the date has passed and all members are together.';
-}
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString('en-US', {
-    month: 'long', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  });
-}
-
-function DatePickerField({ label, optional, value, onChange }: {
-  label: string;
-  optional?: boolean;
-  value: Date | null;
-  onChange: (date: Date | null) => void;
-}) {
-  const { accentColor } = useTheme();
-  const fallback = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  const isEnabled = !optional || value !== null;
-  const selected = value ?? fallback;
-
-  return (
-    <View style={styles.section}>
-      <View style={styles.dateHeader}>
-        <Text style={styles.label}>{label}</Text>
-        {optional ? (
-          <Switch
-            value={isEnabled}
-            onValueChange={(on) => onChange(on ? fallback : null)}
-            trackColor={{ false: '#2A2A2A', true: accentColor }}
-            thumbColor="#FFFFFF"
-          />
-        ) : (
-          <Ionicons name="calendar-outline" size={18} color="#888888" />
-        )}
-      </View>
-
-      {isEnabled && (
-        <>
-          <View style={styles.dateDisplayBox}>
-            <Text style={styles.dateDisplayText}>{formatDate(selected)}</Text>
-          </View>
-          <DateTimePicker
-            value={selected}
-            mode="date"
-            display={Platform.OS === 'web' ? 'default' : 'spinner'}
-            onChange={(_, date) => {
-              if (!date) return;
-              const merged = new Date(selected);
-              merged.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-              onChange(merged);
-            }}
-            themeVariant="dark"
-            style={styles.spinner}
-          />
-          <DateTimePicker
-            value={selected}
-            mode="time"
-            display={Platform.OS === 'web' ? 'default' : 'spinner'}
-            onChange={(_, date) => {
-              if (!date) return;
-              const merged = new Date(selected);
-              merged.setHours(date.getHours(), date.getMinutes());
-              onChange(merged);
-            }}
-            themeVariant="dark"
-            style={styles.spinner}
-          />
-        </>
-      )}
-    </View>
-  );
 }
 
 export default function EditCapsuleScreen({ route, navigation }: Props) {
@@ -170,6 +100,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     setSaving(false);
 
     if (err) { setError('Failed to save changes. Please try again.'); return; }
+    cache.invalidate('capsules');
     navigation.goBack();
   }
 
@@ -177,6 +108,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     setArchiving(true);
     await supabase.from('capsules').update({ archived_at: new Date().toISOString() }).eq('id', capsuleId);
     setArchiving(false);
+    cache.invalidate('capsules', 'profile');
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   }
 
@@ -193,6 +125,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     await supabase.from('capsules').delete().eq('id', capsuleId);
     setDeleting(false);
     setShowDeleteConfirm(false);
+    cache.invalidate('capsules', 'profile');
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   }
 
@@ -274,9 +207,9 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         </View>
 
         {unlockMode !== 'proximity' && (
-          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
         )}
-        <DatePickerField label="Stop Contributions On" optional value={contribLockDate} onChange={setContribLockDate} />
+        <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
@@ -340,17 +273,6 @@ const styles = StyleSheet.create({
     borderColor: '#2A2A2A',
   },
   textarea: { minHeight: 80, textAlignVertical: 'top' },
-  dateHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  dateDisplayBox: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  dateDisplayText: { color: '#FFFFFF', fontSize: 18, fontWeight: '600' },
-  spinner: { marginTop: -8 },
   toggle: { flexDirection: 'row', gap: 8 },
   toggleOption: {
     flex: 1, paddingVertical: 14, borderRadius: 12,

@@ -1,19 +1,22 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TextInput,
-  TouchableOpacity, ScrollView, ActivityIndicator, Platform, Switch,
+  View, Text, StyleSheet, TextInput, Animated,
+  TouchableOpacity, ScrollView, ActivityIndicator, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
-import { AppStackParamList, AppTabParamList } from '../../types/navigation';
+import { AppStackParamList, AppTabParamList, PendingMedia } from '../../types/navigation';
 import { UnlockMode } from '../../types/database';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../../context/ThemeContext';
+import DatePickerField from '../../components/DatePicker';
+import { cache } from '../../lib/cache';
+import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Permission = 'contributor' | 'viewer';
 
@@ -29,88 +32,61 @@ function unlockModeHint(mode: UnlockMode) {
   return 'Opens once the date has passed and all members are together.';
 }
 
-function formatDate(date: Date) {
-  return date.toLocaleDateString('en-US', {
-    month: 'long', day: 'numeric', year: 'numeric',
-    hour: 'numeric', minute: '2-digit',
-  });
-}
-
 function defaultUnlockDate() {
   const d = new Date();
   d.setMonth(d.getMonth() + 1);
   return d;
 }
 
-function DatePickerField({ label, optional, value, onChange }: {
-  label: string;
-  optional?: boolean;
-  value: Date | null;
-  onChange: (date: Date | null) => void;
-}) {
-  const { accentColor } = useTheme();
-  const fallback = defaultUnlockDate();
-  const isEnabled = !optional || value !== null;
-  const selected = value ?? fallback;
 
-  return (
-    <View style={styles.section}>
-      <View style={styles.dateHeader}>
-        <Text style={styles.label}>{label}</Text>
-        {optional ? (
-          <Switch
-            value={isEnabled}
-            onValueChange={(on) => onChange(on ? fallback : null)}
-            trackColor={{ false: '#2A2A2A', true: accentColor }}
-            thumbColor="#FFFFFF"
-          />
-        ) : (
-          <Ionicons name="calendar-outline" size={18} color="#888888" />
-        )}
-      </View>
+async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void> {
+  const session = sessionStore.get();
+  if (!session) return;
 
-      {isEnabled && (
-        <>
-          <View style={styles.dateDisplayBox}>
-            <Text style={styles.dateDisplayText}>{formatDate(selected)}</Text>
-          </View>
-          <DateTimePicker
-            value={selected}
-            mode="date"
-            display={Platform.OS === 'web' ? 'default' : 'spinner'}
-            onChange={(_, date) => {
-              if (!date) return;
-              const merged = new Date(selected);
-              merged.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
-              onChange(merged);
-            }}
-            minimumDate={new Date()}
-            themeVariant="dark"
-            style={styles.spinner}
-          />
-          <DateTimePicker
-            value={selected}
-            mode="time"
-            display={Platform.OS === 'web' ? 'default' : 'spinner'}
-            onChange={(_, date) => {
-              if (!date) return;
-              const merged = new Date(selected);
-              merged.setHours(date.getHours(), date.getMinutes());
-              onChange(merged);
-            }}
-            themeVariant="dark"
-            style={styles.spinner}
-          />
-        </>
-      )}
-    </View>
-  );
+  const mimeType = media.mediaType === 'video' ? 'video/mp4' : 'image/jpeg';
+  const ext = media.mediaType === 'video' ? 'mp4' : 'jpg';
+  const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
+  let sizeBytes = 0;
+
+  if (Platform.OS === 'web') {
+    const response = await fetch(media.uri);
+    const arrayBuffer = await response.arrayBuffer();
+    sizeBytes = arrayBuffer.byteLength;
+    await supabase.storage
+      .from('capsule-media')
+      .upload(storageKey, arrayBuffer, { contentType: mimeType });
+  } else {
+    const fileInfo = await FileSystem.getInfoAsync(media.uri, { size: true });
+    sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+    await FileSystem.uploadAsync(
+      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
+      media.uri,
+      {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+          'Content-Type': mimeType,
+        },
+      }
+    );
+  }
+
+  await supabase.from('media').insert({
+    capsule_id: capsuleId,
+    uploader_id: session.user.id,
+    storage_key: storageKey,
+    media_type: media.mediaType,
+    size_bytes: sizeBytes,
+  });
 }
 
 export default function CreateScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Create'>>();
+  const pendingMedia = route.params?.pendingMedia ?? null;
   const [title, setTitle] = useState(route.params?.presetTitle ?? '');
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
@@ -176,15 +152,39 @@ export default function CreateScreen() {
       return;
     }
 
+    if (pendingMedia) {
+      try {
+        await uploadMedia(capsuleId, pendingMedia);
+      } catch {
+        // Capsule created successfully — media upload failed but user can retry from detail
+      }
+    }
+
     setLoading(false);
+    cache.invalidate('capsules', 'profile');
     navigation.navigate('CapsuleDetail', { capsuleId });
   }
+
+  const headerAnim = useFadeIn(0, 300);
+  const formAnim = useSlideUp(80, 350);
 
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>New Capsule</Text>
-        <Text style={styles.subtitle}>Lock your memories until the moment is right</Text>
+        <Animated.View style={headerAnim}>
+          <Text style={styles.title}>New Capsule</Text>
+          <Text style={styles.subtitle}>Lock your memories until the moment is right</Text>
+        </Animated.View>
+
+        <Animated.View style={[{ gap: 24 }, formAnim]}>
+        {pendingMedia && (
+          <View style={[styles.pendingBanner, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+            <Ionicons name={pendingMedia.mediaType === 'video' ? 'videocam' : 'image'} size={18} color={accentColor} />
+            <Text style={[styles.pendingText, { color: accentColor }]}>
+              Your {pendingMedia.mediaType} will be added automatically
+            </Text>
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.label}>Name</Text>
@@ -229,9 +229,9 @@ export default function CreateScreen() {
         </View>
 
         {unlockMode !== 'proximity' && (
-          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} />
+          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
         )}
-        <DatePickerField label="Stop Contributions On" optional value={contribLockDate} onChange={setContribLockDate} />
+        <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
 
         <View style={styles.section}>
           <Text style={styles.label}>Invited people can</Text>
@@ -261,6 +261,7 @@ export default function CreateScreen() {
             </View>
           )}
         </TouchableOpacity>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -270,7 +271,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 120, gap: 24 },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
-  subtitle: { fontSize: 15, color: '#888888', marginTop: -16 },
+  subtitle: { fontSize: 15, color: '#888888', marginTop: 4 },
   section: { gap: 8 },
   label: { fontSize: 14, fontWeight: '600', color: '#AAAAAA', textTransform: 'uppercase', letterSpacing: 0.5 },
   optional: { fontWeight: '400', color: '#555555', textTransform: 'none' },
@@ -285,17 +286,6 @@ const styles = StyleSheet.create({
     borderColor: '#2A2A2A',
   },
   textarea: { minHeight: 80, textAlignVertical: 'top' },
-  dateHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  dateDisplayBox: {
-    backgroundColor: '#1A1A1A',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
-  },
-  dateDisplayText: { color: '#FFFFFF', fontSize: 18, fontWeight: '600' },
-  spinner: { marginTop: -8 },
   toggle: { flexDirection: 'row', gap: 8 },
   toggleOption: {
     flex: 1, paddingVertical: 14, borderRadius: 12,
@@ -311,4 +301,14 @@ const styles = StyleSheet.create({
     paddingVertical: 18, alignItems: 'center', marginTop: 8,
   },
   createButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  pendingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  pendingText: { fontSize: 14, fontWeight: '600' },
 });
