@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
+  View, Text, StyleSheet, ScrollView, Animated,
   TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
@@ -12,6 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonNotificationRow } from '../../components/Skeleton';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { cache } from '../../lib/cache';
+import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 
 type NotificationRow = {
   id: string;
@@ -29,73 +32,84 @@ type PendingMember = {
   capsule_id: string;
 };
 
+type NotifData = {
+  notifications: DisplayNotification[];
+  pendingMap: Record<string, string>;
+};
+
+function processNotifications(raw: NotificationRow[]): DisplayNotification[] {
+  const display: DisplayNotification[] = [];
+  const reactionGroups: Record<string, { latest: NotificationRow; count: number }> = {};
+
+  for (const n of raw) {
+    if (n.type === 'reaction') {
+      if (!reactionGroups[n.capsule_id]) {
+        reactionGroups[n.capsule_id] = { latest: n, count: 0 };
+      }
+      reactionGroups[n.capsule_id].count++;
+      if (n.sent_at > reactionGroups[n.capsule_id].latest.sent_at) {
+        reactionGroups[n.capsule_id].latest = n;
+      }
+    } else {
+      display.push(n);
+    }
+  }
+
+  for (const group of Object.values(reactionGroups)) {
+    display.push({ ...group.latest, reactionCount: group.count });
+  }
+
+  display.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1));
+  return display;
+}
+
+function AnimatedNotificationCard({ index, children }: { index: number; children: React.ReactNode }) {
+  const entrance = useListItemEntrance(index);
+  return <Animated.View style={entrance}>{children}</Animated.View>;
+}
+
 export default function NotificationsScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
-  const [pendingMap, setPendingMap] = useState<Record<string, string>>({}); // capsule_id → member row id
-  const [loading, setLoading] = useState(true);
+  const [pendingMap, setPendingMap] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [accepting, setAccepting] = useState<string | null>(null);
+  const headerAnim = useFadeIn(0, 250);
 
-  async function fetchAll() {
-    const session = sessionStore.get();
-    const userId = session?.user?.id;
-    if (!userId) return;
+  const { loading } = useCachedFetch<NotifData>(
+    'notifications',
+    async () => {
+      const session = sessionStore.get();
+      const userId = session?.user?.id;
+      if (!userId) return { notifications: [], pendingMap: {} };
 
-    const [notifsRes, pendingRes] = await Promise.all([
-      supabase
-        .from('notifications')
-        .select('id, capsule_id, type, sent_at, read_at, capsules(title)')
-        .eq('user_id', userId)
-        .is('read_at', null)
-        .order('sent_at', { ascending: false }),
-      supabase
-        .from('capsule_members')
-        .select('id, capsule_id')
-        .eq('user_id', userId)
-        .is('joined_at', null)
-        .neq('role', 'owner'),
-    ]);
+      const [notifsRes, pendingRes] = await Promise.all([
+        supabase
+          .from('notifications')
+          .select('id, capsule_id, type, sent_at, read_at, capsules(title)')
+          .eq('user_id', userId)
+          .is('read_at', null)
+          .order('sent_at', { ascending: false }),
+        supabase
+          .from('capsule_members')
+          .select('id, capsule_id')
+          .eq('user_id', userId)
+          .is('joined_at', null)
+          .neq('role', 'owner'),
+      ]);
 
-    if (notifsRes.data) {
-      const raw = notifsRes.data as NotificationRow[];
-      const display: DisplayNotification[] = [];
-      const reactionGroups: Record<string, { latest: NotificationRow; count: number }> = {};
-
-      for (const n of raw) {
-        if (n.type === 'reaction') {
-          if (!reactionGroups[n.capsule_id]) {
-            reactionGroups[n.capsule_id] = { latest: n, count: 0 };
-          }
-          reactionGroups[n.capsule_id].count++;
-          if (n.sent_at > reactionGroups[n.capsule_id].latest.sent_at) {
-            reactionGroups[n.capsule_id].latest = n;
-          }
-        } else {
-          display.push(n);
-        }
+      const notifs = processNotifications((notifsRes.data ?? []) as NotificationRow[]);
+      const map: Record<string, string> = {};
+      for (const m of (pendingRes.data ?? []) as PendingMember[]) {
+        map[m.capsule_id] = m.id;
       }
 
-      for (const group of Object.values(reactionGroups)) {
-        display.push({ ...group.latest, reactionCount: group.count });
-      }
-
-      display.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1));
-      setNotifications(display);
-    }
-
-    const map: Record<string, string> = {};
-    for (const m of (pendingRes.data ?? []) as PendingMember[]) {
-      map[m.capsule_id] = m.id;
-    }
-    setPendingMap(map);
-  }
-
-  useFocusEffect(useCallback(() => {
-    setLoading(true);
-    fetchAll().finally(() => setLoading(false));
-  }, []));
+      setNotifications(notifs);
+      setPendingMap(map);
+      return { notifications: notifs, pendingMap: map };
+    },
+  );
 
   function dismiss(item: DisplayNotification) {
     // Optimistic remove
@@ -135,6 +149,7 @@ export default function NotificationsScreen() {
         delete next[notif.capsule_id];
         return next;
       });
+      cache.invalidate('capsules', 'profile');
       navigation.navigate('CapsuleDetail', { capsuleId: notif.capsule_id });
     }
     setAccepting(null);
@@ -142,7 +157,7 @@ export default function NotificationsScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await fetchAll();
+    cache.invalidate('notifications');
     setRefreshing(false);
   }
 
@@ -178,14 +193,14 @@ export default function NotificationsScreen() {
         alwaysBounceVertical
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
       >
-        <View style={styles.header}>
+        <Animated.View style={[styles.header, headerAnim]}>
           <Text style={styles.title}>Notifications</Text>
           {pendingCount > 0 && (
             <View style={[styles.badge, { backgroundColor: accentColor }]}>
               <Text style={styles.badgeText}>{pendingCount}</Text>
             </View>
           )}
-        </View>
+        </Animated.View>
         {notifications.length === 0 ? (
           <View style={styles.empty}>
             <View style={styles.emptyIconWrap}>
@@ -201,14 +216,14 @@ export default function NotificationsScreen() {
           </View>
         ) : (
           <View style={styles.list}>
-          {notifications.map(item => {
+          {notifications.map((item, idx) => {
             const isPending = item.type === 'invite' && !!pendingMap[item.capsule_id];
             const isAccepted = item.type === 'invite' && !pendingMap[item.capsule_id];
             const key = item.type === 'reaction' ? `reaction-${item.capsule_id}` : item.id;
 
             return (
+              <AnimatedNotificationCard key={key} index={idx}>
               <TouchableOpacity
-                key={key}
                 style={styles.card}
                 activeOpacity={0.7}
                 onPress={() => {
@@ -281,6 +296,7 @@ export default function NotificationsScreen() {
                   <Ionicons name="chevron-forward" size={18} color="#555555" />
                 )}
               </TouchableOpacity>
+              </AnimatedNotificationCard>
             );
           })}
           </View>

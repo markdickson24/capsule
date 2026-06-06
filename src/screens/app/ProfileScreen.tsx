@@ -1,26 +1,38 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity,
-  TextInput, Modal, Image, ActivityIndicator, Platform,
+  View, Text, StyleSheet, TouchableOpacity, Animated,
+  TextInput, Modal, ActivityIndicator, Platform,
   ScrollView, KeyboardAvoidingView, Pressable,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import { SkeletonProfileCard } from '../../components/Skeleton';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { cache } from '../../lib/cache';
+import { useSlideUp } from '../../lib/animations';
 
 type Profile = {
   id: string;
   display_name: string;
   bio: string | null;
   avatar_url: string | null;
+  created_at: string;
+};
+
+type Stats = {
+  capsuleCount: number;
+  unlockedCount: number;
+  friendCount: number;
 };
 
 export function Avatar({ url, name, size, accent }: { url: string | null; name: string; size: number; accent?: string }) {
@@ -29,8 +41,9 @@ export function Avatar({ url, name, size, accent }: { url: string | null; name: 
   if (url) {
     return (
       <Image
-        source={{ uri: url }}
+        source={url}
         style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#1A1A1A' }}
+        transition={200}
       />
     );
   }
@@ -82,6 +95,40 @@ async function uploadAvatar(uri: string, userId: string): Promise<string | null>
   return `${data.publicUrl}?t=${Date.now()}`;
 }
 
+function getMemberSince(createdAt: string): string {
+  const created = new Date(createdAt);
+  const now = new Date();
+  const diffMs = now.getTime() - created.getTime();
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (days < 1) return 'Joined today';
+  if (days === 1) return '1 day';
+  if (days < 30) return `${days} days`;
+  const months = Math.floor(days / 30);
+  if (months === 1) return '1 month';
+  if (months < 12) return `${months} months`;
+  const years = Math.floor(months / 12);
+  const rem = months % 12;
+  if (rem === 0) return `${years}y`;
+  return `${years}y ${rem}mo`;
+}
+
+function StatItem({ value, label, icon, accentColor }: {
+  value: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  accentColor: string;
+}) {
+  return (
+    <View style={styles.statItem}>
+      <View style={[styles.statIconWrap, { backgroundColor: `${accentColor}15` }]}>
+        <Ionicons name={icon} size={16} color={accentColor} />
+      </View>
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
 function EditProfileModal({
   profile,
   onClose,
@@ -131,6 +178,7 @@ function EditProfileModal({
       setError('Failed to save. Try again.');
       setSaving(false);
     } else {
+      cache.invalidate('profile');
       onSaved({ ...profile, display_name: displayName.trim(), bio: bio.trim() || null, avatar_url });
     }
   }
@@ -191,30 +239,70 @@ function EditProfileModal({
   );
 }
 
+type ProfileData = {
+  profile: Profile;
+  stats: Stats;
+};
+
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const { accentColor } = useTheme();
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>({ capsuleCount: 0, unlockedCount: 0, friendCount: 0 });
   const [showEdit, setShowEdit] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
-  useEffect(() => { loadProfile(); }, []);
-
-  async function loadProfile() {
-    try {
+  const { loading } = useCachedFetch<ProfileData>(
+    'profile',
+    async () => {
       const session = sessionStore.get();
-      if (!session) return;
-      const { data } = await supabase
-        .from('users')
-        .select('id, display_name, bio, avatar_url')
-        .eq('id', session.user.id)
-        .single();
-      if (data) setProfile(data as Profile);
-    } finally {
-      setLoading(false);
-    }
-  }
+      if (!session) throw new Error('No session');
+      const userId = session.user.id;
+
+      const myCapsuleIds = (await supabase
+        .from('capsule_members')
+        .select('capsule_id')
+        .eq('user_id', userId)
+        .not('joined_at', 'is', null)
+      ).data?.map((r: any) => r.capsule_id) ?? [];
+
+      const [profileRes, capsulesRes, friendsRes] = await Promise.all([
+        supabase
+          .from('users')
+          .select('id, display_name, bio, avatar_url, created_at')
+          .eq('id', userId)
+          .single(),
+        supabase
+          .from('capsule_members')
+          .select('capsule_id, capsules(status)')
+          .eq('user_id', userId)
+          .not('joined_at', 'is', null),
+        supabase
+          .from('capsule_members')
+          .select('user_id')
+          .in('capsule_id', myCapsuleIds.length > 0 ? myCapsuleIds : ['__none__'])
+          .not('joined_at', 'is', null)
+          .neq('user_id', userId),
+      ]);
+
+      const prof = profileRes.data as Profile;
+      const capsules = (capsulesRes.data ?? []) as any[];
+      const uniqueFriends = new Set((friendsRes.data ?? []).map((r: any) => r.user_id));
+      const s: Stats = {
+        capsuleCount: capsules.length,
+        unlockedCount: capsules.filter(c => c.capsules?.status === 'unlocked').length,
+        friendCount: uniqueFriends.size,
+      };
+
+      setProfile(prof);
+      setStats(s);
+      return { profile: prof, stats: s };
+    },
+  );
+
+  const heroAnim = useSlideUp(0, 400);
+  const actionsAnim = useSlideUp(120, 350);
+  const signOutAnim = useSlideUp(200, 300);
 
   if (loading) {
     return (
@@ -224,24 +312,87 @@ export default function ProfileScreen() {
     );
   }
 
+  const memberSince = profile?.created_at ? getMemberSince(profile.created_at) : '';
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.body}>
-        <Avatar url={profile?.avatar_url ?? null} name={profile?.display_name ?? '?'} size={96} />
-        <Text style={styles.name}>{profile?.display_name}</Text>
-        {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        {/* Hero Card */}
+        <Animated.View style={[styles.heroCard, heroAnim]}>
+          <View style={[styles.heroGlow, { backgroundColor: accentColor }]} />
+          <View style={styles.heroContent}>
+            <View style={[styles.avatarRing, { borderColor: `${accentColor}40` }]}>
+              <Avatar url={profile?.avatar_url ?? null} name={profile?.display_name ?? '?'} size={100} />
+            </View>
+            <Text style={styles.name}>{profile?.display_name}</Text>
+            {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+            {memberSince ? (
+              <View style={styles.memberSinceRow}>
+                <Ionicons name="time-outline" size={12} color="#555" />
+                <Text style={styles.memberSince}>{memberSince}</Text>
+              </View>
+            ) : null}
 
-        <TouchableOpacity style={[styles.editBtn, { borderColor: accentColor }]} onPress={() => setShowEdit(true)}>
-          <Text style={[styles.editBtnText, { color: accentColor }]}>Edit Profile</Text>
-        </TouchableOpacity>
+            {/* Stats */}
+            <View style={styles.statsRow}>
+              <StatItem
+                value={String(stats.capsuleCount)}
+                label="Capsules"
+                icon="cube-outline"
+                accentColor={accentColor}
+              />
+              <View style={styles.statDivider} />
+              <StatItem
+                value={String(stats.unlockedCount)}
+                label="Unlocked"
+                icon="lock-open-outline"
+                accentColor={accentColor}
+              />
+              <View style={styles.statDivider} />
+              <StatItem
+                value={String(stats.friendCount)}
+                label="Friends"
+                icon="people-outline"
+                accentColor={accentColor}
+              />
+            </View>
+          </View>
+        </Animated.View>
 
-        <TouchableOpacity style={[styles.editBtn, { borderColor: accentColor }]} onPress={() => navigation.navigate('Settings')}>
-          <Text style={[styles.editBtnText, { color: accentColor }]}>Appearance</Text>
-        </TouchableOpacity>
+        {/* Action Buttons */}
+        <Animated.View style={[styles.actions, actionsAnim]}>
+          <TouchableOpacity
+            style={[styles.actionBtn, { borderColor: `${accentColor}40` }]}
+            onPress={() => setShowEdit(true)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.actionIconWrap, { backgroundColor: `${accentColor}15` }]}>
+              <Ionicons name="pencil-outline" size={18} color={accentColor} />
+            </View>
+            <Text style={styles.actionText}>Edit Profile</Text>
+            <Ionicons name="chevron-forward" size={18} color="#444" />
+          </TouchableOpacity>
 
-        <TouchableOpacity style={styles.signOutBtn} onPress={() => setConfirming(true)}>
-          <Text style={styles.signOutBtnText}>Sign Out</Text>
+          <TouchableOpacity
+            style={[styles.actionBtn, { borderColor: `${accentColor}40` }]}
+            onPress={() => navigation.navigate('Settings')}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.actionIconWrap, { backgroundColor: `${accentColor}15` }]}>
+              <Ionicons name="color-palette-outline" size={18} color={accentColor} />
+            </View>
+            <Text style={styles.actionText}>Appearance</Text>
+            <Ionicons name="chevron-forward" size={18} color="#444" />
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* Sign Out */}
+        <Animated.View style={signOutAnim}>
+        <TouchableOpacity style={styles.signOutBtn} onPress={() => setConfirming(true)} activeOpacity={0.7}>
+          <Ionicons name="log-out-outline" size={18} color="#FF3B30" />
+          <Text style={styles.signOutText}>Sign Out</Text>
         </TouchableOpacity>
+        </Animated.View>
       </ScrollView>
 
       {showEdit && profile && (
@@ -287,14 +438,134 @@ export default function ProfileScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  center: { flex: 1, backgroundColor: '#0A0A0A', alignItems: 'center', justifyContent: 'center', gap: 20, paddingHorizontal: 32 },
-  body: { alignItems: 'center', paddingTop: 48, paddingBottom: 40, gap: 12, paddingHorizontal: 32 },
-  name: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', marginTop: 8 },
-  bio: { fontSize: 14, color: '#888888', textAlign: 'center' },
-  editBtn: { marginTop: 16, width: '100%', borderWidth: 1, borderColor: '#FF6B35', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
-  editBtnText: { color: '#FF6B35', fontWeight: '600', fontSize: 16 },
-  signOutBtn: { width: '100%', paddingVertical: 14, alignItems: 'center' },
-  signOutBtnText: { color: '#FF3B30', fontWeight: '600', fontSize: 16 },
+  scroll: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40, gap: 16 },
+
+  heroCard: {
+    backgroundColor: '#111111',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+    overflow: 'hidden',
+  },
+  heroGlow: {
+    height: 3,
+    opacity: 0.6,
+  },
+  heroContent: {
+    alignItems: 'center',
+    paddingTop: 28,
+    paddingBottom: 24,
+    paddingHorizontal: 24,
+  },
+  avatarRing: {
+    padding: 3,
+    borderRadius: 54,
+    borderWidth: 2,
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginTop: 14,
+  },
+  bio: {
+    fontSize: 14,
+    color: '#888888',
+    textAlign: 'center',
+    marginTop: 4,
+    lineHeight: 20,
+    paddingHorizontal: 16,
+  },
+  memberSinceRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  memberSince: {
+    fontSize: 12,
+    color: '#555555',
+  },
+
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 20,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#1E1E1E',
+    alignSelf: 'stretch',
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  statIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666666',
+    fontWeight: '500',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#1E1E1E',
+  },
+
+  actions: {
+    gap: 8,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#141414',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+    borderWidth: 1,
+    borderColor: '#1E1E1E',
+  },
+  actionIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+
+  signOutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 16,
+    marginTop: 8,
+  },
+  signOutText: {
+    color: '#FF3B30',
+    fontWeight: '600',
+    fontSize: 16,
+  },
+
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20,

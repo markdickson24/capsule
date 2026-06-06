@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, FlatList,
+  View, Text, StyleSheet, FlatList, Animated,
   TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
@@ -13,6 +13,8 @@ import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonCard } from '../../components/Skeleton';
+import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 
 type CapsuleWithCountdown = Capsule;
 
@@ -45,25 +47,28 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
   return <Text style={[styles.countdownText, { color: accentColor }]}>{hoursLeft}h left</Text>;
 }
 
-function CapsuleCard({ capsule, onPress, onLongPress }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void }) {
+function CapsuleCard({ capsule, onPress, onLongPress, index }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number }) {
   const { accentColor } = useTheme();
   const isLocked = capsule.status !== 'unlocked';
+  const entrance = useListItemEntrance(index);
   return (
-    <TouchableOpacity style={[styles.card, !isLocked && { borderColor: `${accentColor}40` }]} onPress={onPress} onLongPress={onLongPress} delayLongPress={400}>
-      <View style={styles.cardTop}>
-        <Ionicons
-          name={isLocked ? 'time-outline' : 'lock-open-outline'}
-          size={24}
-          color={isLocked ? '#888888' : '#30D158'}
-        />
-        <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} />
-      </View>
-      <Text style={styles.cardTitle}>{capsule.title}</Text>
-      {capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
-      <Text style={styles.cardDate}>
-        {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-      </Text>
-    </TouchableOpacity>
+    <Animated.View style={entrance}>
+      <TouchableOpacity style={[styles.card, !isLocked && { borderColor: `${accentColor}40` }]} onPress={onPress} onLongPress={onLongPress} delayLongPress={400}>
+        <View style={styles.cardTop}>
+          <Ionicons
+            name={isLocked ? 'time-outline' : 'lock-open-outline'}
+            size={24}
+            color={isLocked ? '#888888' : '#30D158'}
+          />
+          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} />
+        </View>
+        <Text style={styles.cardTitle}>{capsule.title}</Text>
+        {capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
+        <Text style={styles.cardDate}>
+          {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+        </Text>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
@@ -89,49 +94,42 @@ function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCou
 export default function HomeScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const [capsules, setCapsules] = useState<CapsuleWithCountdown[]>([]);
-  const [archivedCapsules, setArchivedCapsules] = useState<CapsuleWithCountdown[]>([]);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  const headerAnim = useFadeIn(0, 250);
 
-  async function fetchCapsules() {
-    const session = sessionStore.get();
-    if (!session) return;
-    const user = session.user;
-    setUserId(user.id);
+  const userId = sessionStore.get()?.user?.id ?? null;
 
-    const { data, error } = await supabase
-      .from('capsule_members')
-      .select('capsule_id, capsules(*)')
-      .eq('user_id', user.id)
-      .not('joined_at', 'is', null);
+  const { data: allCapsules, loading, refresh } = useCachedFetch<CapsuleWithCountdown[]>(
+    'capsules',
+    async () => {
+      const session = sessionStore.get();
+      if (!session) return [];
 
-    if (error || !data) return;
+      const { data, error } = await supabase
+        .from('capsule_members')
+        .select('capsule_id, capsules(*)')
+        .eq('user_id', session.user.id)
+        .not('joined_at', 'is', null);
 
-    const all: CapsuleWithCountdown[] = data
-      .map((row: any) => row.capsules)
-      .filter(Boolean);
+      if (error || !data) return [];
 
-    setCapsules(all.filter(c => !c.archived_at));
-    setArchivedCapsules(all.filter(c => c.archived_at && c.owner_id === user.id));
-  }
+      return data.map((row: any) => row.capsules).filter(Boolean);
+    },
+  );
 
-  useFocusEffect(useCallback(() => {
-    setLoading(true);
-    fetchCapsules().finally(() => setLoading(false));
-  }, []));
+  const capsules = (allCapsules ?? []).filter(c => !c.archived_at);
+  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at && c.owner_id === userId);
 
   async function onRefresh() {
     setRefreshing(true);
-    await fetchCapsules();
+    await refresh();
     setRefreshing(false);
   }
 
   async function restoreCapsule(capsuleId: string) {
     await supabase.from('capsules').update({ archived_at: null }).eq('id', capsuleId);
-    await fetchCapsules();
+    await refresh();
   }
 
   if (loading) {
@@ -151,10 +149,10 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+      <Animated.View style={[styles.header, headerAnim]}>
         <Text style={styles.title}>My Capsules</Text>
         {capsules.length > 0 && <Text style={styles.count}>{capsules.length} total</Text>}
-      </View>
+      </Animated.View>
 
       {capsules.length === 0 && archivedCapsules.length === 0 ? (
         <View style={styles.empty}>
@@ -178,9 +176,10 @@ export default function HomeScreen() {
         <FlatList
           data={capsules}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <CapsuleCard
               capsule={item}
+              index={index}
               onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: item.id })}
               onLongPress={
                 item.owner_id === userId && item.status !== 'unlocked'

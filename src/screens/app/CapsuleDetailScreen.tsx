@@ -2,14 +2,17 @@ import React, { useEffect, useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
   TouchableOpacity, ActivityIndicator, Modal, TextInput,
-  Share, Image, Platform, Dimensions, Animated, PanResponder, FlatList,
+  Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as VideoThumbnails from 'expo-video-thumbnails';
+import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
@@ -21,6 +24,8 @@ import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
+import { cache } from '../../lib/cache';
+import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -400,6 +405,8 @@ function MediaViewerModal({
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [currentUserId, setCurrentUserId] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadDone, setDownloadDone] = useState(false);
 
   useEffect(() => {
     loadReactions();
@@ -418,23 +425,58 @@ function MediaViewerModal({
   async function addReaction(mediaId: string, emoji: string) {
     const session = sessionStore.get();
     if (!session) return;
-    // Prevent duplicate
-    if (reactions.some(r => r.media_id === mediaId && r.emoji === emoji && r.user_id === session.user.id)) return;
-    const tempId = `tmp_${Date.now()}`;
-    const optimistic = { id: tempId, media_id: mediaId, user_id: session.user.id, emoji };
+    const userId = session.user.id;
+    if (reactions.some(r => r.media_id === mediaId && r.emoji === emoji && r.user_id === userId)) return;
+
+    // Unique constraint is (media_id, user_id) — swap if user already reacted with a different emoji
+    const existing = reactions.find(r => r.media_id === mediaId && r.user_id === userId);
+    if (existing) {
+      setReactions(prev => prev.map(r => r.id === existing.id ? { ...r, emoji } : r));
+      await supabase.from('reactions').update({ emoji }).eq('id', existing.id);
+      return;
+    }
+
+    const newId = randomUUID();
+    const optimistic = { id: newId, media_id: mediaId, user_id: userId, emoji };
     setReactions(prev => [...prev, optimistic]);
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('reactions')
-      .insert({ media_id: mediaId, emoji, user_id: session.user.id })
-      .select('id')
-      .single();
-    if (error) setReactions(prev => prev.filter(r => r.id !== tempId));
-    else if (data) setReactions(prev => prev.map(r => r.id === tempId ? { ...r, id: data.id } : r));
+      .insert({ id: newId, media_id: mediaId, emoji, user_id: userId });
+    if (error) setReactions(prev => prev.filter(r => r.id !== newId));
   }
 
   async function removeReaction(reactionId: string) {
     setReactions(prev => prev.filter(r => r.id !== reactionId));
     await supabase.from('reactions').delete().eq('id', reactionId);
+  }
+
+  async function downloadCurrent() {
+    const item = items[currentIndex];
+    if (!item?.signedUrl || downloading) return;
+    setDownloading(true);
+    setDownloadDone(false);
+
+    try {
+      if (Platform.OS === 'web') {
+        const a = document.createElement('a');
+        a.href = item.signedUrl;
+        a.download = `capsule-${item.id}.${item.mediaType === 'video' ? 'mp4' : 'jpg'}`;
+        a.click();
+      } else {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status !== 'granted') { setDownloading(false); return; }
+        const ext = item.mediaType === 'video' ? 'mp4' : 'jpg';
+        const localUri = FileSystem.cacheDirectory + `capsule-${item.id}.${ext}`;
+        await FileSystem.downloadAsync(item.signedUrl, localUri);
+        await MediaLibrary.saveToLibraryAsync(localUri);
+      }
+      setDownloadDone(true);
+      setTimeout(() => setDownloadDone(false), 2000);
+    } catch {
+      // Silent fail — permission denied or network error
+    } finally {
+      setDownloading(false);
+    }
   }
 
   const translateX = useRef(new Animated.Value(-startIndex * SCREEN_WIDTH)).current;
@@ -503,7 +545,7 @@ function MediaViewerModal({
                 <VideoSlide key={item.id} item={item} isActive={index === currentIndex} />
               ) : (
                 <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                  <Image source={{ uri: item.signedUrl }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="contain" />
+                  <Image source={item.signedUrl} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" transition={200} />
                 </View>
               )
             )}
@@ -518,16 +560,27 @@ function MediaViewerModal({
             onRemove={removeReaction}
           />
 
-          {/* Header */}
-          <View style={{ position: 'absolute', top: 56, left: 0, right: 0, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20 }}>
-            <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600', opacity: 0.8 }}>
-              {currentIndex + 1} / {items.length}
-            </Text>
-            <View style={{ width: 36 }} />
-          </View>
+          {/* Header gradient + controls */}
+          <LinearGradient
+            colors={['rgba(0,0,0,0.6)', 'rgba(0,0,0,0)']}
+            style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 120 }}
+          >
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 56 }}>
+              <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
+                {currentIndex + 1} / {items.length}
+              </Text>
+              <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
+                {downloading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Ionicons name={downloadDone ? 'checkmark-circle' : 'download-outline'} size={24} color={downloadDone ? '#30D158' : '#fff'} />
+                )}
+              </TouchableOpacity>
+            </View>
+          </LinearGradient>
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -570,9 +623,10 @@ function MediaGalleryModal({
             >
               {(item.mediaType === 'photo' || item.thumbnailUri) && (
                 <Image
-                  source={{ uri: item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl }}
+                  source={item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl}
                   style={StyleSheet.absoluteFill}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  transition={150}
                 />
               )}
               {item.mediaType === 'video' && (
@@ -698,6 +752,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [uploadError, setUploadError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const heroAnim = useFadeIn(0, 300);
 
   async function confirmDelete() {
     setDeleting(true);
@@ -710,6 +765,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     await supabase.from('capsules').delete().eq('id', capsuleId);
     setDeleting(false);
     setShowDeleteConfirm(false);
+    cache.invalidate('capsules', 'profile');
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   }
   const revealOpacity = useRef(new Animated.Value(0)).current;
@@ -788,9 +844,25 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
 
     await fetchPhotos();
+
+    cache.set(`capsule:${capsuleId}`, {
+      capsule: capsuleRes.data,
+      members: membersRes.data,
+    });
   }
 
-  useEffect(() => { load().finally(() => setLoading(false)); }, [capsuleId]);
+  useEffect(() => {
+    setCurrentUserId(sessionStore.get()?.user.id ?? '');
+    const cached = cache.get<{ capsule: any; members: any }>(`capsule:${capsuleId}`);
+    if (cached) {
+      if (cached.capsule) setCapsule(cached.capsule);
+      if (cached.members) setMembers(cached.members as MemberRow[]);
+      setLoading(false);
+      load();
+    } else {
+      load().finally(() => setLoading(false));
+    }
+  }, [capsuleId]);
 
   useEffect(() => {
     const channel = supabase
@@ -991,6 +1063,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Animated.View style={heroAnim}>
         <View style={styles.hero}>
           <Ionicons
             name={isLocked ? 'time-outline' : 'lock-open-outline'}
@@ -1008,6 +1081,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         {capsule.description ? (
           <Text style={styles.description}>{capsule.description}</Text>
         ) : null}
+        </Animated.View>
 
         {isLocked ? (
           <>
@@ -1095,9 +1169,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                     >
                       {(p.mediaType === 'photo' || p.thumbnailUri) && (
                         <Image
-                          source={{ uri: p.mediaType === 'video' ? p.thumbnailUri : p.signedUrl }}
+                          source={p.mediaType === 'video' ? p.thumbnailUri : p.signedUrl}
                           style={StyleSheet.absoluteFill}
-                          resizeMode="cover"
+                          contentFit="cover"
+                          transition={200}
                         />
                       )}
                       {p.mediaType === 'video' && !isLast && (

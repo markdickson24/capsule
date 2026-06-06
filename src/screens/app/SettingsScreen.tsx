@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView,
+  View, Text, StyleSheet, ScrollView, Animated,
   TouchableOpacity, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import ColorPicker from '../../components/ColorPicker';
+import { useSlideUp } from '../../lib/animations';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
@@ -15,6 +16,7 @@ export default function SettingsScreen({ navigation }: Props) {
   const { accentColor, setAccentColor } = useTheme();
   const [pending, setPending] = useState(accentColor);
   const [saving, setSaving] = useState(false);
+  const contentAnim = useSlideUp(0, 400);
 
   async function handleSave() {
     setSaving(true);
@@ -30,21 +32,23 @@ export default function SettingsScreen({ navigation }: Props) {
       </TouchableOpacity>
 
       <ScrollView contentContainerStyle={styles.scroll} scrollEnabled={false}>
-        <Text style={styles.title}>Appearance</Text>
-        <Text style={styles.subtitle}>Choose your accent color</Text>
+        <Animated.View style={[{ gap: 20 }, contentAnim]}>
+          <Text style={styles.title}>Appearance</Text>
+          <Text style={styles.subtitle}>Choose your accent color</Text>
 
-        <ColorPicker value={accentColor} onChange={setPending} originalValue={accentColor} />
+          <ColorPicker value={accentColor} onChange={setPending} originalValue={accentColor} />
 
-        <TouchableOpacity
-          style={[styles.saveBtn, { backgroundColor: pending }]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving
-            ? <ActivityIndicator color="#fff" />
-            : <Text style={styles.saveBtnText}>Save Color</Text>
-          }
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.saveBtn, { backgroundColor: pending }]}
+            onPress={handleSave}
+            disabled={saving}
+          >
+            {saving
+              ? <ActivityIndicator color="#fff" />
+              : <Text style={styles.saveBtnText}>Save Color</Text>
+            }
+          </TouchableOpacity>
+        </Animated.View>
       </ScrollView>
     </SafeAreaView>
   );
