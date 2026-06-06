@@ -1,6 +1,6 @@
 # Capsule — Agent Handoff
 
-_Last updated: 2026-05-30_
+_Last updated: 2026-06-06_
 
 ---
 
@@ -11,8 +11,8 @@ time-locked photo-sharing app where groups create albums that unlock for all
 members simultaneously on a set date.
 
 **Distribution status:**
-- **iOS / TestFlight** — blocked on the paid Apple Developer Program ($99/yr),
-  not yet purchased. Needed for TestFlight *and* ad-hoc device installs.
+- **iOS / TestFlight** — Apple Developer Program purchased. First production
+  build submitted via `eas build` + `eas submit`. TestFlight processing pending.
 - **Android** — unblocked. `eas build --profile preview` produces an installable
   APK that can be shared directly with testers, no paid account required.
 - A simulator/`expo start` build is **not** enough for remote testers — they
@@ -34,6 +34,49 @@ contribute → time-lock → simultaneous unlock.
 ---
 
 ## What's Been Done (recent → older)
+
+### App icon
+- Custom Capsule lock logo (C + padlock + "Capsule" text) set as `icon.png`,
+  `adaptive-icon.png`, and `favicon.png`. All 1024x1024 (favicon 48x48).
+
+### expo-image migration
+- Replaced `Image` from `react-native` with `expo-image` across all screens
+  (CapsuleDetailScreen, ProfileScreen Avatar, PreviewScreen, OnboardingScreen).
+- Native disk + memory caching — images load from cache on subsequent views.
+- `transition={200}` for smooth fade-in instead of pop-in.
+- `contentFit` replaces `resizeMode` (`expo-image` API).
+
+### Entrance animations
+- `src/lib/animations.ts` — reusable hooks (`useFadeIn`, `useSlideUp`,
+  `useListItemEntrance`) using the built-in `Animated` API.
+- Animations replay on every tab focus via `useIsFocused()` — not just on
+  initial mount.
+- Applied to: HomeScreen (header fade, staggered cards), ProfileScreen
+  (staggered hero/actions/sign-out), NotificationsScreen (header fade,
+  staggered cards), CreateScreen (header fade, form slide-up),
+  CapsuleDetailScreen (hero fade), SettingsScreen (content slide-up).
+- Screen transitions in `AppNavigator`: `fade` for Tabs/Onboarding,
+  `slide_from_bottom` for Settings, `none` kept for Preview.
+
+### Calendar DatePicker rewrite
+- Replaced native date scroller with custom calendar grid in
+  `src/components/DatePicker.tsx`. No external calendar library.
+- Day view: month grid with accent-colored selection circle, today border,
+  past days dimmed. Tappable header ("June 2026 ▼") switches to month picker.
+- Month/year picker: 4×3 month grid with year navigation arrows.
+- Quick presets retained (1/3/6/12 months).
+- Collapsible time row with native time spinner (iOS) / default picker (web).
+- `expo-haptics` added: Light impact on selections (day, month, preset),
+  Selection feedback on navigation arrows. No-op on web.
+
+### Startup hang fix
+- `AppNavigator` onboarding query had no timeout or `.catch()` — if the
+  network hung, the app showed an infinite spinner. Added 5-second timeout
+  with `resolved` flag pattern and `Promise.resolve()` wrapper (Supabase
+  `PromiseLike` doesn't have `.catch()`).
+- `ThemeContext` now eagerly loads accent color from `sessionStore.get()` on
+  mount, instead of waiting solely on `onAuthStateChange` (which may never
+  fire on web if `_initialize()` hangs).
 
 ### In-memory caching
 - `src/lib/cache.ts` — TTL-based cache with pub/sub invalidation. Screens show
@@ -143,10 +186,9 @@ contribute → time-lock → simultaneous unlock.
 
 ## Next Steps
 
-1. **Apple Developer Program** — still needed for TestFlight and ad-hoc iOS
-   distribution. Once purchased: `eas build --platform ios --profile production`.
-2. **Beta test** — `eas build --profile preview` for Android testers now;
-   iOS testers wait on step 1.
+1. **TestFlight approval** — first build submitted. Once Apple processes it,
+   share the TestFlight link with iOS beta testers.
+2. **Android beta** — `eas build --profile preview` for installable APK.
 3. **Watch Supabase free-tier usage during the beta** — 1 GB storage, 5 GB/mo
    egress. Egress (every photo *view*) is the likely first limit. Dashboard →
    Reports → Usage. Videos eat storage far faster than photos.
@@ -190,6 +232,7 @@ contribute → time-lock → simultaneous unlock.
 | In-memory cache + invalidation | `src/lib/cache.ts` |
 | Cache-aware data fetching hook | `src/hooks/useCachedFetch.ts` |
 | Theme / accent color | `src/context/ThemeContext.tsx` |
+| Animation hooks | `src/lib/animations.ts` |
 | Shared components | `src/components/ColorPicker.tsx`, `ConfirmModal.tsx`, `DatePicker.tsx`, `Skeleton.tsx` |
 | Navigation tree | `src/navigation/AppNavigator.tsx`, `AuthNavigator.tsx` |
 | Supabase client | `src/lib/supabase.ts` |

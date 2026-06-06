@@ -20,6 +20,8 @@ No test suite or linter configured yet.
 - **React Native + Expo ~54** (single codebase for iOS, Android, web)
 - **Supabase** — auth, PostgreSQL, storage, RLS, realtime
 - **React Navigation v7** — native stack + custom bottom tabs
+- **expo-image** — cached image loading with native disk/memory cache
+- **expo-haptics** — tactile feedback on calendar and UI interactions
 - **expo-location** — foreground GPS for proximity check-in (native only)
 - **TypeScript** ~5.9
 
@@ -30,7 +32,7 @@ src/
   components/
     ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
     ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
-    DatePicker.tsx           # Shared date/time picker — collapsed display, quick presets, sliding date/time tabs, live preview
+    DatePicker.tsx           # Shared date/time picker — custom calendar grid, month/year picker, quick presets, haptics
     Skeleton.tsx             # Shimmer skeleton loaders (SkeletonBox, SkeletonCard, SkeletonProfileCard, etc.)
   context/
     ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
@@ -42,6 +44,7 @@ src/
     usePushNotifications.web.ts     # No-op stub for web
     usePushNotifications.ts         # TS fallback stub
   lib/
+    animations.ts           # Reusable animation hooks (useFadeIn, useSlideUp, useListItemEntrance)
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
     sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load)
@@ -107,8 +110,8 @@ RootNavigator (App.tsx)
     ResetPassword     (no params — session set via deep link before navigating here)
     EditCapsule       { capsuleId: string }
     ManageMembers     { capsuleId: string }
-    Settings          (no params — accent color picker)
-    Onboarding        (no params — 4-step wizard, see Onboarding section)
+    Settings          (no params — accent color picker, animation: 'slide_from_bottom')
+    Onboarding        (no params — 4-step wizard, animation: 'fade')
 ```
 
 Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is set by `PreviewScreen` when creating a new capsule from the camera flow — the media auto-uploads after the capsule is created.
@@ -413,9 +416,47 @@ Props: `{ label, value, onChange, optional?, contextLabel? }`.
 
 - Collapsed state shows the selected date/time with a "change" link; tapping expands inline
 - Quick preset buttons: "In 1 month", "In 3 months", "In 6 months", "In 1 year"
-- Date and time tabs render side-by-side and slide via `translateX` animation (no unmount/remount flash)
+- **Custom calendar grid** (no external library):
+  - Day view: 7-column grid, accent-colored circle on selected day, accent border on today, past days dimmed (#333)
+  - Tappable month/year header ("June 2026 ▼") switches to month picker mode
+  - Month picker: 4×3 month grid with year navigation arrows (◀ ▶)
+- Collapsible time row with native `DateTimePicker` (spinner on iOS, default on web)
 - `contextLabel` shows a live preview sentence below the picker (e.g. "Capsule unlocks for everyone on Jun 30, 2026 at 3:00 PM")
 - `optional` prop adds an "enabled" toggle — when off, `onChange(null)` is called
+- **Haptics** via `expo-haptics`: Light impact on day/month select and quick presets; Selection feedback on month/year navigation arrows. All no-op on web.
+
+## Animations (`src/lib/animations.ts`)
+
+Reusable entrance animation hooks using the built-in `Animated` API (no `react-native-reanimated`).
+
+- `useFadeIn(delay?, duration?)` — opacity 0→1
+- `useSlideUp(delay?, duration?)` — opacity 0→1 + translateY 20→0
+- `useListItemEntrance(index, baseDelay?)` — staggered fade+slide for list items (60ms per item, caps at index 8)
+
+All three hooks use `useIsFocused()` from React Navigation — animations reset and replay every time the screen gains focus (not just on initial mount). This is important for tab screens which stay mounted.
+
+**Rules of Hooks:** these hooks must be called before any early returns (e.g. `if (loading) return <Skeleton />`). Moving them after an early return causes "Rendered more hooks than during the previous render" errors.
+
+**Screen transitions** configured in `AppNavigator.tsx`:
+- Tabs/Onboarding: `animation: 'fade'`
+- Settings: `animation: 'slide_from_bottom'`
+- Preview: `animation: 'none'` (instant camera preview)
+- All others: default `slide_from_right`
+
+## Image Loading (`expo-image`)
+
+All remote images use `Image` from `expo-image`, **not** from `react-native`. `expo-image` provides native disk + memory caching — after the first download, images load from cache on subsequent views.
+
+```tsx
+import { Image } from 'expo-image';
+
+// expo-image uses `source` as string (not { uri }), `contentFit` (not resizeMode)
+<Image source={url} contentFit="cover" transition={200} />
+```
+
+- `transition={200}` for smooth fade-in as images load
+- `contentFit` replaces `resizeMode`: `"contain"` for full-screen viewer, `"cover"` for thumbnails
+- Applied in: CapsuleDetailScreen (viewer + grid + gallery), ProfileScreen (Avatar), PreviewScreen, OnboardingScreen
 
 ## Skeleton Loaders (`src/components/Skeleton.tsx`)
 
@@ -476,3 +517,9 @@ App config: `app.json`. Bundle ID: `com.markdickson.capsule`. EAS Project ID: `2
 **EAS build profiles** (`eas.json`):
 - `production` — iOS: `simulator: false`, `autoIncrement: true` (bumps `buildNumber` each build). `appVersionSource: "remote"` so version is managed by EAS, not `app.json`.
 - No `preview` profile defined yet — Android preview APKs use `eas build --profile preview` with the default config.
+
+**TestFlight deployment:**
+```bash
+eas build --platform ios --profile production   # Build the binary
+eas submit --platform ios --profile production  # Submit to App Store Connect / TestFlight
+```
