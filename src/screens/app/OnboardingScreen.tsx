@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Platform, Image, KeyboardAvoidingView,
+  TouchableOpacity, ActivityIndicator, Platform, KeyboardAvoidingView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
@@ -191,7 +192,7 @@ export default function OnboardingScreen({ navigation }: Props) {
 
               <TouchableOpacity style={styles.avatarSlot} onPress={pickAvatar} activeOpacity={0.8}>
                 {avatarUri ? (
-                  <Image source={{ uri: avatarUri }} style={styles.avatarImg} />
+                  <Image source={avatarUri} style={styles.avatarImg} />
                 ) : (
                   <View style={[styles.avatarPlaceholder, { backgroundColor: pendingColor }]}>
                     <Ionicons name="camera-outline" size={32} color="#FFFFFF" />

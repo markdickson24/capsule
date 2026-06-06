@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, Image, TouchableOpacity,
+  View, Text, StyleSheet, TouchableOpacity,
   FlatList, ActivityIndicator, Platform,
   Animated, PanResponder, Modal, Pressable,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import * as FileSystem from 'expo-file-system/legacy';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -14,6 +15,7 @@ import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import { cache } from '../../lib/cache';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Preview'>;
 
@@ -23,16 +25,71 @@ type CapsuleOption = {
   capsules: { id: string; title: string; status: string } | null;
 };
 
+async function uploadToSingle(
+  capsuleId: string,
+  uri: string,
+  mediaType: 'photo' | 'video',
+): Promise<void> {
+  const session = sessionStore.get();
+  if (!session) throw new Error('Not signed in');
+
+  const mimeType = mediaType === 'video' ? 'video/mp4' : 'image/jpeg';
+  const ext = mediaType === 'video' ? 'mp4' : 'jpg';
+  const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
+
+  let sizeBytes = 0;
+
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const arrayBuffer = await response.arrayBuffer();
+    sizeBytes = arrayBuffer.byteLength;
+    const { error: uploadErr } = await supabase.storage
+      .from('capsule-media')
+      .upload(storageKey, arrayBuffer, { contentType: mimeType });
+    if (uploadErr) throw new Error(uploadErr.message);
+  } else {
+    const fileInfo = await FileSystem.getInfoAsync(uri, { size: true });
+    sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+    const uploadResult = await FileSystem.uploadAsync(
+      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
+      uri,
+      {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+          'Content-Type': mimeType,
+        },
+      }
+    );
+    if (uploadResult.status < 200 || uploadResult.status >= 300) {
+      throw new Error(`Storage returned ${uploadResult.status}: ${uploadResult.body}`);
+    }
+  }
+
+  const { error: dbErr } = await supabase.from('media').insert({
+    capsule_id: capsuleId,
+    uploader_id: session.user.id,
+    storage_key: storageKey,
+    media_type: mediaType,
+    size_bytes: sizeBytes,
+  });
+
+  if (dbErr) throw new Error(dbErr.message);
+}
+
 export default function PreviewScreen({ route, navigation }: Props) {
   const { accentColor } = useTheme();
-  const { uri, mediaType, facing } = route.params;
+  const { uri, mediaType } = route.params;
   const player = useVideoPlayer(mediaType === 'video' ? uri : null, p => {
     p.loop = true;
     p.play();
   });
   const [capsules, setCapsules] = useState<CapsuleOption[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
   const [showDiscard, setShowDiscard] = useState(false);
 
@@ -57,11 +114,10 @@ export default function PreviewScreen({ route, navigation }: Props) {
     async function fetchCapsules() {
       const session = sessionStore.get();
       if (!session) return;
-      const user = session.user;
       const { data } = await supabase
         .from('capsule_members')
         .select('capsule_id, role, capsules(id, title, status)')
-        .eq('user_id', user.id)
+        .eq('user_id', session.user.id)
         .not('joined_at', 'is', null)
         .in('role', ['owner', 'contributor']);
 
@@ -70,72 +126,57 @@ export default function PreviewScreen({ route, navigation }: Props) {
           row => row.capsules && row.capsules.status !== 'unlocked'
         );
         setCapsules(active);
-        if (active.length === 1) setSelectedId(active[0].capsule_id);
+        if (active.length === 1) setSelectedIds(new Set([active[0].capsule_id]));
       }
     }
     fetchCapsules();
   }, []);
 
+  function toggleCapsule(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function upload() {
-    if (!selectedId) return;
+    if (selectedIds.size === 0) return;
     setUploading(true);
     setError('');
 
+    const ids = Array.from(selectedIds);
+    setUploadProgress({ done: 0, total: ids.length });
+
     try {
-      const session = sessionStore.get();
-      if (!session) { setUploading(false); return; }
-
-      const mimeType = mediaType === 'video' ? 'video/mp4' : 'image/jpeg';
-      const ext = mediaType === 'video' ? 'mp4' : 'jpg';
-      const storageKey = `${selectedId}/${randomUUID()}.${ext}`;
-
-      let sizeBytes = 0;
-
-      if (Platform.OS === 'web') {
-        const response = await fetch(uri);
-        const arrayBuffer = await response.arrayBuffer();
-        sizeBytes = arrayBuffer.byteLength;
-        const { error: uploadErr } = await supabase.storage
-          .from('capsule-media')
-          .upload(storageKey, arrayBuffer, { contentType: mimeType });
-        if (uploadErr) throw new Error(uploadErr.message);
-      } else {
-        const fileInfo = await FileSystem.getInfoAsync(uri, { size: true });
-        sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
-        const uploadResult = await FileSystem.uploadAsync(
-          `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
-          uri,
-          {
-            httpMethod: 'POST',
-            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-            headers: {
-              Authorization: `Bearer ${session.access_token}`,
-              apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-              'Content-Type': mimeType,
-            },
-          }
-        );
-        if (uploadResult.status < 200 || uploadResult.status >= 300) {
-          throw new Error(`Storage returned ${uploadResult.status}: ${uploadResult.body}`);
-        }
+      for (let i = 0; i < ids.length; i++) {
+        await uploadToSingle(ids[i], uri, mediaType);
+        setUploadProgress({ done: i + 1, total: ids.length });
       }
 
-      const { error: dbErr } = await supabase.from('media').insert({
-        capsule_id: selectedId,
-        uploader_id: session.user.id,
-        storage_key: storageKey,
-        media_type: mediaType,
-        size_bytes: sizeBytes,
-      });
+      cache.invalidate('capsules');
+      for (const id of ids) cache.invalidate(`capsule:${id}`);
 
-      if (dbErr) throw new Error(dbErr.message);
-
-      navigation.replace('CapsuleDetail', { capsuleId: selectedId });
+      if (ids.length === 1) {
+        navigation.replace('CapsuleDetail', { capsuleId: ids[0] });
+      } else {
+        navigation.replace('Tabs', { screen: 'Home' });
+      }
     } catch (e: any) {
       setError(e?.message ?? 'Upload failed. Try again.');
       setUploading(false);
     }
   }
+
+  function goCreateCapsule() {
+    navigation.replace('Tabs', {
+      screen: 'Create',
+      params: { pendingMedia: { uri, mediaType } },
+    });
+  }
+
+  const hasSelection = selectedIds.size > 0;
 
   return (
     <View style={styles.container}>
@@ -143,9 +184,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
         style={[StyleSheet.absoluteFill, { transform: [{ translateY }] }]}
         {...swipeResponder.panHandlers}
       >
-        {/* Full-screen preview */}
         {mediaType === 'photo' ? (
-          <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          <Image source={uri} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
           <VideoView
             player={player}
@@ -155,7 +195,6 @@ export default function PreviewScreen({ route, navigation }: Props) {
           />
         )}
 
-        {/* Top: discard */}
         <SafeAreaView edges={['top']} style={styles.topBar}>
           <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)}>
             <Ionicons name="close" size={20} color="#FFFFFF" />
@@ -163,12 +202,14 @@ export default function PreviewScreen({ route, navigation }: Props) {
           <Text style={styles.swipeHint}>Swipe down to discard</Text>
         </SafeAreaView>
 
-        {/* Bottom panel */}
         <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
           <Text style={styles.panelTitle}>Add to capsule</Text>
 
           {capsules.length === 0 ? (
-            <Text style={styles.noCapsules}>No active capsules. Create one first.</Text>
+            <View style={styles.emptyState}>
+              <Ionicons name="cube-outline" size={24} color="#666" />
+              <Text style={styles.emptyText}>No active capsules yet</Text>
+            </View>
           ) : (
             <FlatList
               data={capsules}
@@ -177,11 +218,12 @@ export default function PreviewScreen({ route, navigation }: Props) {
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.chipList}
               renderItem={({ item }) => {
-                const selected = selectedId === item.capsule_id;
+                const selected = selectedIds.has(item.capsule_id);
                 return (
                   <TouchableOpacity
                     style={[styles.chip, selected && [styles.chipSelected, { backgroundColor: accentColor, borderColor: accentColor }]]}
-                    onPress={() => setSelectedId(item.capsule_id)}
+                    onPress={() => toggleCapsule(item.capsule_id)}
+                    disabled={uploading}
                   >
                     {selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
                     <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
@@ -195,21 +237,41 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: accentColor }, (!selectedId || uploading) && styles.addBtnDisabled]}
-            onPress={upload}
-            disabled={!selectedId || uploading}
-          >
-            {uploading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <Text style={styles.addBtnText}>Add to Capsule</Text>
-            )}
-          </TouchableOpacity>
+          {capsules.length === 0 ? (
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: accentColor }]}
+              onPress={goCreateCapsule}
+            >
+              <Ionicons name="add" size={20} color="#FFFFFF" />
+              <Text style={styles.addBtnText}>Create Capsule</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: accentColor }, (!hasSelection || uploading) && styles.addBtnDisabled]}
+              onPress={upload}
+              disabled={!hasSelection || uploading}
+            >
+              {uploading ? (
+                <View style={styles.uploadingRow}>
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <Text style={styles.addBtnText}>
+                    {uploadProgress.total > 1
+                      ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`
+                      : 'Uploading…'}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.addBtnText}>
+                  {selectedIds.size > 1
+                    ? `Add to ${selectedIds.size} Capsules`
+                    : 'Add to Capsule'}
+                </Text>
+              )}
+            </TouchableOpacity>
+          )}
         </SafeAreaView>
       </Animated.View>
 
-      {/* Discard confirmation */}
       <Modal
         visible={showDiscard}
         transparent
@@ -267,10 +329,14 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   panelTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
-  noCapsules: { color: '#888888', fontSize: 14 },
+  emptyState: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 8,
+  },
+  emptyText: { color: '#888888', fontSize: 14 },
   chipList: { gap: 10, paddingBottom: 2 },
   chip: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(255,255,255,0.12)',
     borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
     borderWidth: 2, borderColor: 'transparent',
@@ -282,9 +348,12 @@ const styles = StyleSheet.create({
   chipTextSelected: { color: '#FFFFFF', fontWeight: '700' },
   error: { color: '#FF3B30', fontSize: 13 },
   addBtn: {
+    flexDirection: 'row',
     backgroundColor: '#FF6B35', borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center',
+    paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
+    gap: 8,
   },
   addBtnDisabled: { backgroundColor: '#2A2A2A' },
   addBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 });
