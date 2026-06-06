@@ -18,16 +18,31 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [accentColor, setAccentColorState] = useState(DEFAULT_ACCENT);
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
+    let loaded = false;
+
+    async function loadColor(userId: string) {
+      try {
         const { data } = await supabase
           .from('users')
           .select('accent_color')
-          .eq('id', session.user.id)
+          .eq('id', userId)
           .single();
         if ((data as any)?.accent_color) setAccentColorState((data as any).accent_color);
-      } else {
+        loaded = true;
+      } catch {}
+    }
+
+    const initial = sessionStore.get();
+    if (initial?.user) loadColor(initial.user.id);
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
         setAccentColorState(DEFAULT_ACCENT);
+        loaded = false;
+      } else if (event === 'SIGNED_IN' && session?.user) {
+        loadColor(session.user.id);
+      } else if (event === 'INITIAL_SESSION' && !loaded && session?.user) {
+        loadColor(session.user.id);
       }
     });
     return () => subscription.unsubscribe();

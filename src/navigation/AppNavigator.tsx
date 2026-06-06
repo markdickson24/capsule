@@ -217,23 +217,45 @@ export default function AppNavigator() {
   const [initialRoute, setInitialRoute] = useState<'Onboarding' | 'Tabs' | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    let resolved = false;
     const session = sessionStore.get();
     if (!session) { setInitialRoute('Tabs'); return; }
-    supabase
-      .from('users')
-      .select('onboarded_at')
-      .eq('id', session.user.id)
-      .single()
+
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        setInitialRoute('Tabs');
+      }
+    }, 5000);
+
+    Promise.resolve(
+      supabase
+        .from('users')
+        .select('onboarded_at')
+        .eq('id', session.user.id)
+        .single()
+    )
       .then(({ data, error }) => {
-        if (cancelled) return;
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
         if (error) {
           setInitialRoute('Tabs');
           return;
         }
         setInitialRoute((data as any)?.onboarded_at ? 'Tabs' : 'Onboarding');
+      })
+      .catch(() => {
+        if (resolved) return;
+        resolved = true;
+        clearTimeout(timeout);
+        setInitialRoute('Tabs');
       });
-    return () => { cancelled = true; };
+
+    return () => {
+      resolved = true;
+      clearTimeout(timeout);
+    };
   }, []);
 
   if (initialRoute === null) {
@@ -246,8 +268,8 @@ export default function AppNavigator() {
 
   return (
     <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ gestureEnabled: false }} />
-      <Stack.Screen name="Tabs" component={TabNavigator} />
+      <Stack.Screen name="Onboarding" component={OnboardingScreen} options={{ gestureEnabled: false, animation: 'fade' }} />
+      <Stack.Screen name="Tabs" component={TabNavigator} options={{ animation: 'fade' }} />
       <Stack.Screen name="CapsuleDetail" component={CapsuleDetailScreen} />
       <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
       <Stack.Screen
@@ -258,7 +280,7 @@ export default function AppNavigator() {
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
       <Stack.Screen name="EditCapsule" component={EditCapsuleScreen} />
       <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
-      <Stack.Screen name="Settings" component={SettingsScreen} />
+      <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_bottom' }} />
     </Stack.Navigator>
   );
 }

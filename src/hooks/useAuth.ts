@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
+import { cache } from '../lib/cache';
 
 export function useAuth() {
   // On web, `sessionStore` has already done a synchronous localStorage read at
@@ -32,8 +33,9 @@ export function useAuth() {
       .then(({ data: { session } }) => settle(session))
       .catch(() => settle(sessionStore.get()));
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       settle(session);
+      if (event === 'SIGNED_OUT') cache.clear();
     });
 
     return () => {
