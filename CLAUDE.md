@@ -30,15 +30,19 @@ src/
   components/
     ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
     ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
+    DatePicker.tsx           # Shared date/time picker — collapsed display, quick presets, sliding date/time tabs, live preview
+    Skeleton.tsx             # Shimmer skeleton loaders (SkeletonBox, SkeletonCard, SkeletonProfileCard, etc.)
   context/
     ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
   hooks/
     useAuth.ts              # Session listener, returns { session, loading }
+    useCachedFetch.ts       # Cache-aware data fetching hook — show cached, refresh in background
     useDeepLinks.ts         # Handles capsule://join/<id> and capsule://reset-password
     usePushNotifications.native.ts  # Token registration + tap routing (iOS/Android only)
     usePushNotifications.web.ts     # No-op stub for web
     usePushNotifications.ts         # TS fallback stub
   lib/
+    cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
     sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load)
     uuid.ts                 # randomUUID() helper
@@ -107,7 +111,7 @@ RootNavigator (App.tsx)
     Onboarding        (no params — 4-step wizard, see Onboarding section)
 ```
 
-Tab `Create` accepts optional `{ presetTitle, presetDescription }` route params (used by Onboarding step 4 preset cards to prefill the form).
+Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is set by `PreviewScreen` when creating a new capsule from the camera flow — the media auto-uploads after the capsule is created.
 
 **`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
 
@@ -204,10 +208,12 @@ Defined in `supabase-schema.sql`.
 
 - Shows photo or looping video before adding to a capsule
 - Fetches user's active capsules (non-unlocked, where role is owner or contributor and `joined_at` is not null)
-- Capsule selection via horizontal chip scroll; selected chip is orange
+- **Multi-select:** capsule selection via horizontal chip scroll with `Set<string>`. Multiple capsules can be selected; uploads run sequentially with progress display (`N/M`)
+- After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
+- **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: { uri, mediaType }` — the media auto-uploads after capsule creation
 - Swipe down > 100px triggers discard confirmation modal
-- Upload mirrors `CapsuleDetailScreen` upload logic (web: arrayBuffer, native: FileSystem.uploadAsync)
-- `media_type` in the DB insert correctly passes `route.params.mediaType` — photos and videos are stored with the right type
+- Upload: web uses `arrayBuffer`, native uses `FileSystem.uploadAsync`
+- Cache invalidation after upload: `cache.invalidate('capsules')` + per-capsule keys
 
 ---
 
@@ -236,7 +242,7 @@ Large file (~1400 lines). Key sub-components and patterns:
 
 **`InviteModal`** — user search with 300ms debounce (min 2 chars), sends push notification to invited user client-side.
 
-**`MediaViewerModal`** — full-screen swipe carousel. Gesture axis is locked on first movement (prevents diagonal). Vertical swipe > 120px or velocity > 1.5 closes modal.
+**`MediaViewerModal`** — full-screen swipe carousel. Gesture axis is locked on first movement (prevents diagonal). Vertical swipe > 120px or velocity > 1.5 closes modal. Header controls (close, page counter, download) sit inside a `LinearGradient` overlay (top 120px, `rgba(0,0,0,0.6)` → transparent) so buttons don't get lost against light images. Download button uses `expo-media-library` on native (saves to camera roll) and anchor-element download on web.
 
 **Real-time:** `supabase.channel('capsule-${capsuleId}')` listens for `UPDATE` on `capsules` table. On status → 'unlocked': triggers reveal animation + refetches media.
 
@@ -244,6 +250,10 @@ Large file (~1400 lines). Key sub-components and patterns:
 - Web: `fetch(uri) → arrayBuffer → supabase.storage.upload()`
 - Native: `FileSystem.uploadAsync` with `Authorization` + `apikey` headers
 - After all uploads: refetches media via `fetchPhotos()`
+
+**Reactions:** `addReaction()` generates the reaction ID client-side via `randomUUID()` — never chain `.select()` after `.insert()` on the `reactions` table (the SELECT RLS policy may fail even though the insert succeeded, causing the optimistic reaction to disappear). If the user already has a reaction on the media, the existing row is updated (emoji swap) instead of inserting a duplicate — respects the `unique(media_id, user_id)` constraint.
+
+**Cache integration:** on mount, checks `cache.get('capsule:${capsuleId}')` — if cached, renders instantly and fetches fresh in background. `load()` calls `cache.set()` after fetching. Invalidation: `cache.invalidate('capsules', 'profile')` on delete.
 
 ---
 
@@ -374,6 +384,60 @@ A capsule's `unlock_mode` (`time` | `proximity` | `both`) controls how it opens:
 - `src/lib/googleAuth.ts` — `signInWithGoogle()`. Returns `{ error?: string }`.
 - `src/context/ThemeContext.tsx` — `useTheme()` returns `{ accentColor, setAccentColor }`. `ThemeProvider` must wrap the app.
 - `src/lib/sessionStore.ts` — `sessionStore.get()` / `sessionStore.set()`. Module-level session cache, updated by `useAuth` on every `onAuthStateChange` event. **Always use `sessionStore.get()` instead of `await supabase.auth.getSession()` inside screens.** `getSession()` on web hangs when the access token is expired because it blocks on an internal refresh network call. `sessionStore.get()` is synchronous and never hangs.
+
+## Cache System (`src/lib/cache.ts`)
+
+In-memory cache with TTL, key-based invalidation, and pub/sub listeners. Reduces loading times by showing cached data instantly while fetching fresh data in the background.
+
+- `cache.get<T>(key, ttl?)` — returns cached data or null if expired (default 5 min TTL)
+- `cache.set<T>(key, data)` — stores data with timestamp
+- `cache.invalidate(...keys)` — deletes entries and notifies all subscribers for those keys
+- `cache.subscribe(key, fn)` — returns unsubscribe function; used by `useCachedFetch` for cross-screen reactivity
+- `cache.clear()` — wipes entire cache (called on sign out via `useAuth`)
+
+**`useCachedFetch<T>(key, fetcher, deps)`** (`src/hooks/useCachedFetch.ts`) — returns `{ data, loading, refresh }`. On screen focus: if cached data exists, renders instantly and fetches fresh in background; otherwise shows loading state. Subscribes to cache invalidation: when another screen invalidates the key, re-fetches immediately.
+
+**Cache keys in use:**
+- `capsules` — HomeScreen capsule list
+- `capsule:${id}` — per-capsule detail data
+- `profile` — ProfileScreen hero card data
+- `notifications` — NotificationsScreen
+
+**Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed).
+
+## DatePicker (`src/components/DatePicker.tsx`)
+
+Shared date/time picker used by `CreateScreen` and `EditCapsuleScreen`. Controlled component.
+
+Props: `{ label, value, onChange, optional?, contextLabel? }`.
+
+- Collapsed state shows the selected date/time with a "change" link; tapping expands inline
+- Quick preset buttons: "In 1 month", "In 3 months", "In 6 months", "In 1 year"
+- Date and time tabs render side-by-side and slide via `translateX` animation (no unmount/remount flash)
+- `contextLabel` shows a live preview sentence below the picker (e.g. "Capsule unlocks for everyone on Jun 30, 2026 at 3:00 PM")
+- `optional` prop adds an "enabled" toggle — when off, `onChange(null)` is called
+
+## Skeleton Loaders (`src/components/Skeleton.tsx`)
+
+Shimmer-animated loading placeholders for screens that use `useCachedFetch`.
+
+- `SkeletonBox` — base component with configurable width, height, borderRadius; uses `Animated.loop` with `interpolate` for shimmer
+- `SkeletonCard` — capsule card placeholder for HomeScreen
+- `SkeletonProfileCard` — hero card placeholder matching ProfileScreen layout (glow bar, avatar circle, name/bio/stats, action rows)
+- All use dark theme colors (`#1A1A1A` base, `#2A2A2A` shimmer highlight)
+
+## Profile Screen (`ProfileScreen.tsx`)
+
+Hero card design with accent-colored glow:
+- 3px accent glow bar at top of card, avatar ring with accent border
+- Stats row: Capsules, Unlocked, Friends — counts fetched from `capsule_members` with joins
+- Action rows: Edit Profile (opens inline modal), Appearance (navigates to Settings)
+- Sign out as a text link at bottom
+- Uses `useCachedFetch<ProfileData>('profile', ...)` — skeleton shown on first load only
+
+## Sign-Up Flow
+
+`SignUpScreen` collects only email and password — **no display name**. The `handle_new_user` trigger creates the `users` row with `display_name = null`. Display name is collected in Onboarding Step 1 (the first screen after sign-up). This avoids asking for the name twice.
 
 ## Web Auth Gotchas
 

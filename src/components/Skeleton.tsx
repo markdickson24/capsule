@@ -154,15 +154,36 @@ export function SkeletonMemberRow({ style }: { style?: ViewStyle }) {
 export function SkeletonProfileCard({ style }: { style?: ViewStyle }) {
   return (
     <View
-      style={[sk.profileCard, style]}
+      style={[{ paddingHorizontal: 20, paddingTop: 24, gap: 16 }, style]}
       accessibilityRole="none"
       accessibilityLabel="Loading profile"
     >
-      <SkeletonCircle size={96} />
-      <SkeletonBox height={20} width={160} borderRadius={8} style={{ marginTop: 12 }} />
-      <SkeletonBox height={14} width={220} borderRadius={6} style={{ marginTop: 4 }} />
-      <SkeletonBox height={48} width="100%" borderRadius={12} style={{ marginTop: 20 }} />
-      <SkeletonBox height={48} width="100%" borderRadius={12} style={{ marginTop: 8 }} />
+      <View style={{
+        backgroundColor: '#111111', borderRadius: 20, borderWidth: 1,
+        borderColor: '#1E1E1E', overflow: 'hidden',
+      }}>
+        <SkeletonBox height={3} width="100%" borderRadius={0} />
+        <View style={{ alignItems: 'center', paddingTop: 28, paddingBottom: 24, paddingHorizontal: 24 }}>
+          <SkeletonCircle size={106} />
+          <SkeletonBox height={22} width={160} borderRadius={8} style={{ marginTop: 14 }} />
+          <SkeletonBox height={14} width={200} borderRadius={6} style={{ marginTop: 6 }} />
+          <SkeletonBox height={12} width={80} borderRadius={4} style={{ marginTop: 10 }} />
+          <View style={{
+            flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch',
+            marginTop: 20, paddingTop: 20, borderTopWidth: 1, borderTopColor: '#1E1E1E',
+          }}>
+            {[0, 1, 2].map(i => (
+              <View key={i} style={{ flex: 1, alignItems: 'center', gap: 6 }}>
+                <SkeletonCircle size={32} />
+                <SkeletonBox height={18} width={28} borderRadius={6} />
+                <SkeletonBox height={10} width={50} borderRadius={4} />
+              </View>
+            ))}
+          </View>
+        </View>
+      </View>
+      <SkeletonBox height={64} width="100%" borderRadius={14} />
+      <SkeletonBox height={64} width="100%" borderRadius={14} />
     </View>
   );
 }

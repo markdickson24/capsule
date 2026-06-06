@@ -4,9 +4,14 @@ export type AuthStackParamList = {
   SignUp: undefined;
 };
 
+export type PendingMedia = {
+  uri: string;
+  mediaType: 'photo' | 'video';
+};
+
 export type AppTabParamList = {
   Home: undefined;
-  Create: { presetTitle?: string; presetDescription?: string } | undefined;
+  Create: { presetTitle?: string; presetDescription?: string; pendingMedia?: PendingMedia } | undefined;
   Camera: undefined;
   Notifications: undefined;
   Profile: undefined;

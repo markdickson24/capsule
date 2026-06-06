@@ -13,18 +13,13 @@ type Props = {
 };
 
 export default function SignUpScreen({ navigation }: Props) {
-  const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   async function handleSignUp() {
-    if (!displayName.trim() || !email.trim() || !password.trim()) {
+    if (!email.trim() || !password.trim()) {
       Alert.alert('Missing fields', 'Please fill in all fields.');
-      return;
-    }
-    if (displayName.trim().length > 30) {
-      Alert.alert('Name too long', 'Display name must be 30 characters or less.');
       return;
     }
     if (password.length < 8) {
@@ -36,7 +31,6 @@ export default function SignUpScreen({ navigation }: Props) {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { data: { display_name: displayName.trim() } },
     });
     setLoading(false);
 
@@ -58,15 +52,6 @@ export default function SignUpScreen({ navigation }: Props) {
         <Text style={styles.subtitle}>Start locking memories</Text>
 
         <View style={styles.form}>
-          <TextInput
-            style={styles.input}
-            placeholder="Display name"
-            placeholderTextColor="#555"
-            value={displayName}
-            onChangeText={setDisplayName}
-            autoCapitalize="words"
-            maxLength={30}
-          />
           <TextInput
             style={styles.input}
             placeholder="Email"

@@ -1,6 +1,6 @@
 # Capsule — Agent Handoff
 
-_Last updated: 2026-05-27_
+_Last updated: 2026-05-30_
 
 ---
 
@@ -34,6 +34,54 @@ contribute → time-lock → simultaneous unlock.
 ---
 
 ## What's Been Done (recent → older)
+
+### In-memory caching
+- `src/lib/cache.ts` — TTL-based cache with pub/sub invalidation. Screens show
+  cached data instantly while fetching fresh in the background.
+- `src/hooks/useCachedFetch.ts` — hook that wraps the cache: returns cached data
+  on mount, re-fetches on screen focus or cache invalidation from other screens.
+- Integrated into: HomeScreen (`capsules`), ProfileScreen (`profile`),
+  NotificationsScreen (`notifications`), CapsuleDetailScreen (`capsule:${id}`).
+- `cache.clear()` on sign out via `useAuth`.
+
+### Profile hero card redesign
+- `ProfileScreen` rewritten with accent-colored glow bar, avatar ring, stats row
+  (Capsules / Unlocked / Friends), action rows (Edit Profile, Appearance).
+- `SkeletonProfileCard` updated to match the new layout.
+
+### Multi-capsule upload from Preview
+- `PreviewScreen` now supports selecting multiple capsules — uploads run
+  sequentially with progress display.
+- Empty state: "No active capsules yet" + "Create Capsule" button that passes
+  `pendingMedia` to the Create tab. After capsule creation, the media auto-uploads.
+- `PendingMedia` type added to navigation types.
+
+### Media viewer improvements
+- **Download:** native saves to camera roll via `expo-media-library`; web uses
+  anchor-element download. Green checkmark confirmation.
+- **Gradient overlay:** `LinearGradient` (top 120px) behind header controls so
+  close/download buttons don't disappear against light images.
+
+### Reaction fix
+- `addReaction()` generates the reaction ID client-side (`randomUUID()`) — no
+  `.select()` after `.insert()`, which was failing under SELECT RLS and removing
+  the optimistic reaction.
+- Emoji swap: if user already reacted, updates existing row instead of inserting
+  a duplicate (respects `unique(media_id, user_id)`).
+
+### DatePicker component
+- `src/components/DatePicker.tsx` — shared picker with collapsed display, quick
+  presets (1/3/6/12 months), sliding date/time tabs, live preview sentence.
+- Used by `CreateScreen` and `EditCapsuleScreen`. Label: "Uploads Deadline"
+  (contribution lock date).
+
+### Skeleton loaders
+- `src/components/Skeleton.tsx` — shimmer-animated placeholders (`SkeletonBox`,
+  `SkeletonCard`, `SkeletonProfileCard`). Used during initial cache-miss loads.
+
+### Sign-up simplification
+- Removed display name collection from `SignUpScreen` — onboarding Step 1 handles
+  it. Avoids asking twice.
 
 ### Proximity unlock
 - Three unlock modes: `time` (original), `proximity` (GPS-based), `both`.
@@ -139,13 +187,17 @@ contribute → time-lock → simultaneous unlock.
 | App entry / auth routing | `App.tsx` |
 | Auth hook (session loading) | `src/hooks/useAuth.ts` |
 | Session cache (use in screens) | `src/lib/sessionStore.ts` |
+| In-memory cache + invalidation | `src/lib/cache.ts` |
+| Cache-aware data fetching hook | `src/hooks/useCachedFetch.ts` |
 | Theme / accent color | `src/context/ThemeContext.tsx` |
-| Color picker / confirm dialog | `src/components/ColorPicker.tsx`, `ConfirmModal.tsx` |
+| Shared components | `src/components/ColorPicker.tsx`, `ConfirmModal.tsx`, `DatePicker.tsx`, `Skeleton.tsx` |
 | Navigation tree | `src/navigation/AppNavigator.tsx`, `AuthNavigator.tsx` |
 | Supabase client | `src/lib/supabase.ts` |
 | Deep links | `src/hooks/useDeepLinks.ts` |
 | Push notifications (native only) | `src/hooks/usePushNotifications.native.ts` |
 | Onboarding wizard | `src/screens/app/OnboardingScreen.tsx` |
+| Profile (hero card + stats) | `src/screens/app/ProfileScreen.tsx` |
+| Preview (multi-select upload) | `src/screens/app/PreviewScreen.tsx` |
 | Capsule detail (~1400 lines) | `src/screens/app/CapsuleDetailScreen.tsx` |
 | Proximity check-in RPC | `check_in` (in `20260516152146_proximity_unlock.sql`) |
 | Edge functions | `supabase/functions/unlock-capsules/`, `send-invite-push/` |
