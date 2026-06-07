@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Animated, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
 import { SuperlativeStatus, SuperlativeTargetType } from '../types/database';
+import { useListItemEntrance } from '../lib/animations';
 import SuggestCategoryModal from './SuggestCategoryModal';
 import VoteSheet, { VoteSheetMedia, VoteSheetMember, CurrentVote } from './VoteSheet';
 
@@ -14,6 +15,15 @@ type Props = {
   joinedMemberCount: number;
   members: VoteSheetMember[];
   media: VoteSheetMedia[];
+  votingClosesAt: string | null;
+  votingFinalizedAt: string | null;
+};
+
+type WinnerRow = {
+  category_id: string;
+  target_user_id: string | null;
+  target_media_id: string | null;
+  vote_count: number;
 };
 
 type CategoryRow = {
@@ -30,18 +40,24 @@ type CategoryUI = CategoryRow & {
   my_vote: CurrentVote | null;
 };
 
-export default function AwardsSection({ capsuleId, joinedMemberCount, members, media }: Props) {
+export default function AwardsSection({
+  capsuleId, joinedMemberCount, members, media,
+  votingClosesAt, votingFinalizedAt,
+}: Props) {
   const { accentColor } = useTheme();
   const session = sessionStore.get();
   const userId = session?.user.id;
 
   const [categories, setCategories] = useState<CategoryUI[]>([]);
+  const [winners, setWinners] = useState<WinnerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSuggest, setShowSuggest] = useState(false);
   const [voteFor, setVoteFor] = useState<CategoryUI | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   const threshold = Math.max(1, Math.ceil(joinedMemberCount / 2));
+  const isFinalized = !!votingFinalizedAt;
+  const isClosed = !!votingClosesAt && new Date(votingClosesAt).getTime() <= Date.now();
 
   const fetchCategories = useCallback(async () => {
     const { data: cats, error: catErr } = await supabase
@@ -101,6 +117,17 @@ export default function AwardsSection({ capsuleId, joinedMemberCount, members, m
       i_upvoted: upvoteById.get(r.id)?.mine ?? false,
       my_vote: voteById.get(r.id) ?? null,
     })));
+
+    if (catIds.length > 0) {
+      const { data: winnerRows } = await supabase
+        .from('superlative_winners')
+        .select('category_id, target_user_id, target_media_id, vote_count')
+        .in('category_id', catIds);
+      setWinners((winnerRows ?? []) as WinnerRow[]);
+    } else {
+      setWinners([]);
+    }
+
     setLoading(false);
   }, [capsuleId, userId]);
 
@@ -113,9 +140,19 @@ export default function AwardsSection({ capsuleId, joinedMemberCount, members, m
         { event: '*', schema: 'public', table: 'superlative_categories', filter: `capsule_id=eq.${capsuleId}` },
         () => fetchCategories(),
       )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'superlative_winners' },
+        () => fetchCategories(),
+      )
       .subscribe();
     return () => { channel.unsubscribe(); };
   }, [capsuleId, fetchCategories]);
+
+  // Re-fetch when finalization arrives via the parent's capsule subscription.
+  useEffect(() => {
+    if (votingFinalizedAt) fetchCategories();
+  }, [votingFinalizedAt, fetchCategories]);
 
   async function toggleUpvote(c: CategoryUI) {
     if (!userId || busyIds.has(c.id)) return;
@@ -171,22 +208,61 @@ export default function AwardsSection({ capsuleId, joinedMemberCount, members, m
     return map;
   }, [media]);
 
+  const winnersByCategory = useMemo(() => {
+    const map = new Map<string, WinnerRow[]>();
+    for (const w of winners) {
+      const arr = map.get(w.category_id) ?? [];
+      arr.push(w);
+      map.set(w.category_id, arr);
+    }
+    return map;
+  }, [winners]);
+
   return (
     <View style={styles.wrap}>
       <View style={styles.header}>
         <Text style={styles.title}>Awards</Text>
-        <TouchableOpacity
-          style={[styles.suggestBtn, { backgroundColor: `${accentColor}20` }]}
-          onPress={() => setShowSuggest(true)}
-        >
-          <Ionicons name="add" size={16} color={accentColor} />
-          <Text style={[styles.suggestBtnText, { color: accentColor }]}>Suggest</Text>
-        </TouchableOpacity>
+        {!isClosed && (
+          <TouchableOpacity
+            style={[styles.suggestBtn, { backgroundColor: `${accentColor}20` }]}
+            onPress={() => setShowSuggest(true)}
+          >
+            <Ionicons name="add" size={16} color={accentColor} />
+            <Text style={[styles.suggestBtnText, { color: accentColor }]}>Suggest</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {loading ? (
         <View style={styles.loadingBox}>
           <ActivityIndicator color={accentColor} size="small" />
+        </View>
+      ) : isFinalized ? (
+        live.length === 0 ? (
+          <View style={styles.emptyBox}>
+            <Ionicons name="trophy-outline" size={28} color="#555" />
+            <Text style={styles.emptyText}>No categories made it to voting.</Text>
+          </View>
+        ) : (
+          <View style={styles.list}>
+            <Text style={styles.groupLabel}>🏆 Winners</Text>
+            {live.map((c, i) => (
+              <WinnerCard
+                key={c.id}
+                category={c}
+                winners={winnersByCategory.get(c.id) ?? []}
+                memberById={memberById}
+                mediaById={mediaById}
+                index={i}
+              />
+            ))}
+          </View>
+        )
+      ) : isClosed ? (
+        <View style={styles.tallyingBox}>
+          <ActivityIndicator color={accentColor} size="small" />
+          <Text style={styles.emptyText}>Tallying votes…</Text>
+          <Text style={styles.emptySubtext}>Winners will appear here in a moment.</Text>
         </View>
       ) : categories.length === 0 ? (
         <View style={styles.emptyBox}>
@@ -385,6 +461,112 @@ function LiveCard({
   );
 }
 
+function WinnerCard({
+  category, winners, memberById, mediaById, index,
+}: {
+  category: CategoryUI;
+  winners: WinnerRow[];
+  memberById: Map<string, VoteSheetMember>;
+  mediaById: Map<string, VoteSheetMedia>;
+  index: number;
+}) {
+  const { accentColor } = useTheme();
+  const anim = useListItemEntrance(index, 40);
+
+  const totalVotes = winners.reduce((sum, w) => sum + w.vote_count, 0);
+  const isTie = winners.length > 1;
+
+  return (
+    <Animated.View style={[styles.winnerCard, { borderColor: `${accentColor}50`, shadowColor: accentColor }, anim]}>
+      <View style={styles.winnerHeader}>
+        <View style={styles.winnerCrown}>
+          <Ionicons name="trophy" size={14} color={accentColor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.winnerCategoryLabel}>{category.label}</Text>
+          {isTie && (
+            <Text style={[styles.tieLabel, { color: accentColor }]}>Co-winners</Text>
+          )}
+        </View>
+      </View>
+
+      {winners.length === 0 ? (
+        <View style={styles.noVotesBox}>
+          <Text style={styles.noVotesText}>No votes were cast.</Text>
+        </View>
+      ) : (
+        <View style={styles.winnersList}>
+          {winners.map((w, i) => (
+            <WinnerEntry
+              key={i}
+              targetType={category.target_type}
+              winner={w}
+              memberById={memberById}
+              mediaById={mediaById}
+            />
+          ))}
+        </View>
+      )}
+
+      {winners.length > 0 && (
+        <Text style={styles.winnerMeta}>
+          {winners[0].vote_count} {winners[0].vote_count === 1 ? 'vote' : 'votes'}
+          {isTie ? ' each' : ''} · {totalVotes} {isTie ? 'shared' : 'total'}
+        </Text>
+      )}
+    </Animated.View>
+  );
+}
+
+function WinnerEntry({
+  targetType, winner, memberById, mediaById,
+}: {
+  targetType: SuperlativeTargetType;
+  winner: WinnerRow;
+  memberById: Map<string, VoteSheetMember>;
+  mediaById: Map<string, VoteSheetMedia>;
+}) {
+  const { accentColor } = useTheme();
+
+  if (targetType === 'person') {
+    const m = winner.target_user_id ? memberById.get(winner.target_user_id) : null;
+    return (
+      <View style={styles.winnerEntry}>
+        <View style={[styles.winnerAvatar, { backgroundColor: `${accentColor}30`, borderColor: accentColor }]}>
+          {m?.avatar_url ? (
+            <Image source={m.avatar_url} style={styles.winnerAvatarImg} contentFit="cover" />
+          ) : (
+            <Text style={[styles.winnerAvatarLetter, { color: accentColor }]}>
+              {(m?.display_name || '?').slice(0, 1).toUpperCase()}
+            </Text>
+          )}
+        </View>
+        <Text style={styles.winnerName}>{m?.display_name || 'Member'}</Text>
+      </View>
+    );
+  }
+
+  const item = winner.target_media_id ? mediaById.get(winner.target_media_id) : null;
+  const src = item ? (item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl) : undefined;
+  return (
+    <View style={styles.winnerEntry}>
+      <View style={[styles.winnerThumb, { borderColor: accentColor }]}>
+        {src ? (
+          <Image source={src} style={StyleSheet.absoluteFill} contentFit="cover" />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: '#222' }]} />
+        )}
+        {item?.mediaType === 'video' && (
+          <View style={styles.winnerPlayBadge}>
+            <Ionicons name="play" size={12} color="#FFFFFF" />
+          </View>
+        )}
+      </View>
+      <Text style={styles.winnerName}>{item?.mediaType === 'video' ? 'Video' : 'Photo'}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   wrap: { gap: 12 },
   header: {
@@ -471,4 +653,52 @@ const styles = StyleSheet.create({
   votedMedia: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   votedMediaImg: { width: 22, height: 22, borderRadius: 6 },
   votedName: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  tallyingBox: {
+    paddingVertical: 28, alignItems: 'center', gap: 10,
+    backgroundColor: '#111111', borderRadius: 14,
+  },
+  winnerCard: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1,
+    gap: 12,
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  winnerHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  winnerCrown: {
+    width: 28, height: 28, borderRadius: 14,
+    backgroundColor: 'rgba(255,107,53,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  winnerCategoryLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
+  tieLabel: { fontSize: 11, fontWeight: '700', marginTop: 2, letterSpacing: 0.5 },
+  noVotesBox: { paddingVertical: 12, alignItems: 'center' },
+  noVotesText: { color: '#555', fontSize: 13 },
+  winnersList: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  winnerEntry: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  winnerAvatar: {
+    width: 40, height: 40, borderRadius: 20,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 2,
+  },
+  winnerAvatarImg: { width: 36, height: 36, borderRadius: 18 },
+  winnerAvatarLetter: { fontSize: 16, fontWeight: '800' },
+  winnerThumb: {
+    width: 40, height: 40, borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 2,
+  },
+  winnerPlayBadge: {
+    position: 'absolute', bottom: 2, right: 2,
+    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8,
+    paddingHorizontal: 3, paddingVertical: 1,
+  },
+  winnerName: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  winnerMeta: { color: '#666', fontSize: 11, fontWeight: '600' },
 });

@@ -1274,6 +1274,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               signedUrl: p.signedUrl,
               thumbnailUri: p.thumbnailUri,
             }))}
+            votingClosesAt={(capsule as any).superlative_voting_closes_at ?? null}
+            votingFinalizedAt={(capsule as any).superlative_voting_finalized_at ?? null}
           />
         )}
 

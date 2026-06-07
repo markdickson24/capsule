@@ -122,3 +122,12 @@ export interface SuperlativeTally {
   target_media_id: string | null;
   vote_count: number;
 }
+
+export interface SuperlativeWinner {
+  id: string;
+  category_id: string;
+  target_user_id: string | null;
+  target_media_id: string | null;
+  vote_count: number;
+  determined_at: string;
+}
