@@ -1261,6 +1261,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <AwardsSection
             capsuleId={capsuleId}
             joinedMemberCount={members.filter(m => m.joined_at !== null).length}
+            members={members
+              .filter(m => m.joined_at !== null && m.users !== null)
+              .map(m => ({
+                user_id: m.user_id,
+                display_name: m.users?.display_name ?? 'Member',
+                avatar_url: m.users?.avatar_url ?? null,
+              }))}
+            media={photos.map(p => ({
+              id: p.id,
+              mediaType: p.mediaType,
+              signedUrl: p.signedUrl,
+              thumbnailUri: p.thumbnailUri,
+            }))}
           />
         )}
 

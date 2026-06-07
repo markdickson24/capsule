@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
 import { SuperlativeStatus, SuperlativeTargetType } from '../types/database';
 import SuggestCategoryModal from './SuggestCategoryModal';
+import VoteSheet, { VoteSheetMedia, VoteSheetMember, CurrentVote } from './VoteSheet';
 
 type Props = {
   capsuleId: string;
   joinedMemberCount: number;
+  members: VoteSheetMember[];
+  media: VoteSheetMedia[];
 };
 
 type CategoryRow = {
@@ -23,9 +27,10 @@ type CategoryRow = {
 type CategoryUI = CategoryRow & {
   upvote_count: number;
   i_upvoted: boolean;
+  my_vote: CurrentVote | null;
 };
 
-export default function AwardsSection({ capsuleId, joinedMemberCount }: Props) {
+export default function AwardsSection({ capsuleId, joinedMemberCount, members, media }: Props) {
   const { accentColor } = useTheme();
   const session = sessionStore.get();
   const userId = session?.user.id;
@@ -33,6 +38,7 @@ export default function AwardsSection({ capsuleId, joinedMemberCount }: Props) {
   const [categories, setCategories] = useState<CategoryUI[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSuggest, setShowSuggest] = useState(false);
+  const [voteFor, setVoteFor] = useState<CategoryUI | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
 
   const threshold = Math.max(1, Math.ceil(joinedMemberCount / 2));
@@ -54,26 +60,46 @@ export default function AwardsSection({ capsuleId, joinedMemberCount }: Props) {
     const catIds = rows.map(c => c.id);
 
     let upvotes: { category_id: string; user_id: string }[] = [];
+    let myVotes: { category_id: string; target_user_id: string | null; target_media_id: string | null }[] = [];
     if (catIds.length > 0) {
-      const { data } = await supabase
-        .from('superlative_upvotes')
-        .select('category_id, user_id')
-        .in('category_id', catIds);
-      upvotes = (data ?? []) as { category_id: string; user_id: string }[];
+      const [{ data: upData }, { data: voteData }] = await Promise.all([
+        supabase
+          .from('superlative_upvotes')
+          .select('category_id, user_id')
+          .in('category_id', catIds),
+        userId
+          ? supabase
+              .from('superlative_votes')
+              .select('category_id, target_user_id, target_media_id')
+              .eq('voter_id', userId)
+              .in('category_id', catIds)
+          : Promise.resolve({ data: [] as any[] }),
+      ]);
+      upvotes = (upData ?? []) as typeof upvotes;
+      myVotes = (voteData ?? []) as typeof myVotes;
     }
 
-    const byId = new Map<string, { count: number; mine: boolean }>();
+    const upvoteById = new Map<string, { count: number; mine: boolean }>();
     for (const u of upvotes) {
-      const cur = byId.get(u.category_id) ?? { count: 0, mine: false };
+      const cur = upvoteById.get(u.category_id) ?? { count: 0, mine: false };
       cur.count += 1;
       if (u.user_id === userId) cur.mine = true;
-      byId.set(u.category_id, cur);
+      upvoteById.set(u.category_id, cur);
+    }
+
+    const voteById = new Map<string, CurrentVote>();
+    for (const v of myVotes) {
+      voteById.set(v.category_id, {
+        target_user_id: v.target_user_id,
+        target_media_id: v.target_media_id,
+      });
     }
 
     setCategories(rows.map(r => ({
       ...r,
-      upvote_count: byId.get(r.id)?.count ?? 0,
-      i_upvoted: byId.get(r.id)?.mine ?? false,
+      upvote_count: upvoteById.get(r.id)?.count ?? 0,
+      i_upvoted: upvoteById.get(r.id)?.mine ?? false,
+      my_vote: voteById.get(r.id) ?? null,
     })));
     setLoading(false);
   }, [capsuleId, userId]);
@@ -124,17 +150,26 @@ export default function AwardsSection({ capsuleId, joinedMemberCount }: Props) {
       return next;
     });
 
-    if (failed) {
-      // Revert + refetch authoritative state
-      await fetchCategories();
-    } else if (!wasUpvoted) {
-      // The promote trigger may have flipped status to 'live' — refetch.
+    if (failed || !wasUpvoted) {
+      // On error → resync; on success-insert → trigger may have promoted, resync.
       await fetchCategories();
     }
   }
 
   const pending = useMemo(() => categories.filter(c => c.status === 'pending'), [categories]);
   const live = useMemo(() => categories.filter(c => c.status === 'live'), [categories]);
+
+  const memberById = useMemo(() => {
+    const map = new Map<string, VoteSheetMember>();
+    for (const m of members) map.set(m.user_id, m);
+    return map;
+  }, [members]);
+
+  const mediaById = useMemo(() => {
+    const map = new Map<string, VoteSheetMedia>();
+    for (const m of media) map.set(m.id, m);
+    return map;
+  }, [media]);
 
   return (
     <View style={styles.wrap}>
@@ -167,7 +202,13 @@ export default function AwardsSection({ capsuleId, joinedMemberCount }: Props) {
             <>
               <Text style={styles.groupLabel}>Voting open</Text>
               {live.map(c => (
-                <LiveCard key={c.id} category={c} />
+                <LiveCard
+                  key={c.id}
+                  category={c}
+                  memberById={memberById}
+                  mediaById={mediaById}
+                  onPress={() => setVoteFor(c)}
+                />
               ))}
             </>
           )}
@@ -193,6 +234,16 @@ export default function AwardsSection({ capsuleId, joinedMemberCount }: Props) {
         capsuleId={capsuleId}
         onClose={() => setShowSuggest(false)}
         onSuggested={fetchCategories}
+      />
+
+      <VoteSheet
+        visible={voteFor !== null}
+        category={voteFor}
+        members={members}
+        media={media}
+        currentVote={voteFor?.my_vote ?? null}
+        onClose={() => setVoteFor(null)}
+        onSaved={fetchCategories}
       />
     </View>
   );
@@ -255,10 +306,26 @@ function PendingCard({
   );
 }
 
-function LiveCard({ category }: { category: CategoryUI }) {
+function LiveCard({
+  category, memberById, mediaById, onPress,
+}: {
+  category: CategoryUI;
+  memberById: Map<string, VoteSheetMember>;
+  mediaById: Map<string, VoteSheetMedia>;
+  onPress: () => void;
+}) {
   const { accentColor } = useTheme();
+  const vote = category.my_vote;
+  const votedPerson = vote?.target_user_id ? memberById.get(vote.target_user_id) : null;
+  const votedMedia = vote?.target_media_id ? mediaById.get(vote.target_media_id) : null;
+  const hasVote = !!votedPerson || !!votedMedia;
+
   return (
-    <View style={[styles.card, styles.cardLive, { borderColor: `${accentColor}40` }]}>
+    <TouchableOpacity
+      style={[styles.card, styles.cardLive, { borderColor: `${accentColor}40` }]}
+      onPress={onPress}
+      activeOpacity={0.85}
+    >
       <View style={styles.cardTop}>
         <View style={styles.cardMain}>
           <Text style={styles.cardLabel}>{category.label}</Text>
@@ -267,11 +334,54 @@ function LiveCard({ category }: { category: CategoryUI }) {
             <Text style={styles.metaText}>{targetLabel(category.target_type)}</Text>
           </View>
         </View>
-        <View style={[styles.voteBtn, { backgroundColor: `${accentColor}20`, borderColor: accentColor }]}>
-          <Text style={[styles.voteBtnText, { color: accentColor }]}>Vote</Text>
-        </View>
+        {hasVote ? (
+          <View style={[styles.votedPill, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]}>
+            <Ionicons name="checkmark" size={12} color={accentColor} />
+            <Text style={[styles.votedPillText, { color: accentColor }]}>Change</Text>
+          </View>
+        ) : (
+          <View style={[styles.voteBtn, { backgroundColor: `${accentColor}20`, borderColor: accentColor }]}>
+            <Text style={[styles.voteBtnText, { color: accentColor }]}>Vote</Text>
+          </View>
+        )}
       </View>
-    </View>
+
+      {hasVote && (
+        <View style={styles.votedRow}>
+          <Text style={styles.votedLabel}>Your vote:</Text>
+          {votedPerson && (
+            <View style={styles.votedPerson}>
+              <View style={[styles.votedAvatar, { backgroundColor: `${accentColor}30` }]}>
+                {votedPerson.avatar_url ? (
+                  <Image source={votedPerson.avatar_url} style={styles.votedAvatarImg} contentFit="cover" />
+                ) : (
+                  <Text style={[styles.votedAvatarLetter, { color: accentColor }]}>
+                    {(votedPerson.display_name || '?').slice(0, 1).toUpperCase()}
+                  </Text>
+                )}
+              </View>
+              <Text style={styles.votedName}>{votedPerson.display_name || 'Member'}</Text>
+            </View>
+          )}
+          {votedMedia && (
+            <View style={styles.votedMedia}>
+              {(votedMedia.mediaType === 'video' ? votedMedia.thumbnailUri : votedMedia.signedUrl) ? (
+                <Image
+                  source={votedMedia.mediaType === 'video' ? votedMedia.thumbnailUri : votedMedia.signedUrl}
+                  style={styles.votedMediaImg}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={[styles.votedMediaImg, { backgroundColor: '#222' }]} />
+              )}
+              <Text style={styles.votedName}>
+                {votedMedia.mediaType === 'video' ? 'Video' : 'Photo'}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -337,4 +447,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   voteBtnText: { fontSize: 13, fontWeight: '700' },
+  votedPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  votedPillText: { fontSize: 12, fontWeight: '700' },
+  votedRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingTop: 8,
+    borderTopWidth: 1, borderTopColor: '#2A2A2A',
+  },
+  votedLabel: { color: '#888', fontSize: 12, fontWeight: '600' },
+  votedPerson: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  votedAvatar: {
+    width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  votedAvatarImg: { width: 22, height: 22, borderRadius: 11 },
+  votedAvatarLetter: { fontSize: 11, fontWeight: '800' },
+  votedMedia: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  votedMediaImg: { width: 22, height: 22, borderRadius: 6 },
+  votedName: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
 });
