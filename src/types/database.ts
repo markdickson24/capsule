@@ -4,7 +4,17 @@ export type CapsuleVisibility = 'private' | 'invite';
 export type MemberRole = 'owner' | 'contributor' | 'viewer';
 export type MediaType = 'photo' | 'video';
 export type UnlockMode = 'time' | 'proximity' | 'both';
-export type NotificationType = 'invite' | 'unlock' | 'contribution_nudge' | 'milestone' | 'reaction';
+export type NotificationType =
+  | 'invite'
+  | 'unlock'
+  | 'contribution_nudge'
+  | 'milestone'
+  | 'reaction'
+  | 'superlative_suggested'
+  | 'superlative_closing_soon'
+  | 'superlative_won';
+export type SuperlativeStatus = 'pending' | 'live' | 'archived';
+export type SuperlativeTargetType = 'person' | 'media';
 
 export interface User {
   id: string;
@@ -34,6 +44,9 @@ export interface Capsule {
   archived_at: string | null;
   unlock_mode: UnlockMode;
   proximity_radius_m: number;
+  unlocked_at: string | null;
+  superlative_voting_hours: number;
+  superlative_voting_closes_at: string | null;
 }
 
 export interface CapsuleMember {
@@ -75,4 +88,37 @@ export interface Notification {
   type: NotificationType;
   sent_at: string;
   read_at: string | null;
+}
+
+export interface SuperlativeCategory {
+  id: string;
+  capsule_id: string;
+  suggested_by: string;
+  label: string;
+  target_type: SuperlativeTargetType;
+  status: SuperlativeStatus;
+  promoted_at: string | null;
+  created_at: string;
+}
+
+export interface SuperlativeUpvote {
+  category_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface SuperlativeVote {
+  category_id: string;
+  voter_id: string;
+  target_user_id: string | null;
+  target_media_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SuperlativeTally {
+  category_id: string;
+  target_user_id: string | null;
+  target_media_id: string | null;
+  vote_count: number;
 }
