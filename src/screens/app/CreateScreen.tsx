@@ -15,6 +15,7 @@ import { AppStackParamList, AppTabParamList, PendingMedia } from '../../types/na
 import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
+import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
@@ -96,6 +97,7 @@ export default function CreateScreen() {
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
+  const [votingHours, setVotingHours] = useState(48);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -112,6 +114,10 @@ export default function CreateScreen() {
         setError('Contribution lock must be before the unlock date.');
         return;
       }
+    }
+    if (votingHours < 1 || votingHours > 720) {
+      setError('Voting window must be between 1 and 720 hours.');
+      return;
     }
 
     setLoading(true);
@@ -132,6 +138,7 @@ export default function CreateScreen() {
         unlock_at: (unlockDate ?? defaultUnlockDate()).toISOString(),
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
         unlock_mode: unlockMode,
+        superlative_voting_hours: votingHours,
         status: 'active',
         visibility: 'invite',
       });
@@ -243,6 +250,8 @@ export default function CreateScreen() {
           <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
         )}
         <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
+
+        <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
 
         <View style={styles.section}>
           <Text style={styles.label}>Invited people can</Text>

@@ -12,6 +12,7 @@ import { AppStackParamList } from '../../types/navigation';
 import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
+import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import ConfirmModal from '../../components/ConfirmModal';
 import SkeletonBox, { SkeletonFormField } from '../../components/Skeleton';
@@ -38,6 +39,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [unlockDate, setUnlockDate] = useState<Date | null>(null);
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
+  const [votingHours, setVotingHours] = useState(48);
   const [fetching, setFetching] = useState(true);
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -67,6 +69,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         (data as any).contribution_lock_at ? new Date((data as any).contribution_lock_at) : null
       );
       setUnlockMode((data as any).unlock_mode ?? 'time');
+      setVotingHours((data as any).superlative_voting_hours ?? 48);
       setFetching(false);
     }
     load().catch(() => navigation.goBack());
@@ -85,6 +88,10 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         return;
       }
     }
+    if (votingHours < 1 || votingHours > 720) {
+      setError('Voting window must be between 1 and 720 hours.');
+      return;
+    }
 
     setSaving(true);
     const { error: err } = await supabase
@@ -95,6 +102,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         unlock_at: (unlockDate ?? new Date()).toISOString(),
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
         unlock_mode: unlockMode,
+        superlative_voting_hours: votingHours,
       })
       .eq('id', capsuleId);
     setSaving(false);
@@ -210,6 +218,8 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
           <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
         )}
         <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
+
+        <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
