@@ -23,6 +23,7 @@ import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import AwardsSection from '../../components/AwardsSection';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import { cache } from '../../lib/cache';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
@@ -1254,6 +1255,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             )}
           </View>
+        )}
+
+        {!isLocked && (
+          <AwardsSection
+            capsuleId={capsuleId}
+            joinedMemberCount={members.filter(m => m.joined_at !== null).length}
+          />
         )}
 
         {isOwner && (
