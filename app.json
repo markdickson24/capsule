@@ -67,7 +67,19 @@
           "color": "#FF6B35"
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-share-intent",
+        {
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsImageWithMaxCount": 10,
+            "NSExtensionActivationSupportsMovieWithMaxCount": 10
+          },
+          "androidIntentFilters": ["image/*", "video/*"],
+          "androidMultiIntentFilters": ["image/*", "video/*"],
+          "iosShareExtensionName": "Capsule"
+        }
+      ]
     ],
     "extra": {
       "eas": {

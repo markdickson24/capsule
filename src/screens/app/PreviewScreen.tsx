@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   FlatList, ActivityIndicator, Platform,
-  Animated, PanResponder, Modal, Pressable,
+  Animated, PanResponder, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
-import { AppStackParamList } from '../../types/navigation';
+import { AppStackParamList, PendingMedia } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { cache } from '../../lib/cache';
 
@@ -24,6 +24,8 @@ type CapsuleOption = {
   role: string;
   capsules: { id: string; title: string; status: string } | null;
 };
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 async function uploadToSingle(
   capsuleId: string,
@@ -81,11 +83,24 @@ async function uploadToSingle(
 
 export default function PreviewScreen({ route, navigation }: Props) {
   const { accentColor } = useTheme();
-  const { uri, mediaType } = route.params;
-  const player = useVideoPlayer(mediaType === 'video' ? uri : null, p => {
-    p.loop = true;
-    p.play();
-  });
+
+  const items: PendingMedia[] = useMemo(() => {
+    const params: any = route.params;
+    if (Array.isArray(params?.media)) return params.media;
+    if (params?.uri && params?.mediaType) {
+      return [{ uri: params.uri, mediaType: params.mediaType }];
+    }
+    return [];
+  }, [route.params]);
+
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const currentItem = items[currentIndex];
+
+  const player = useVideoPlayer(
+    currentItem?.mediaType === 'video' ? currentItem.uri : null,
+    p => { p.loop = true; p.play(); }
+  );
+
   const [capsules, setCapsules] = useState<CapsuleOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [uploading, setUploading] = useState(false);
@@ -142,17 +157,22 @@ export default function PreviewScreen({ route, navigation }: Props) {
   }
 
   async function upload() {
-    if (selectedIds.size === 0) return;
+    if (selectedIds.size === 0 || items.length === 0) return;
     setUploading(true);
     setError('');
 
     const ids = Array.from(selectedIds);
-    setUploadProgress({ done: 0, total: ids.length });
+    const total = ids.length * items.length;
+    setUploadProgress({ done: 0, total });
 
     try {
-      for (let i = 0; i < ids.length; i++) {
-        await uploadToSingle(ids[i], uri, mediaType);
-        setUploadProgress({ done: i + 1, total: ids.length });
+      let done = 0;
+      for (const id of ids) {
+        for (const item of items) {
+          await uploadToSingle(id, item.uri, item.mediaType);
+          done += 1;
+          setUploadProgress({ done, total });
+        }
       }
 
       cache.invalidate('capsules');
@@ -172,11 +192,15 @@ export default function PreviewScreen({ route, navigation }: Props) {
   function goCreateCapsule() {
     navigation.replace('Tabs', {
       screen: 'Create',
-      params: { pendingMedia: { uri, mediaType } },
+      params: { pendingMedia: items },
     });
   }
 
   const hasSelection = selectedIds.size > 0;
+  const itemCount = items.length;
+  const itemLabel = itemCount > 1
+    ? `${itemCount} items`
+    : currentItem?.mediaType === 'video' ? 'video' : 'photo';
 
   return (
     <View style={styles.container}>
@@ -184,14 +208,41 @@ export default function PreviewScreen({ route, navigation }: Props) {
         style={[StyleSheet.absoluteFill, { transform: [{ translateY }] }]}
         {...swipeResponder.panHandlers}
       >
-        {mediaType === 'photo' ? (
-          <Image source={uri} style={StyleSheet.absoluteFill} contentFit="cover" />
+        {itemCount === 0 ? (
+          <View style={[StyleSheet.absoluteFill, styles.emptyMedia]}>
+            <Text style={styles.emptyMediaText}>Nothing to preview</Text>
+          </View>
         ) : (
-          <VideoView
-            player={player}
-            style={StyleSheet.absoluteFill}
-            contentFit="cover"
-            nativeControls={false}
+          <FlatList
+            data={items}
+            keyExtractor={(_, i) => String(i)}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            scrollEnabled={itemCount > 1}
+            onMomentumScrollEnd={e => {
+              const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+              if (idx !== currentIndex) setCurrentIndex(idx);
+            }}
+            getItemLayout={(_, i) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * i, index: i })}
+            renderItem={({ item, index }) => (
+              <View style={styles.slide}>
+                {item.mediaType === 'photo' ? (
+                  <Image source={item.uri} style={StyleSheet.absoluteFill} contentFit="cover" />
+                ) : index === currentIndex ? (
+                  <VideoView
+                    player={player}
+                    style={StyleSheet.absoluteFill}
+                    contentFit="cover"
+                    nativeControls={false}
+                  />
+                ) : (
+                  <View style={[StyleSheet.absoluteFill, styles.videoPlaceholder]}>
+                    <Ionicons name="play-circle" size={56} color="rgba(255,255,255,0.4)" />
+                  </View>
+                )}
+              </View>
+            )}
           />
         )}
 
@@ -199,11 +250,33 @@ export default function PreviewScreen({ route, navigation }: Props) {
           <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)}>
             <Ionicons name="close" size={20} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={styles.swipeHint}>Swipe down to discard</Text>
+          {itemCount > 1 ? (
+            <View style={styles.counterPill}>
+              <Text style={styles.counterText}>{currentIndex + 1} / {itemCount}</Text>
+            </View>
+          ) : (
+            <Text style={styles.swipeHint}>Swipe down to discard</Text>
+          )}
         </SafeAreaView>
 
+        {itemCount > 1 && (
+          <View style={styles.dotsRow} pointerEvents="none">
+            {items.map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  i === currentIndex && [styles.dotActive, { backgroundColor: '#FFFFFF' }],
+                ]}
+              />
+            ))}
+          </View>
+        )}
+
         <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
-          <Text style={styles.panelTitle}>Add to capsule</Text>
+          <Text style={styles.panelTitle}>
+            {itemCount > 1 ? `Add ${itemCount} items to capsule` : 'Add to capsule'}
+          </Text>
 
           {capsules.length === 0 ? (
             <View style={styles.emptyState}>
@@ -283,7 +356,9 @@ export default function PreviewScreen({ route, navigation }: Props) {
             <View style={styles.sheetHandle} />
             <Text style={styles.sheetTitle}>Discard this?</Text>
             <Text style={styles.sheetSubtext}>
-              This {mediaType} won't be saved to any capsule.
+              {itemCount > 1
+                ? `These ${itemCount} items won't be saved to any capsule.`
+                : `This ${itemLabel} won't be saved to any capsule.`}
             </Text>
             <TouchableOpacity style={styles.destructBtn} onPress={() => navigation.goBack()}>
               <Text style={styles.destructBtnText}>Discard</Text>
@@ -300,6 +375,10 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
+  slide: { width: SCREEN_WIDTH, height: '100%' },
+  videoPlaceholder: { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  emptyMedia: { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
+  emptyMediaText: { color: '#666', fontSize: 15 },
   topBar: { paddingHorizontal: 16, paddingTop: 8, flexDirection: 'row', alignItems: 'center', gap: 12 },
   discardBtn: {
     width: 40, height: 40, borderRadius: 20,
@@ -307,6 +386,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   swipeHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
+  counterPill: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  counterText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  dotsRow: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    paddingTop: 110,
+  },
+  dot: {
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.35)',
+  },
+  dotActive: { width: 18 },
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20,

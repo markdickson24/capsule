@@ -87,6 +87,9 @@ export default function CreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Create'>>();
   const pendingMedia = route.params?.pendingMedia ?? null;
+  const pendingCount = pendingMedia?.length ?? 0;
+  const pendingHasVideo = pendingMedia?.some(m => m.mediaType === 'video') ?? false;
+  const pendingHasPhoto = pendingMedia?.some(m => m.mediaType === 'photo') ?? false;
   const [title, setTitle] = useState(route.params?.presetTitle ?? '');
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
@@ -152,11 +155,13 @@ export default function CreateScreen() {
       return;
     }
 
-    if (pendingMedia) {
-      try {
-        await uploadMedia(capsuleId, pendingMedia);
-      } catch {
-        // Capsule created successfully — media upload failed but user can retry from detail
+    if (pendingMedia && pendingMedia.length > 0) {
+      for (const media of pendingMedia) {
+        try {
+          await uploadMedia(capsuleId, media);
+        } catch {
+          // Capsule created successfully — keep going so partial success is preserved
+        }
       }
     }
 
@@ -177,11 +182,17 @@ export default function CreateScreen() {
         </Animated.View>
 
         <Animated.View style={[{ gap: 24 }, formAnim]}>
-        {pendingMedia && (
+        {pendingCount > 0 && (
           <View style={[styles.pendingBanner, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
-            <Ionicons name={pendingMedia.mediaType === 'video' ? 'videocam' : 'image'} size={18} color={accentColor} />
+            <Ionicons
+              name={pendingHasVideo && !pendingHasPhoto ? 'videocam' : 'images'}
+              size={18}
+              color={accentColor}
+            />
             <Text style={[styles.pendingText, { color: accentColor }]}>
-              Your {pendingMedia.mediaType} will be added automatically
+              {pendingCount === 1
+                ? `Your ${pendingMedia![0].mediaType} will be added automatically`
+                : `${pendingCount} items will be added automatically`}
             </Text>
           </View>
         )}

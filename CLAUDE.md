@@ -23,6 +23,7 @@ No test suite or linter configured yet.
 - **expo-image** — cached image loading with native disk/memory cache
 - **expo-haptics** — tactile feedback on calendar and UI interactions
 - **expo-location** — foreground GPS for proximity check-in (native only)
+- **expo-share-intent** — iOS Share Extension + Android intent filter for receiving photos/videos from other apps
 - **TypeScript** ~5.9
 
 ### Project Structure
@@ -43,11 +44,16 @@ src/
     usePushNotifications.native.ts  # Token registration + tap routing (iOS/Android only)
     usePushNotifications.web.ts     # No-op stub for web
     usePushNotifications.ts         # TS fallback stub
+    useShareIntent.native.ts        # Consumes expo-share-intent, routes to Preview or stash
+    useShareIntent.web.ts           # No-op stub for web
+    useShareIntent.ts               # TS fallback stub
   lib/
     animations.ts           # Reusable animation hooks (useFadeIn, useSlideUp, useListItemEntrance)
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
     sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load)
+    shareIntentStash.ts     # In-memory stash for media shared while signed out — drained after login
+    ShareIntentProvider.{native,web,tsx}  # Platform-split provider wrapper (real on native, passthrough on web)
     uuid.ts                 # randomUUID() helper
     googleAuth.ts           # signInWithGoogle() via expo-auth-session
     navigationRef.ts        # Imperative nav ref for use outside components
@@ -114,7 +120,7 @@ RootNavigator (App.tsx)
     Onboarding        (no params — 4-step wizard, animation: 'fade')
 ```
 
-Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is set by `PreviewScreen` when creating a new capsule from the camera flow — the media auto-uploads after the capsule is created.
+Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is a `PendingMedia[]` set by `PreviewScreen` when creating a new capsule from the camera/share flow — every item auto-uploads sequentially after the capsule is created.
 
 **`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
 
@@ -209,14 +215,45 @@ Defined in `supabase-schema.sql`.
 
 ## Preview Screen (`PreviewScreen.tsx`)
 
-- Shows photo or looping video before adding to a capsule
+- Shows photo(s) or looping video(s) before adding to a capsule
 - Fetches user's active capsules (non-unlocked, where role is owner or contributor and `joined_at` is not null)
-- **Multi-select:** capsule selection via horizontal chip scroll with `Set<string>`. Multiple capsules can be selected; uploads run sequentially with progress display (`N/M`)
-- After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
-- **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: { uri, mediaType }` — the media auto-uploads after capsule creation
+- **Two route shapes** (discriminated at runtime in a `useMemo`):
+  - `{ uri, mediaType, facing? }` — single-item form, used by `CameraScreen`
+  - `{ media: PendingMedia[], source?: 'share' | 'camera' }` — multi-item form, used by `useShareIntent`
+- **Carousel for multi-item:** horizontal `FlatList` with `pagingEnabled`, page dots overlay, "N / total" counter pill in the top bar. `currentIndex` tracked via `onMomentumScrollEnd`
+- **Single shared `useVideoPlayer`** keyed by `currentItem.uri` — only mounts a `VideoView` for the item at `currentIndex`; other video slides show a play-icon placeholder. This avoids the rules-of-hooks problem of one player per item
+- The outer swipe-down PanResponder requires `g.dy > Math.abs(g.dx)` to start, so the horizontal `FlatList` keeps its gesture for paging
+- **Multi-select capsules** via horizontal chip scroll with `Set<string>`. After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
+- **Upload loop is (capsule × media)** sequential — total progress is `selectedIds.size * items.length`
+- **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: PendingMedia[]` — the media auto-uploads after capsule creation
 - Swipe down > 100px triggers discard confirmation modal
 - Upload: web uses `arrayBuffer`, native uses `FileSystem.uploadAsync`
 - Cache invalidation after upload: `cache.invalidate('capsules')` + per-capsule keys
+
+---
+
+## Share Intent (`expo-share-intent`)
+
+Receives photos/videos shared from other apps (Photos, Files, Messages, Instagram, etc.) and routes them into the `PreviewScreen` capsule-selection flow.
+
+- **Library:** `expo-share-intent` 5.1.1 (the last major that supports Expo SDK 54 — v6 requires SDK 55). Adds an iOS Share Extension target and Android `SEND` / `SEND_MULTIPLE` intent filters via a config plugin in `app.json`
+- **Config plugin** accepts images + videos, single + multi:
+  - iOS activation rules: `NSExtensionActivationSupportsImageWithMaxCount: 10`, `NSExtensionActivationSupportsMovieWithMaxCount: 10`
+  - Android: `androidIntentFilters: ['image/*', 'video/*']` + `androidMultiIntentFilters: ['image/*', 'video/*']`
+  - Extension display name: "Capsule"
+- **Provider:** `<ShareIntentProvider>` in `src/lib/ShareIntentProvider.{native,web,tsx}` — wraps `App.tsx` outside `ThemeProvider`. Native imports the real provider from `expo-share-intent`; web returns `children` as-is
+- **Hook:** `useShareIntent(session)` in `src/hooks/useShareIntent.native.ts` consumes `useShareIntentContext()` and:
+  1. Filters `shareIntent.files` to image/* and video/* by `mimeType`, maps to `PendingMedia[]`
+  2. If signed in: navigates to `Preview` with `{ media, source: 'share' }`
+  3. If signed out: writes the array to `shareIntentStash`, lets the user log in, then on the next render with `session` set it drains the stash and navigates
+  4. Always calls `resetShareIntent()` so the same payload isn't re-handled on next render
+- **`shareIntentStash`** (`src/lib/shareIntentStash.ts`) — module-level `PendingMedia[] | null`. Survives the Auth → App navigator swap because it's just a JS variable, not navigation state
+- **Web:** the hook + provider are no-ops; `expo-share-intent` is native-only. Platform split via `.native.ts` / `.web.ts` files, same pattern as `usePushNotifications`
+- **Build requirements:**
+  - **Cannot run in Expo Go** — requires a custom dev client / EAS build (iOS share extension is a separate native target)
+  - Bumps native config; a fresh `eas build` is required before the share sheet entry appears
+  - The auto-generated iOS share extension target uses bundle ID `com.markdickson.capsule.share-extension` and app group `group.com.markdickson.capsule.share-extension`. **When prompted by `eas credentials`, register the extension target alongside the main app** — see the "iOS Extension Target" note in the `expo-share-intent` README
+- **Snapchat caveat:** Snapchat's "Share" sheet typically hands over a URL or text, not the underlying image. To get a Snap into Capsule, the user usually saves the Snap to Photos first, then shares from Photos → Capsule. Most other apps (Photos, Messages, Instagram saves, Files) share the actual image file
 
 ---
 

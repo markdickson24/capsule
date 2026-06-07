@@ -5,15 +5,18 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from './src/hooks/useAuth';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
 import { useDeepLinks } from './src/hooks/useDeepLinks';
+import { useShareIntent } from './src/hooks/useShareIntent';
 import { navigationRef } from './src/lib/navigationRef';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ThemeProvider } from './src/context/ThemeContext';
+import { ShareIntentProvider } from './src/lib/ShareIntentProvider';
 
 function RootNavigator() {
   const { session, loading } = useAuth();
   usePushNotifications(session?.user.id);
   useDeepLinks();
+  useShareIntent(session);
 
   if (loading) {
     return (
@@ -32,12 +35,14 @@ const linking = {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <NavigationContainer ref={navigationRef} linking={linking}>
-        <StatusBar style="light" />
-        <RootNavigator />
-      </NavigationContainer>
-    </ThemeProvider>
+    <ShareIntentProvider>
+      <ThemeProvider>
+        <NavigationContainer ref={navigationRef} linking={linking}>
+          <StatusBar style="light" />
+          <RootNavigator />
+        </NavigationContainer>
+      </ThemeProvider>
+    </ShareIntentProvider>
   );
 }
 
