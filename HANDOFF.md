@@ -35,6 +35,35 @@ contribute → time-lock → simultaneous unlock.
 
 ## What's Been Done (recent → older)
 
+### Superlatives (per-capsule yearbook awards)
+- New section below the media grid on unlocked capsules. Anyone in the
+  capsule can suggest categories ("Best dance moves" → person; "Photo of
+  the trip" → media). Suggestions auto-promote to live voting once
+  upvotes reach `ceil(joined/2)`.
+- Voting opens when the capsule unlocks and runs for an owner-configured
+  window (24h / 48h / 7d / custom hours, picker on Create + Edit). Votes
+  are anonymous server-side: the voter can only read their own row;
+  tallies route through a SECURITY DEFINER RPC that returns nothing until
+  the window closes. Ties produce co-winners via `rank() = 1`.
+- A `pg_cron` job runs every minute and (a) sends "2h left" pushes once
+  per capsule, (b) finalizes capsules whose window has lapsed — writing
+  the `superlative_winners` table and inserting `superlative_won`
+  notifications — and (c) pings the new `send-superlative-pushes` edge
+  function to flush unpushed Expo notifications.
+- New tables: `superlative_categories`, `superlative_upvotes`,
+  `superlative_votes`, `superlative_winners`. New `capsules` columns:
+  `unlocked_at`, `superlative_voting_hours`, `superlative_voting_closes_at`,
+  `superlative_voting_finalized_at`, `superlative_closing_soon_sent_at`.
+  `notifications` gains `pushed_at` and three new types.
+- `AwardsSection.tsx` is the main UI; supporting components:
+  `SuggestCategoryModal`, `VoteSheet`, `VotingWindowPicker`. Realtime
+  subscriptions on categories + winners drive the live/finalized
+  transitions; the parent's existing capsule subscription catches
+  `voting_finalized_at` flipping.
+- Migrations: `20260607000000_superlatives.sql`,
+  `20260607010000_superlative_finalize.sql`,
+  `20260607020000_superlative_notifications.sql`.
+
 ### Share intent (iOS + Android)
 - New: `expo-share-intent` 5.1.1 wired up — Capsule now appears in the iOS share
   sheet and Android share menu for images and videos (single + multi).
@@ -269,7 +298,8 @@ contribute → time-lock → simultaneous unlock.
 | Preview (multi-select upload) | `src/screens/app/PreviewScreen.tsx` |
 | Capsule detail (~1400 lines) | `src/screens/app/CapsuleDetailScreen.tsx` |
 | Proximity check-in RPC | `check_in` (in `20260516152146_proximity_unlock.sql`) |
-| Edge functions | `supabase/functions/unlock-capsules/`, `send-invite-push/` |
+| Edge functions | `supabase/functions/unlock-capsules/`, `send-invite-push/`, `send-superlative-pushes/` |
+| Awards UI + sub-components | `src/components/AwardsSection.tsx`, `SuggestCategoryModal.tsx`, `VoteSheet.tsx`, `VotingWindowPicker.tsx` |
 | DB migrations (source of truth) | `supabase/migrations/` |
 | DB schema (original, has drifted) | `supabase-schema.sql` |
 

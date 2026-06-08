@@ -31,10 +31,14 @@ No test suite or linter configured yet.
 ```
 src/
   components/
+    AwardsSection.tsx        # Superlatives UI inside CapsuleDetail — voting open / tallying / finalized cards
     ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
     ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
     DatePicker.tsx           # Shared date/time picker — custom calendar grid, month/year picker, quick presets, haptics
     Skeleton.tsx             # Shimmer skeleton loaders (SkeletonBox, SkeletonCard, SkeletonProfileCard, etc.)
+    SuggestCategoryModal.tsx # Bottom sheet for proposing a superlative category (label + target type)
+    VoteSheet.tsx            # Bottom sheet for casting / changing a vote (person picker or media grid)
+    VotingWindowPicker.tsx   # 24h / 48h / 7d / custom-hours picker for the Awards voting window
   context/
     ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
   hooks/
@@ -71,13 +75,17 @@ src/
     database.ts             # Capsule, User, etc. row types — keep in sync with the DB
 supabase/
   functions/
-    unlock-capsules/        # Edge function: marks active capsules with unlock_at <= now() as unlocked
-                            # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
-                            # by a pg_cron job that reads the secret from Supabase Vault.
-    send-invite-push/       # Edge function: sends the "you were invited" push. Reads the invitee's
-                            # push_token with the service role so clients never need read access to it.
-  migrations/               # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
-                            # is the original schema and has drifted — the migrations are the source of truth.
+    unlock-capsules/         # Edge function: marks active capsules with unlock_at <= now() as unlocked
+                             # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
+                             # by a pg_cron job that reads the secret from Supabase Vault.
+    send-invite-push/        # Edge function: sends the "you were invited" push. Reads the invitee's
+                             # push_token with the service role so clients never need read access to it.
+    send-superlative-pushes/ # Edge function: reads unpushed superlative_* notifications and sends Expo
+                             # pushes (suggested / closing_soon / won). Called every minute by the same
+                             # cron that runs close_superlative_windows. Shares CRON_SECRET with
+                             # unlock-capsules.
+  migrations/                # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
+                             # is the original schema and has drifted — the migrations are the source of truth.
 ```
 
 ---
@@ -179,17 +187,25 @@ Defined in `supabase-schema.sql`.
 | Table | Key columns |
 |---|---|
 | `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), onboarded_at (null = needs wizard), created_at |
-| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100) |
+| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), checkin_lat, checkin_lng, checkin_at |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
-| `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone), sent_at, read_at |
+| `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone/superlative_suggested/superlative_closing_soon/superlative_won), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
+| `superlative_categories` | id, capsule_id, suggested_by, label (3–80 chars), target_type (person/media), status (pending/live/archived), promoted_at, created_at |
+| `superlative_upvotes` | category_id + user_id (composite PK), created_at — drives auto-promote trigger |
+| `superlative_votes` | category_id + voter_id (composite PK), target_user_id XOR target_media_id, created_at, updated_at — anonymous; clients only read own row |
+| `superlative_winners` | id, category_id, target_user_id XOR target_media_id, vote_count, determined_at — one row per (category, tied target); written only by finalize RPC |
 
 **`users` column privileges:** the `users` SELECT policy is `USING (true)` (every signed-in user can read every profile — needed for search and public profiles). To stop that exposing sensitive fields, `email`, `phone`, and `push_token` are removed from the `authenticated` SELECT grant at the **column level**. Never `select('email')` / `select('phone')` / `select('push_token')` / `select('*')` on `users` from client code — it will fail. The current user's email is on the auth session (`session.user.email`), not this table. Reading another user's `push_token` is server-only (see the `send-invite-push` edge function).
 
 **Triggers:**
 - `handle_new_user()` — auto-creates `users` row on `auth.users` insert
 - `notify_on_reaction()` — inserts reaction notification (not to self)
+- `notify_on_superlative_suggested()` — fan-out on `superlative_categories` insert; notifies every other joined member
+- `_promote_superlative()` — on `superlative_upvotes` insert, flips a pending category to `live` once upvotes hit `ceil(joined/2)`
+- `_stamp_unlock_meta()` — BEFORE UPDATE on `capsules`; when status flips to 'unlocked' stamps `unlocked_at = now()` and `superlative_voting_closes_at = unlocked_at + voting_hours`. Both the unlock cron and the proximity `check_in` path inherit this for free.
+- `_touch_superlative_vote_updated_at()` — bumps `updated_at` when a vote is changed
 
 **Permission model:** only owners can see media before unlock. Contributors/viewers see a locked state until `status = 'unlocked'`. Use `isOwner` (`capsule.owner_id === currentUserId`) for owner checks — works even if the `capsule_members` row is missing.
 
@@ -417,6 +433,60 @@ A capsule's `unlock_mode` (`time` | `proximity` | `both`) controls how it opens:
 **Check-in UI** — `CheckInCard` (`CapsuleDetailScreen`) renders for locked `proximity`/`both` capsules in place of / alongside the `CountdownRing` (proximity-only hides the ring; `both` shows both). It has a "We're here — check in" button that requests foreground location via `expo-location`, calls `supabase.rpc('check_in', …)`, and shows `N of M here` progress. The capsule's realtime channel fires the reveal animation for everyone when the last check-in flips `status` to `unlocked`.
 
 **Unlock-mode picker** — `CreateScreen` and `EditCapsuleScreen` have an "Unlock When" selector (Date / Together / Both). Choosing Proximity hides the unlock-date field and skips its validation; `unlock_at` is `not null` so it still gets a placeholder value (unused for `proximity`).
+
+## Superlatives (Awards)
+
+Per-capsule, yearbook-style awards. Members suggest categories; once enough upvote a suggestion it auto-promotes to live; voting opens when the capsule unlocks and runs for an owner-configured window; winners are revealed when the window closes.
+
+### Lifecycle
+- **suggest** — any joined member calls INSERT on `superlative_categories` with a label (3–80 chars) and `target_type ∈ {'person','media'}`. RLS verifies `suggested_by = auth.uid()`, capsule membership, and `status = 'pending'`. An AFTER INSERT trigger (`notify_on_superlative_suggested`) inserts `superlative_suggested` notification rows for every other joined member.
+- **upvote** — members INSERT into `superlative_upvotes`. The `_promote_superlative` trigger reads the current upvote count + joined-member count; if `count >= ceil(joined/2)` it flips the category's status to `live`. SECURITY DEFINER bypasses the "owner only" UPDATE policy.
+- **vote** — members upsert into `superlative_votes` keyed on the composite PK `(category_id, voter_id)`. RLS enforces: voter is self, no self-vote (`target_user_id <> auth.uid()`), category is `live`, voting window is open, and the target row belongs to the category's capsule + matches its `target_type` (checked via the `_superlative_target_valid` helper). Voters can update or delete their own row until the window closes.
+- **finalize** — when `now() >= superlative_voting_closes_at` the `close_superlative_windows()` cron picks up the capsule and calls `finalize_capsule_superlatives()`: computes winners with `rank() = 1` (ties = co-winners), archives any pending suggestions that never crossed the threshold, sets `superlative_voting_finalized_at`, and inserts `superlative_won` notification rows for winning members (and uploaders of winning media).
+
+### Voting window
+- `capsules.superlative_voting_hours` (1–720, default 48) — owner picks this on Create / Edit via `<VotingWindowPicker>`.
+- `_stamp_unlock_meta` BEFORE UPDATE trigger stamps `superlative_voting_closes_at = unlocked_at + voting_hours` the moment status flips to `unlocked`. Works for both the time-cron and the proximity `check_in` path.
+- 2 hours before close, `dispatch_superlative_closing_soon()` fans out `superlative_closing_soon` notifications and stamps `superlative_closing_soon_sent_at` so it fires once.
+
+### RLS + anonymity
+- `superlative_categories` — members read; members insert (only `status = 'pending'`); owner can update / delete.
+- `superlative_upvotes` — members read and upvote pending categories; voters can remove their own upvote.
+- `superlative_votes` — **the voter can only read their own rows**. Aggregated counts come from `tally_superlatives(capsule_id)` — a SECURITY DEFINER RPC that returns `(category_id, target_*, vote_count)` rows but only after `now() >= voting_closes_at`. This is what makes the "tallies hidden during voting" rule enforceable on the server.
+- `superlative_winners` — read-only for members; writes happen only via `finalize_capsule_superlatives`. The reveal UI reads from this table directly, not from `tally_superlatives`.
+
+### Notifications + push
+Three new notification types: `superlative_suggested`, `superlative_closing_soon`, `superlative_won`. All three:
+1. Are inserted by a trigger or by the finalize/dispatch functions (rows are durable; the in-app `NotificationsScreen` reads them).
+2. Are delivered as Expo pushes by the `send-superlative-pushes` edge function, which the cron pings every minute via `net.http_post`. The function pulls notifications where `pushed_at IS NULL AND type IN (...)`, builds per-type Expo payloads with `data.capsuleId`, posts to `exp.host`, and stamps `pushed_at` so retries can't double-send.
+3. Tap routing: the native push handler already routes any `data.capsuleId` to `CapsuleDetail`; `NotificationsScreen` does the same on tap.
+
+The unlock push body is intentionally worded to double as the "voting opens" cue — no separate notification is sent for that moment.
+
+### Cron job
+`close-superlative-windows` runs `* * * * *` and executes three statements in sequence each minute:
+```sql
+select public.dispatch_superlative_closing_soon();
+select public.close_superlative_windows();
+select net.http_post(... send-superlative-pushes ...);
+```
+The HTTP call uses the same Vault secret (`cron_unlock_capsules_secret`) as the unlock cron. Both edge functions must have `CRON_SECRET` env vars set to the matching plaintext.
+
+### Client integration
+- `<AwardsSection>` lives in `CapsuleDetailScreen` under the media grid, only on unlocked capsules. It branches on `voting_closes_at` / `voting_finalized_at`:
+  - **voting open** — pending cards with upvote button + progress bar to threshold, live cards with Vote / Change pill
+  - **voting closed, pre-finalize** — `"Tallying votes…"` placeholder
+  - **finalized** — staggered `WinnerCard` reveals (avatar for person, thumbnail for media; tied co-winners side by side)
+- Realtime subscription on `superlative_categories` (filtered to capsule) drives upvote / auto-promote updates. A second subscription on `superlative_winners` INSERTs drives the finalize → reveal transition.
+- The parent's existing realtime channel on `capsules` UPDATEs catches `superlative_voting_finalized_at` flipping and re-renders the section with the new props.
+
+### Gotchas
+- The voter's own vote IS readable client-side (so "Your vote: X" works). Anonymity is about *other* voters — tallies for them route through the time-gated RPC or the winners table.
+- `finalize_capsule_superlatives()` is idempotent: `if v_finalized_at is not null then return`. The cron can hit a capsule multiple times safely.
+- When tying capsules' realtime to the section, the parent's `capsule` state must be passed as props (`votingClosesAt`, `votingFinalizedAt`) — the section can't subscribe to capsule changes itself because that's the parent's responsibility.
+- The auto-promote trigger checks `status = 'pending'` before flipping, so concurrent upvotes can't promote twice.
+
+---
 
 ## Utilities
 
