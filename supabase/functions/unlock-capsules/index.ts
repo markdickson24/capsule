@@ -54,7 +54,7 @@ Deno.serve(async (req) => {
       messages.push({
         to: token,
         title: '🔓 Your capsule just opened!',
-        body: `"${capsule.title}" is now unlocked — go see what's inside.`,
+        body: `"${capsule.title}" is unlocked — see what's inside and vote on awards.`,
         data: { capsuleId: capsule.id },
         sound: 'default',
       });

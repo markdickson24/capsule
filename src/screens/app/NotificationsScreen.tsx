@@ -19,11 +19,33 @@ import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 type NotificationRow = {
   id: string;
   capsule_id: string;
-  type: 'invite' | 'unlock' | 'reaction';
+  type:
+    | 'invite'
+    | 'unlock'
+    | 'reaction'
+    | 'superlative_suggested'
+    | 'superlative_closing_soon'
+    | 'superlative_won';
   sent_at: string;
   read_at: string | null;
   capsules: { title: string } | null;
 };
+
+const SUPERLATIVE_TYPES: NotificationRow['type'][] = [
+  'superlative_suggested',
+  'superlative_closing_soon',
+  'superlative_won',
+];
+
+function isCapsuleNav(type: NotificationRow['type']) {
+  return (
+    type === 'unlock' ||
+    type === 'reaction' ||
+    type === 'superlative_suggested' ||
+    type === 'superlative_closing_soon' ||
+    type === 'superlative_won'
+  );
+}
 
 type DisplayNotification = NotificationRow & { reactionCount?: number };
 
@@ -227,7 +249,7 @@ export default function NotificationsScreen() {
                 style={styles.card}
                 activeOpacity={0.7}
                 onPress={() => {
-                  if (item.type === 'unlock' || item.type === 'reaction') {
+                  if (isCapsuleNav(item.type)) {
                     dismiss(item);
                     navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
                   } else if (item.type === 'invite' && !pendingMap[item.capsule_id]) {
@@ -241,12 +263,16 @@ export default function NotificationsScreen() {
                   name={
                     item.type === 'unlock' ? 'lock-open-outline'
                     : item.type === 'reaction' ? 'heart-outline'
+                    : item.type === 'superlative_won' ? 'trophy'
+                    : item.type === 'superlative_closing_soon' ? 'time-outline'
+                    : item.type === 'superlative_suggested' ? 'sparkles-outline'
                     : 'cube-outline'
                   }
                   size={28}
                   color={
                     item.type === 'unlock' ? '#30D158'
                     : item.type === 'reaction' ? accentColor
+                    : SUPERLATIVE_TYPES.includes(item.type) ? accentColor
                     : '#888888'
                   }
                 />
@@ -262,6 +288,22 @@ export default function NotificationsScreen() {
                         {(item.reactionCount ?? 1) > 1
                           ? `${item.reactionCount} people reacted to your photos in `
                           : 'Someone reacted to your photo in '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                      </>
+                    ) : item.type === 'superlative_won' ? (
+                      <>
+                        You won an award in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                        {' '}🎉
+                      </>
+                    ) : item.type === 'superlative_closing_soon' ? (
+                      <>
+                        Voting closes in 2 hours in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                      </>
+                    ) : item.type === 'superlative_suggested' ? (
+                      <>
+                        A new award category was suggested in{' '}
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
                       </>
                     ) : (
@@ -292,7 +334,7 @@ export default function NotificationsScreen() {
                   </View>
                 )}
 
-                {(item.type === 'unlock' || item.type === 'reaction') && (
+                {isCapsuleNav(item.type) && (
                   <Ionicons name="chevron-forward" size={18} color="#555555" />
                 )}
               </TouchableOpacity>
