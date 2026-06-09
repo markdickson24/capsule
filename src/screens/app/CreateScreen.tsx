@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as FileSystem from 'expo-file-system/legacy';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
@@ -60,6 +60,7 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
   } else {
     const fileInfo = await FileSystem.getInfoAsync(media.uri);
     sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+    const accessToken = await getFreshAccessToken();
     await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
       media.uri,
@@ -67,7 +68,7 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
           'Content-Type': mimeType,
         },

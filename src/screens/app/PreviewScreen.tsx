@@ -11,7 +11,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { AppStackParamList, PendingMedia } from '../../types/navigation';
@@ -53,6 +53,7 @@ async function uploadToSingle(
   } else {
     const fileInfo = await FileSystem.getInfoAsync(uri);
     sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+    const accessToken = await getFreshAccessToken();
     const uploadResult = await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
       uri,
@@ -60,7 +61,7 @@ async function uploadToSingle(
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
           'Content-Type': mimeType,
         },

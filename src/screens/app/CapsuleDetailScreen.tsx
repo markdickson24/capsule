@@ -15,7 +15,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Avatar } from './ProfileScreen';
@@ -923,6 +923,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           } else {
             const fileInfo = await FileSystem.getInfoAsync(asset.uri);
             sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+            const accessToken = await getFreshAccessToken();
             const result = await FileSystem.uploadAsync(
               `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
               asset.uri,
@@ -930,7 +931,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 httpMethod: 'POST',
                 uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                 headers: {
-                  Authorization: `Bearer ${session.access_token}`,
+                  Authorization: `Bearer ${accessToken}`,
                   apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
                   'Content-Type': mimeType,
                 },

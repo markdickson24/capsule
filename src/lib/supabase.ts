@@ -41,3 +41,18 @@ if (Platform.OS === 'web') {
   (supabase as any).accessToken = async () =>
     sessionStore.get()?.access_token ?? supabaseAnonKey;
 }
+
+// Returns a guaranteed-fresh access token for raw native uploads
+// (FileSystem.uploadAsync), which attach the bearer manually and therefore
+// bypass the JS client's automatic refresh. The cached sessionStore token can
+// be stale if the app sat idle/backgrounded past the 1h token lifetime —
+// storage-api then rejects the upload with HTTP 400 "jwt expired". On native,
+// getSession() refreshes an expired token before returning; do NOT call this on
+// web, where getSession() can hang on a stuck refresh (see accessToken override
+// above). Web uploads go through supabase.storage, which refreshes on its own.
+export async function getFreshAccessToken(): Promise<string> {
+  const { data, error } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (error || !token) throw new Error('Your session expired. Sign in again to continue.');
+  return token;
+}

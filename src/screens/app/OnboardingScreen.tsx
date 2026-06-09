@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import ColorPicker from '../../components/ColorPicker';
@@ -74,6 +74,7 @@ export default function OnboardingScreen({ navigation }: Props) {
         [{ resize: { width: 400 } }],
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
+      const accessToken = await getFreshAccessToken();
       const result = await FileSystem.uploadAsync(
         `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/${path}`,
         resized.uri,
@@ -81,7 +82,7 @@ export default function OnboardingScreen({ navigation }: Props) {
           httpMethod: 'POST',
           uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${accessToken}`,
             apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
             'Content-Type': 'image/jpeg',
             'x-upsert': 'true',
