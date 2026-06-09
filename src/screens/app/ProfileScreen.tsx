@@ -379,9 +379,9 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
           >
             <View style={[styles.actionIconWrap, { backgroundColor: `${accentColor}15` }]}>
-              <Ionicons name="color-palette-outline" size={18} color={accentColor} />
+              <Ionicons name="settings-outline" size={18} color={accentColor} />
             </View>
-            <Text style={styles.actionText}>Appearance</Text>
+            <Text style={styles.actionText}>Settings</Text>
             <Ionicons name="chevron-forward" size={18} color="#444" />
           </TouchableOpacity>
         </Animated.View>

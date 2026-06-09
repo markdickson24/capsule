@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
-  View, Text, StyleSheet, ScrollView,
+  View, Text, StyleSheet, ScrollView, RefreshControl,
   TouchableOpacity, Modal, TextInput,
   Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
@@ -745,6 +745,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
   const [showGallery, setShowGallery] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all([load(), fetchPhotos()]);
+    setRefreshing(false);
+  }
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
   const [showInvite, setShowInvite] = useState(false);
@@ -1064,7 +1071,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={accentColor}
+          />
+        }
+      >
         <Animated.View style={heroAnim}>
         <View style={styles.hero}>
           <Ionicons

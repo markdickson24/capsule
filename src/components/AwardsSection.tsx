@@ -264,7 +264,10 @@ export default function AwardsSection({
         live.length === 0 ? (
           <View style={styles.emptyBox}>
             <Ionicons name="trophy-outline" size={28} color="#555" />
-            <Text style={styles.emptyText}>No categories made it to voting.</Text>
+            <Text style={styles.emptyText}>No awards this time — that's okay.</Text>
+            <Text style={styles.emptySubtext}>
+              No categories reached the upvote threshold while voting was open. The memories still made it.
+            </Text>
           </View>
         ) : (
           <View style={styles.list}>
