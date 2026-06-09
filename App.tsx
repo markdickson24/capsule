@@ -1,7 +1,7 @@
 import React from 'react';
+import * as Sentry from '@sentry/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuth } from './src/hooks/useAuth';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
 import { useDeepLinks } from './src/hooks/useDeepLinks';
@@ -11,6 +11,19 @@ import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { ShareIntentProvider } from './src/lib/ShareIntentProvider';
+import { LoadingBrandScreen } from './src/components/LoadingBrand';
+
+// Init Sentry once at module load. Skips initialization if no DSN is set,
+// so dev builds without EXPO_PUBLIC_SENTRY_DSN are no-ops.
+const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
+if (SENTRY_DSN) {
+  Sentry.init({
+    dsn: SENTRY_DSN,
+    enableAutoSessionTracking: true,
+    tracesSampleRate: 0.2,
+    enableNative: true,
+  });
+}
 
 function RootNavigator() {
   const { session, loading } = useAuth();
@@ -18,13 +31,7 @@ function RootNavigator() {
   useDeepLinks();
   useShareIntent(session);
 
-  if (loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color="#FF6B35" size="large" />
-      </View>
-    );
-  }
+  if (loading) return <LoadingBrandScreen />;
 
   return session ? <AppNavigator /> : <AuthNavigator />;
 }
@@ -33,7 +40,7 @@ const linking = {
   prefixes: ['capsule://'],
 };
 
-export default function App() {
+function App() {
   return (
     <ShareIntentProvider>
       <ThemeProvider>
@@ -46,11 +53,7 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  loading: {
-    flex: 1,
-    backgroundColor: '#0A0A0A',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});
+// Wraps the root component so Sentry captures unhandled errors and
+// React render exceptions. When DSN is unset, this is a passthrough.
+export default SENTRY_DSN ? Sentry.wrap(App) : App;
+
