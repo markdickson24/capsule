@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LoadingBrand from './LoadingBrand';
-import { Animated, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Animated, View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
@@ -10,6 +11,17 @@ import { SuperlativeStatus, SuperlativeTargetType } from '../types/database';
 import { useListItemEntrance } from '../lib/animations';
 import SuggestCategoryModal from './SuggestCategoryModal';
 import VoteSheet, { VoteSheetMedia, VoteSheetMember, CurrentVote } from './VoteSheet';
+
+function haptic(kind: 'light' | 'medium' | 'success') {
+  if (Platform.OS === 'web') return;
+  if (kind === 'success') {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } else {
+    Haptics.impactAsync(
+      kind === 'medium' ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light,
+    );
+  }
+}
 
 type Props = {
   capsuleId: string;
@@ -155,9 +167,19 @@ export default function AwardsSection({
     if (votingFinalizedAt) fetchCategories();
   }, [votingFinalizedAt, fetchCategories]);
 
+  // Success haptic when results first reveal — once per mount lifetime.
+  const revealHapticFired = useRef(false);
+  useEffect(() => {
+    if (isFinalized && !revealHapticFired.current) {
+      revealHapticFired.current = true;
+      haptic('success');
+    }
+  }, [isFinalized]);
+
   async function toggleUpvote(c: CategoryUI) {
     if (!userId || busyIds.has(c.id)) return;
     setBusyIds(prev => new Set(prev).add(c.id));
+    haptic('light');
 
     const wasUpvoted = c.i_upvoted;
     const optimistic = categories.map(x =>

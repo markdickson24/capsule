@@ -2,14 +2,25 @@ import React, { useEffect, useMemo, useState } from 'react';
 import LoadingBrand from './LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal, Pressable,
-  FlatList, ScrollView,
+  FlatList, ScrollView, Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
 import { SuperlativeTargetType } from '../types/database';
+
+function selectHaptic() {
+  if (Platform.OS !== 'web') Haptics.selectionAsync();
+}
+function successHaptic() {
+  if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+}
+function warningHaptic() {
+  if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+}
 
 export type VoteSheetMember = {
   user_id: string;
@@ -105,6 +116,7 @@ export default function VoteSheet({
       return;
     }
 
+    successHaptic();
     onSaved();
     onClose();
   }
@@ -127,6 +139,7 @@ export default function VoteSheet({
       return;
     }
 
+    warningHaptic();
     onSaved();
     onClose();
   }
@@ -146,13 +159,13 @@ export default function VoteSheet({
               <PersonList
                 members={eligibleMembers}
                 selected={selectedUser}
-                onSelect={setSelectedUser}
+                onSelect={(id) => { selectHaptic(); setSelectedUser(id); }}
               />
             ) : (
               <MediaGrid
                 media={media}
                 selected={selectedMedia}
-                onSelect={setSelectedMedia}
+                onSelect={(id) => { selectHaptic(); setSelectedMedia(id); }}
               />
             )}
           </View>
