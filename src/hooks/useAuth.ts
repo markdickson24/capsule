@@ -35,7 +35,14 @@ export function useAuth() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       settle(session);
-      if (event === 'SIGNED_OUT') cache.clear();
+      if (event === 'SIGNED_OUT') {
+        cache.clear();
+        // If the user didn't trigger this (Sign Out button / account deletion),
+        // mark the boot so WelcomeScreen can show a "session expired" banner.
+        if (!sessionStore.consumeIntentionalSignOut()) {
+          sessionStore.markSessionExpired();
+        }
+      }
     });
 
     return () => {

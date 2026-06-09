@@ -419,7 +419,7 @@ export default function ProfileScreen() {
             </Text>
             <TouchableOpacity
               style={styles.destructBtn}
-              onPress={() => supabase.auth.signOut()}
+              onPress={() => { sessionStore.markIntentionalSignOut(); supabase.auth.signOut(); }}
             >
               <Text style={styles.destructBtnText}>Sign Out</Text>
             </TouchableOpacity>

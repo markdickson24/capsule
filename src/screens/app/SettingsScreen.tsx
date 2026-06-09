@@ -106,6 +106,7 @@ export default function SettingsScreen({ navigation }: Props) {
         onClose={() => setShowDelete(false)}
         onDeleted={() => {
           cache.clear();
+          sessionStore.markIntentionalSignOut();
           supabase.auth.signOut();
         }}
       />
