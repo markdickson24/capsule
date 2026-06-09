@@ -58,7 +58,7 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
       .from('capsule-media')
       .upload(storageKey, arrayBuffer, { contentType: mimeType });
   } else {
-    const fileInfo = await FileSystem.getInfoAsync(media.uri, { size: true });
+    const fileInfo = await FileSystem.getInfoAsync(media.uri);
     sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
     await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,

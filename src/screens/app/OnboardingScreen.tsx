@@ -16,6 +16,7 @@ import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import ColorPicker from '../../components/ColorPicker';
 import { AppStackParamList } from '../../types/navigation';
+import type { TablesUpdate } from '../../types/supabase';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -106,7 +107,7 @@ export default function OnboardingScreen({ navigation }: Props) {
       avatarUrl = await uploadAvatar(avatarUri, userId);
     }
 
-    const updates: Record<string, unknown> = {
+    const updates: TablesUpdate<'users'> = {
       display_name: displayName.trim(),
       accent_color: pendingColor,
       bio: bio.trim() || null,

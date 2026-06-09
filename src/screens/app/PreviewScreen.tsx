@@ -51,7 +51,7 @@ async function uploadToSingle(
       .upload(storageKey, arrayBuffer, { contentType: mimeType });
     if (uploadErr) throw new Error(uploadErr.message);
   } else {
-    const fileInfo = await FileSystem.getInfoAsync(uri, { size: true });
+    const fileInfo = await FileSystem.getInfoAsync(uri);
     sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
     const uploadResult = await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,

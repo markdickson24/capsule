@@ -840,7 +840,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
-      setCapsule(capsuleRes.data);
+      setCapsule(capsuleRes.data as Capsule);
     }
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
@@ -914,7 +914,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               .upload(storageKey, arrayBuffer, { contentType: mimeType });
             if (uploadErr) throw new Error(uploadErr.message);
           } else {
-            const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+            const fileInfo = await FileSystem.getInfoAsync(asset.uri);
             sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
             const result = await FileSystem.uploadAsync(
               `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
