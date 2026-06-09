@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Animated, View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import LoadingBrand from './LoadingBrand';
+import { Animated, View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
@@ -235,7 +236,7 @@ export default function AwardsSection({
 
       {loading ? (
         <View style={styles.loadingBox}>
-          <ActivityIndicator color={accentColor} size="small" />
+          <LoadingBrand size="medium" color={accentColor} />
         </View>
       ) : isFinalized ? (
         live.length === 0 ? (
@@ -260,7 +261,7 @@ export default function AwardsSection({
         )
       ) : isClosed ? (
         <View style={styles.tallyingBox}>
-          <ActivityIndicator color={accentColor} size="small" />
+          <LoadingBrand size="medium" color={accentColor} />
           <Text style={styles.emptyText}>Tallying votes…</Text>
           <Text style={styles.emptySubtext}>Winners will appear here in a moment.</Text>
         </View>
@@ -366,13 +367,18 @@ function PendingCard({
           disabled={busy}
         >
           <Ionicons
-            name={category.i_upvoted ? 'arrow-up' : 'arrow-up-outline'}
+            name={category.i_upvoted ? 'checkmark' : 'arrow-up-outline'}
             size={16}
             color={category.i_upvoted ? '#FFFFFF' : '#888'}
           />
           <Text style={[styles.upvoteCount, category.i_upvoted && { color: '#FFFFFF' }]}>
             {category.upvote_count}
           </Text>
+          {category.i_upvoted && (
+            <View style={styles.upvoteRemove}>
+              <Ionicons name="close" size={11} color="#FFFFFF" />
+            </View>
+          )}
         </TouchableOpacity>
       </View>
       <View style={styles.progressTrack}>
@@ -617,6 +623,12 @@ const styles = StyleSheet.create({
   },
   upvoteBtnActive: { backgroundColor: '#FF6B35', borderColor: '#FF6B35' },
   upvoteCount: { color: '#CCCCCC', fontWeight: '700', fontSize: 13 },
+  upvoteRemove: {
+    width: 16, height: 16, borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center', justifyContent: 'center',
+    marginLeft: 4,
+  },
   progressTrack: {
     height: 3, borderRadius: 2,
     backgroundColor: '#2A2A2A',

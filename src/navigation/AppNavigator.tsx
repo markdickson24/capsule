@@ -5,8 +5,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator } from 'react-native';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
+import LoadingBrand, { LoadingBrandScreen } from '../components/LoadingBrand';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
@@ -258,13 +258,7 @@ export default function AppNavigator() {
     };
   }, []);
 
-  if (initialRoute === null) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#0A0A0A', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color={accentColor} size="large" />
-      </View>
-    );
-  }
+  if (initialRoute === null) return <LoadingBrandScreen />;
 
   return (
     <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>

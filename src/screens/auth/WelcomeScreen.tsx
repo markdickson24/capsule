@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import LoadingBrand from '../../components/LoadingBrand';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -33,7 +34,7 @@ export default function WelcomeScreen({ navigation }: Props) {
       <View style={styles.actions}>
         <TouchableOpacity style={styles.googleButton} onPress={handleGoogle} disabled={googleLoading}>
           {googleLoading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <LoadingBrand size="small" color="#FFFFFF" />
           ) : (
             <>
               <Ionicons name="logo-google" size={20} color="#FFFFFF" />

@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, ActivityIndicator, Modal, TextInput,
+  TouchableOpacity, Modal, TextInput,
   Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -575,7 +576,7 @@ function MediaViewerModal({
               </Text>
               <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
                 {downloading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <LoadingBrand size="small" color="#fff" />
                 ) : (
                   <Ionicons name={downloadDone ? 'checkmark-circle' : 'download-outline'} size={24} color={downloadDone ? '#30D158' : '#fff'} />
                 )}
@@ -704,7 +705,7 @@ function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
         disabled={busy}
       >
         {busy
-          ? <ActivityIndicator color="#FFFFFF" />
+          ? <LoadingBrand size="small" color="#FFFFFF" />
           : <Text style={chk.btnText}>We're here — check in</Text>}
       </TouchableOpacity>
     </View>
@@ -1222,7 +1223,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
             {uploading ? (
               <View style={styles.uploadingRow}>
-                <ActivityIndicator color={accentColor} size="small" />
+                <LoadingBrand size="medium" color={accentColor} />
                 <Text style={styles.uploadingText}>
                   Uploading {uploadCount.done}/{uploadCount.total}…
                 </Text>

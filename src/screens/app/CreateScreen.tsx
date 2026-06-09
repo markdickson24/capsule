@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput, Animated,
-  TouchableOpacity, ScrollView, ActivityIndicator, Platform,
+  TouchableOpacity, ScrollView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -181,7 +182,7 @@ export default function CreateScreen() {
   const formAnim = useSlideUp(80, 350);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Animated.View style={headerAnim}>
           <Text style={styles.title}>New Capsule</Text>
@@ -274,7 +275,7 @@ export default function CreateScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={[styles.createButton, { backgroundColor: accentColor }]} onPress={handleCreate} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : (
+          {loading ? <LoadingBrand size="small" color="#fff" /> : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={styles.createButtonText}>Lock Capsule</Text>
               <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
@@ -289,7 +290,7 @@ export default function CreateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 120, gap: 24 },
+  scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24, gap: 24 },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   subtitle: { fontSize: 15, color: '#888888', marginTop: 4 },
   section: { gap: 8 },

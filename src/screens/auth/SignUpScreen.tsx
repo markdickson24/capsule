@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -73,7 +74,7 @@ export default function SignUpScreen({ navigation }: Props) {
 
         <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <LoadingBrand size="small" color="#fff" />
           ) : (
             <Text style={styles.buttonText}>Create Account</Text>
           )}

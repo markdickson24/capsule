@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Platform, KeyboardAvoidingView,
+  TouchableOpacity, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -300,7 +301,7 @@ export default function OnboardingScreen({ navigation }: Props) {
               activeOpacity={0.85}
             >
               {saving
-                ? <ActivityIndicator color="#fff" />
+                ? <LoadingBrand size="small" color="#fff" />
                 : <Text style={styles.footerPrimaryText}>Skip & finish</Text>
               }
             </TouchableOpacity>

@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput,
-  TouchableOpacity, ScrollView, ActivityIndicator,
+  TouchableOpacity, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -224,13 +225,13 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={[styles.saveButton, { backgroundColor: accentColor }]} onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
+          {saving ? <LoadingBrand size="small" color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
         </TouchableOpacity>
 
         <View style={styles.dangerZone}>
           <Text style={styles.dangerLabel}>Danger Zone</Text>
           <TouchableOpacity style={styles.archiveBtn} onPress={handleArchive} disabled={archiving || deleting}>
-            {archiving ? <ActivityIndicator color="#888888" size="small" /> : (
+            {archiving ? <LoadingBrand size="small" color="#888888" /> : (
               <>
                 <Ionicons name="archive-outline" size={18} color="#888888" />
                 <Text style={styles.archiveBtnText}>Archive Capsule</Text>
@@ -238,7 +239,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
             )}
           </TouchableOpacity>
           <TouchableOpacity style={styles.deleteBtn} onPress={() => setShowDeleteConfirm(true)} disabled={archiving || deleting}>
-            {deleting ? <ActivityIndicator color="#FF3B30" size="small" /> : (
+            {deleting ? <LoadingBrand size="small" color="#FF3B30" /> : (
               <>
                 <Ionicons name="trash-outline" size={18} color="#FF3B30" />
                 <Text style={styles.deleteBtnText}>Delete Capsule</Text>

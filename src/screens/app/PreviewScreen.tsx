@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  FlatList, ActivityIndicator, Platform,
+  FlatList, Platform,
   Animated, PanResponder, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -326,7 +327,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
             >
               {uploading ? (
                 <View style={styles.uploadingRow}>
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <LoadingBrand size="small" color="#FFFFFF" />
                   <Text style={styles.addBtnText}>
                     {uploadProgress.total > 1
                       ? `Uploading ${uploadProgress.done}/${uploadProgress.total}…`

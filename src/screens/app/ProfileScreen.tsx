@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
-  TextInput, Modal, ActivityIndicator, Platform,
+  TextInput, Modal, Platform,
   ScrollView, KeyboardAvoidingView, Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';

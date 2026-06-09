@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, ActivityIndicator, Alert,
+  TouchableOpacity, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -138,7 +139,7 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
               </View>
               {!isOwner && !isSelf ? (
                 removing === item.user_id ? (
-                  <ActivityIndicator color="#FF3B30" size="small" />
+                  <LoadingBrand size="small" color="#FF3B30" />
                 ) : (
                   <TouchableOpacity
                     style={styles.removeBtn}

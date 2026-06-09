@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, ActivityIndicator, Modal,
+  ScrollView, Modal,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -90,7 +91,7 @@ function InviteToCapsuleModal({
           <TouchableOpacity onPress={onClose}><Text style={[is.done, { color: accentColor }]}>Done</Text></TouchableOpacity>
         </View>
         {loading ? (
-          <ActivityIndicator color={accentColor} style={{ marginTop: 40 }} />
+          <LoadingBrand size="medium" color={accentColor} style={{ marginTop: 40 }} />
         ) : capsules.length === 0 ? (
           <Text style={is.empty}>No active capsules to invite them to.</Text>
         ) : (

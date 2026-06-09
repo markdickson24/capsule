@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import LoadingBrand from './LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal, Pressable,
-  FlatList, ActivityIndicator, ScrollView,
+  FlatList, ScrollView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
@@ -164,7 +165,7 @@ export default function VoteSheet({
             disabled={!canSave}
           >
             {saving ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
+              <LoadingBrand size="small" color="#FFFFFF" />
             ) : (
               <Text style={styles.saveBtnText}>
                 {hadVote ? 'Update vote' : 'Cast vote'}
@@ -175,7 +176,7 @@ export default function VoteSheet({
           {hadVote && (
             <TouchableOpacity style={styles.removeBtn} onPress={removeVote} disabled={removing || saving}>
               {removing ? (
-                <ActivityIndicator color="#FF3B30" size="small" />
+                <LoadingBrand size="small" color="#FF3B30" />
               ) : (
                 <Text style={styles.removeText}>Remove my vote</Text>
               )}
