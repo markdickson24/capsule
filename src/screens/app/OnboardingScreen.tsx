@@ -56,9 +56,9 @@ export default function OnboardingScreen({ navigation }: Props) {
     setAvatarUri(result.assets[0].uri);
   }
 
-  async function uploadAvatar(uri: string, userId: string): Promise<string | null> {
+  async function uploadAvatar(uri: string, userId: string): Promise<string> {
     const session = sessionStore.get();
-    if (!session) return null;
+    if (!session) throw new Error('Not signed in');
     const path = `${userId}/avatar.jpg`;
 
     if (Platform.OS === 'web') {
@@ -67,7 +67,7 @@ export default function OnboardingScreen({ navigation }: Props) {
       const { error } = await supabase.storage
         .from('avatars')
         .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-      if (error) return null;
+      if (error) throw new Error(error.message);
     } else {
       const resized = await ImageManipulator.manipulateAsync(
         uri,
@@ -79,6 +79,7 @@ export default function OnboardingScreen({ navigation }: Props) {
         resized.uri,
         {
           httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
           headers: {
             Authorization: `Bearer ${session.access_token}`,
             apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
@@ -87,7 +88,9 @@ export default function OnboardingScreen({ navigation }: Props) {
           },
         }
       );
-      if (result.status >= 400) return null;
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Storage ${result.status}: ${result.body?.slice(0, 200) ?? 'no body'}`);
+      }
     }
 
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
@@ -104,7 +107,13 @@ export default function OnboardingScreen({ navigation }: Props) {
 
     let avatarUrl: string | null = null;
     if (avatarUri) {
-      avatarUrl = await uploadAvatar(avatarUri, userId);
+      try {
+        avatarUrl = await uploadAvatar(avatarUri, userId);
+      } catch (e: any) {
+        setSaving(false);
+        setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
+        return;
+      }
     }
 
     const updates: TablesUpdate<'users'> = {

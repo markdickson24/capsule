@@ -56,9 +56,9 @@ export function Avatar({ url, name, size, accent }: { url: string | null; name: 
   );
 }
 
-async function uploadAvatar(uri: string, userId: string): Promise<string | null> {
+async function uploadAvatar(uri: string, userId: string): Promise<string> {
   const session = sessionStore.get();
-  if (!session) return null;
+  if (!session) throw new Error('Not signed in');
 
   const path = `${userId}/avatar.jpg`;
 
@@ -68,7 +68,7 @@ async function uploadAvatar(uri: string, userId: string): Promise<string | null>
     const { error } = await supabase.storage
       .from('avatars')
       .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-    if (error) return null;
+    if (error) throw new Error(error.message);
   } else {
     const resized = await ImageManipulator.manipulateAsync(
       uri,
@@ -80,6 +80,7 @@ async function uploadAvatar(uri: string, userId: string): Promise<string | null>
       resized.uri,
       {
         httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
           Authorization: `Bearer ${session.access_token}`,
           apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
@@ -88,7 +89,9 @@ async function uploadAvatar(uri: string, userId: string): Promise<string | null>
         },
       }
     );
-    if (result.status >= 400) return null;
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`Storage ${result.status}: ${result.body?.slice(0, 200) ?? 'no body'}`);
+    }
   }
 
   const { data } = supabase.storage.from('avatars').getPublicUrl(path);
@@ -164,9 +167,13 @@ function EditProfileModal({
 
     let avatar_url = profile.avatar_url;
     if (avatarUri) {
-      const uploaded = await uploadAvatar(avatarUri, profile.id);
-      if (uploaded) avatar_url = uploaded;
-      else { setError('Avatar upload failed. Try again.'); setSaving(false); return; }
+      try {
+        avatar_url = await uploadAvatar(avatarUri, profile.id);
+      } catch (e: any) {
+        setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
+        setSaving(false);
+        return;
+      }
     }
 
     const { error: err } = await supabase
