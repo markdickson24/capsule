@@ -11,6 +11,19 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import {
+  DualCameraView,
+  isDualCameraSupported,
+  type DualCameraViewRef,
+} from '../../../modules/expo-dual-camera';
+
+type CameraMode = 'back' | 'front' | 'dual';
+
+const MODE_META: Record<CameraMode, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
+  back: { label: 'Back', icon: 'camera-outline' },
+  front: { label: 'Front', icon: 'person-outline' },
+  dual: { label: 'Dual', icon: 'copy-outline' },
+};
 
 const MAX_RECORD_SECONDS = 30;
 const HOLD_THRESHOLD_MS = 300;
@@ -35,13 +48,25 @@ export default function CameraScreen() {
   const isFocused = useIsFocused();
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
-  const [facing, setFacing] = useState<'front' | 'back'>('back');
+  const [cameraMode, setCameraMode] = useState<CameraMode>('back');
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+  const [dualError, setDualError] = useState<string | null>(null);
   const [flash, setFlash] = useState<'on' | 'off'>('off');
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [zoom, setZoom] = useState(0);
 
+  // The single-camera CameraView only knows front/back; Dual swaps in DualCameraView.
+  const facing: 'front' | 'back' = cameraMode === 'front' ? 'front' : 'back';
+  const isDual = cameraMode === 'dual';
+
+  // Modes available on this device/platform — Dual only where multi-cam is supported.
+  const availableModes: CameraMode[] = isDualCameraSupported
+    ? ['back', 'front', 'dual']
+    : ['back', 'front'];
+
   const cameraRef = useRef<CameraView>(null);
+  const dualRef = useRef<DualCameraViewRef>(null);
   const isRecordingRef = useRef(false);
   const holdStarted = useRef(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,6 +120,20 @@ export default function CameraScreen() {
     } catch {}
   }
 
+  // Dual mode: fire both lenses, get back the side-by-side composite, then reuse
+  // the normal resize/Preview path. Video isn't available in Dual yet (Phase 1).
+  async function captureDualPhoto() {
+    if (!dualRef.current) return;
+    triggerCaptureFlash();
+    try {
+      const res = await dualRef.current.capturePhoto();
+      const processedUri = await processPhoto(res.uri);
+      navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
+    } catch (e: any) {
+      setDualError(e?.message ?? 'Dual capture failed. Try again.');
+    }
+  }
+
   async function startRecording() {
     if (!cameraRef.current || isRecordingRef.current) return;
     if (!micPermission?.granted) {
@@ -128,6 +167,7 @@ export default function CameraScreen() {
   }
 
   function onPressIn() {
+    if (isDual) return; // No hold-to-record in Dual yet — tap-only photo composite.
     holdStarted.current = false;
     holdTimer.current = setTimeout(() => {
       holdStarted.current = true;
@@ -136,12 +176,19 @@ export default function CameraScreen() {
   }
 
   async function onPressOut() {
+    if (isDual) { await captureDualPhoto(); return; }
     if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
     if (holdStarted.current) {
       stopRecording();
     } else {
       await takePhoto();
     }
+  }
+
+  function selectMode(mode: CameraMode) {
+    setDualError(null);
+    setModeMenuOpen(false);
+    setCameraMode(mode);
   }
 
   // Handles both pinch-to-zoom and double-tap-to-flip on the viewfinder.
@@ -186,7 +233,7 @@ export default function CameraScreen() {
       if (!wasPinching && Math.abs(gesture.dx) < 8 && Math.abs(gesture.dy) < 8) {
         const now = Date.now();
         if (now - lastTapRef.current < DOUBLE_TAP_MS) {
-          setFacing(f => f === 'back' ? 'front' : 'back');
+          setCameraMode(m => (m === 'back' ? 'front' : 'back'));
           lastTapRef.current = 0;
         } else {
           lastTapRef.current = now;
@@ -215,7 +262,7 @@ export default function CameraScreen() {
 
   return (
     <View style={styles.container}>
-      {isFocused && (
+      {isFocused && !isDual && (
         <CameraView
           ref={cameraRef}
           style={StyleSheet.absoluteFill}
@@ -224,6 +271,19 @@ export default function CameraScreen() {
           mode="video"
           zoom={zoom}
           mirror={facing === 'front'}
+        />
+      )}
+      {isFocused && isDual && (
+        <DualCameraView
+          ref={dualRef}
+          style={StyleSheet.absoluteFill}
+          layout="sideBySide"
+          mirrorFront
+          onInitError={(e) => {
+            // Hardware/permission failure — fall back to the single back camera.
+            setDualError(e.nativeEvent.message);
+            setCameraMode('back');
+          }}
         />
       )}
 
@@ -246,25 +306,66 @@ export default function CameraScreen() {
               <Text style={styles.recTime}>{formatTime(recordSeconds)}</Text>
             </View>
           ) : (
-            <Text style={styles.doubleTapHint}>Double tap to flip</Text>
+            <Text style={styles.doubleTapHint}>{isDual ? 'Both cameras' : 'Double tap to flip'}</Text>
           )}
 
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setFacing(f => f === 'back' ? 'front' : 'back')}>
-            <Ionicons name="camera-reverse-outline" size={26} color="#FFFFFF" />
-          </TouchableOpacity>
+          {isDual ? (
+            <View style={styles.iconBtn} />
+          ) : (
+            <TouchableOpacity style={styles.iconBtn} onPress={() => setCameraMode(m => (m === 'back' ? 'front' : 'back'))}>
+              <Ionicons name="camera-reverse-outline" size={26} color="#FFFFFF" />
+            </TouchableOpacity>
+          )}
         </View>
 
-        {/* Viewfinder — double-tap to switch camera, pinch to zoom */}
-        <View style={styles.viewfinder} {...viewfinderResponder.panHandlers}>
-          <Animated.View style={[styles.zoomBadge, { opacity: zoomOpacity }]}>
-            <Text style={styles.zoomText}>{zoomDisplay}</Text>
-          </Animated.View>
+        {/* Side dropdown — camera mode selector (Back / Front / Dual) */}
+        <View style={styles.modeDropdown}>
+          <TouchableOpacity
+            style={styles.modeChip}
+            activeOpacity={0.8}
+            onPress={() => setModeMenuOpen(o => !o)}
+          >
+            <Ionicons name={MODE_META[cameraMode].icon} size={18} color="#FFFFFF" />
+            <Text style={styles.modeChipLabel}>{MODE_META[cameraMode].label}</Text>
+            <Ionicons name={modeMenuOpen ? 'chevron-up' : 'chevron-down'} size={14} color="rgba(255,255,255,0.7)" />
+          </TouchableOpacity>
+
+          {modeMenuOpen && (
+            <View style={styles.modeMenu}>
+              {availableModes.map(m => {
+                const active = m === cameraMode;
+                return (
+                  <TouchableOpacity
+                    key={m}
+                    style={[styles.modeItem, active && styles.modeItemActive]}
+                    activeOpacity={0.8}
+                    onPress={() => selectMode(m)}
+                  >
+                    <Ionicons name={MODE_META[m].icon} size={18} color={active ? accentColor : '#FFFFFF'} />
+                    <Text style={[styles.modeItemLabel, active && { color: accentColor }]}>{MODE_META[m].label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {/* Viewfinder — double-tap to switch camera, pinch to zoom (single modes only) */}
+        <View style={styles.viewfinder} {...(isDual ? {} : viewfinderResponder.panHandlers)}>
+          {!isDual && (
+            <Animated.View style={[styles.zoomBadge, { opacity: zoomOpacity }]}>
+              <Text style={styles.zoomText}>{zoomDisplay}</Text>
+            </Animated.View>
+          )}
         </View>
 
         {/* Bottom shutter — extra padding on web so it clears the tab bar */}
         <View style={[styles.bottomBar, Platform.OS === 'web' && styles.bottomBarWeb]}>
+          {dualError && <Text style={styles.dualError}>{dualError}</Text>}
           <Text style={styles.hint}>
-            {isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
+            {isDual
+              ? 'Tap for a dual photo'
+              : isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
           </Text>
           <Pressable onPressIn={onPressIn} onPressOut={onPressOut}>
             <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>
@@ -303,6 +404,24 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 10 },
   doubleTapHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
+  modeDropdown: { position: 'absolute', top: 56, left: 16, zIndex: 20 },
+  modeChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  modeChipLabel: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  modeMenu: {
+    marginTop: 6, backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 10,
+    paddingVertical: 4, overflow: 'hidden',
+  },
+  modeItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingVertical: 9,
+  },
+  modeItemActive: { backgroundColor: 'rgba(255,255,255,0.08)' },
+  modeItemLabel: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
+  dualError: { color: '#FF3B30', fontSize: 12, textAlign: 'center', paddingHorizontal: 24 },
   recBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12,

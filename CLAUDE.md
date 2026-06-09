@@ -229,6 +229,21 @@ Defined in `supabase-schema.sql`.
 - Use `useIsFocused()` to stop camera rendering when tab is not active
 - Navigates to `Preview` with `{ uri, mediaType, facing }`
 
+**Camera mode dropdown:** a side dropdown (top-left, `styles.modeDropdown`) selects `cameraMode: 'back' | 'front' | 'dual'`. `facing` is derived (`front`→front, else back). `Back`/`Front` render `CameraView`; `Dual` renders `<DualCameraView>` (see below). The Dual option only appears when `isDualCameraSupported`. In Dual mode: pinch/zoom + double-tap-flip are disabled, hold-to-record is disabled (tap-only), and the reverse button is hidden.
+
+---
+
+## Dual Camera (`modules/expo-dual-camera`)
+
+Simultaneous front+back capture (Snapchat-style), **side-by-side** composite. `expo-camera` cannot do multi-cam, so this is a **local Expo native module** (autolinked from `modules/`, survives `expo prebuild --clean`). Consumed by `CameraScreen` via `import { DualCameraView, isDualCameraSupported, DualCameraViewRef } from '../../../modules/expo-dual-camera'`.
+
+- **iOS (`ios/ExpoDualCameraView.swift`):** `AVCaptureMultiCamSession` with back+front wide-angle inputs added via `addInputWithNoConnections` and explicit `AVCaptureConnection`s (multi-cam requires manual connections). Two `AVCaptureVideoPreviewLayer`s laid out left|right in `layoutSubviews`. Photo: two `AVCapturePhotoOutput`s fire together; both JPEGs are composited left|right into one image (`composeSideBySide`) written to a temp file. `capturePhoto()` is a view `AsyncFunction` resolving `{ uri, width, height }`.
+- **Android (`android/.../ExpoDualCameraModule.kt`):** reports `isSupported = false` (concurrent dual-cam is rare/device-specific). Dual mode is hidden there.
+- **JS (`index.ts`):** guards `Platform.OS !== 'web'` + try/catch around `requireNativeModule`/`requireNativeView`, so web and Expo Go (pre-prebuild) fall back to `isDualCameraSupported = false` and `<DualCameraView>` renders null. `isDualCameraSupported` reads the native `isSupported` constant (true only on A12+ iPhones, iOS 13+).
+- **Capture flow:** `CameraScreen.captureDualPhoto()` calls `dualRef.current.capturePhoto()`, runs the result through the same `processPhoto` (resize 1920) + `Preview` navigation as single-camera photos.
+- **Requirements:** needs a custom dev/EAS build + a physical multi-cam iPhone — **does not run in Expo Go or the simulator**. Uses the existing `NSCameraUsageDescription`/`NSMicrophoneUsageDescription` from the `expo-camera` plugin (no app.json change).
+- **Not yet implemented (Phase 2):** dual **video** (needs `AVAssetWriter` compositing of both feeds into one MP4); in Dual mode video is disabled and single-lens video still works in Back/Front. The Swift is authored against the SDK but **not yet device-verified** — expect on-device iteration on session/hardware-cost tuning.
+
 ---
 
 ## Preview Screen (`PreviewScreen.tsx`)
