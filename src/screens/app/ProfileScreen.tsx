@@ -12,7 +12,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase, getFreshAccessToken } from '../../lib/supabase';
+import { supabase, getFreshSession } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
@@ -56,13 +56,16 @@ export function Avatar({ url, name, size, accent }: { url: string | null; name: 
   );
 }
 
-async function uploadAvatar(uri: string, userId: string): Promise<string> {
-  const session = sessionStore.get();
-  if (!session) throw new Error('Not signed in');
-
-  const path = `${userId}/avatar.jpg`;
+async function uploadAvatar(uri: string): Promise<string> {
+  // The avatars RLS check is `auth.uid()::text = foldername[1]`, so the path's
+  // user id MUST be the authenticated user — never a cached profile.id, which
+  // can lag behind the live session and trigger a 403 RLS violation.
+  let path: string;
 
   if (Platform.OS === 'web') {
+    const session = sessionStore.get();
+    if (!session) throw new Error('Not signed in');
+    path = `${session.user.id}/avatar.jpg`;
     const resp = await fetch(uri);
     const buf = await resp.arrayBuffer();
     const { error } = await supabase.storage
@@ -70,12 +73,13 @@ async function uploadAvatar(uri: string, userId: string): Promise<string> {
       .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
     if (error) throw new Error(error.message);
   } else {
+    const { accessToken, userId } = await getFreshSession();
+    path = `${userId}/avatar.jpg`;
     const resized = await ImageManipulator.manipulateAsync(
       uri,
       [{ resize: { width: 400 } }],
       { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
     );
-    const accessToken = await getFreshAccessToken();
     const result = await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/${path}`,
       resized.uri,
@@ -169,7 +173,7 @@ function EditProfileModal({
     let avatar_url = profile.avatar_url;
     if (avatarUri) {
       try {
-        avatar_url = await uploadAvatar(avatarUri, profile.id);
+        avatar_url = await uploadAvatar(avatarUri);
       } catch (e: any) {
         setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
         setSaving(false);

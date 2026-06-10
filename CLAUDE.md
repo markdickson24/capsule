@@ -177,7 +177,7 @@ The JS client adds both automatically. `FileSystem.uploadAsync` does not — add
 
 **`createSignedUrls` response:** map by array index, not `item.path`. Use `signedData?.[i]?.signedUrl`. Signed URLs expire after 3600 seconds.
 
-**Avatar upload path:** `${userId}/avatar.jpg` with `upsert: true`.
+**Avatar upload path:** `${userId}/avatar.jpg` with `upsert: true`. The `avatars` bucket INSERT/UPDATE RLS is `auth.uid()::text = (storage.foldername(name))[1]`, so **the `userId` in the path MUST be the authenticated user** — derive it from the live session (native: `getFreshSession()`, which returns `{ accessToken, userId }` from the same `getSession()` call; web: `sessionStore.get().user.id`). Never build the path from a cached `profile.id`: if it lags the live session (e.g. after switching accounts) the path folder won't match the bearer token's subject and storage returns 403 `new row violates row-level security policy`. A 403 here is an auth.uid/path mismatch, **not** an expired token (that's a 400 `jwt expired`).
 **Media upload path:** `${capsuleId}/${randomUUID()}.${ext}`.
 
 ---

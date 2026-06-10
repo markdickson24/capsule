@@ -51,8 +51,20 @@ if (Platform.OS === 'web') {
 // web, where getSession() can hang on a stuck refresh (see accessToken override
 // above). Web uploads go through supabase.storage, which refreshes on its own.
 export async function getFreshAccessToken(): Promise<string> {
+  return (await getFreshSession()).accessToken;
+}
+
+// Like getFreshAccessToken, but also returns the user id from the SAME session.
+// Use this when building a storage path that must match `auth.uid()` (e.g. the
+// avatars bucket's RLS check `auth.uid()::text = foldername[1]`). Deriving the
+// path's user id from any other source (a cached profile row, etc.) risks a
+// mismatch with the bearer token's subject → "new row violates row-level
+// security policy". Native only, for the same reason as getFreshAccessToken.
+export async function getFreshSession(): Promise<{ accessToken: string; userId: string }> {
   const { data, error } = await supabase.auth.getSession();
-  const token = data.session?.access_token;
-  if (error || !token) throw new Error('Your session expired. Sign in again to continue.');
-  return token;
+  const session = data.session;
+  if (error || !session?.access_token) {
+    throw new Error('Your session expired. Sign in again to continue.');
+  }
+  return { accessToken: session.access_token, userId: session.user.id };
 }

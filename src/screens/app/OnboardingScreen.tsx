@@ -11,7 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase, getFreshAccessToken } from '../../lib/supabase';
+import { supabase, getFreshSession } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import ColorPicker from '../../components/ColorPicker';
@@ -56,12 +56,15 @@ export default function OnboardingScreen({ navigation }: Props) {
     setAvatarUri(result.assets[0].uri);
   }
 
-  async function uploadAvatar(uri: string, userId: string): Promise<string> {
-    const session = sessionStore.get();
-    if (!session) throw new Error('Not signed in');
-    const path = `${userId}/avatar.jpg`;
+  async function uploadAvatar(uri: string): Promise<string> {
+    // Path user id must equal auth.uid() (avatars RLS), so derive it from the
+    // live session — never a passed-in / cached id. See ProfileScreen.uploadAvatar.
+    let path: string;
 
     if (Platform.OS === 'web') {
+      const session = sessionStore.get();
+      if (!session) throw new Error('Not signed in');
+      path = `${session.user.id}/avatar.jpg`;
       const resp = await fetch(uri);
       const buf = await resp.arrayBuffer();
       const { error } = await supabase.storage
@@ -69,12 +72,13 @@ export default function OnboardingScreen({ navigation }: Props) {
         .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
       if (error) throw new Error(error.message);
     } else {
+      const { accessToken, userId } = await getFreshSession();
+      path = `${userId}/avatar.jpg`;
       const resized = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 400 } }],
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
       );
-      const accessToken = await getFreshAccessToken();
       const result = await FileSystem.uploadAsync(
         `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/${path}`,
         resized.uri,
@@ -109,7 +113,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     let avatarUrl: string | null = null;
     if (avatarUri) {
       try {
-        avatarUrl = await uploadAvatar(avatarUri, userId);
+        avatarUrl = await uploadAvatar(avatarUri);
       } catch (e: any) {
         setSaving(false);
         setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
