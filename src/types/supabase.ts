@@ -619,6 +619,7 @@ export type Database = {
           created_at: string
           display_name: string
           email: string | null
+          home_layout: string
           id: string
           onboarded_at: string | null
           phone: string | null
@@ -633,6 +634,7 @@ export type Database = {
           created_at?: string
           display_name: string
           email?: string | null
+          home_layout?: string
           id: string
           onboarded_at?: string | null
           phone?: string | null
@@ -647,6 +649,7 @@ export type Database = {
           created_at?: string
           display_name?: string
           email?: string | null
+          home_layout?: string
           id?: string
           onboarded_at?: string | null
           phone?: string | null
