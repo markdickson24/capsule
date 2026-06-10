@@ -23,6 +23,7 @@ import EditCapsuleScreen from '../screens/app/EditCapsuleScreen';
 import ManageMembersScreen from '../screens/app/ManageMembersScreen';
 import SettingsScreen from '../screens/app/SettingsScreen';
 import OnboardingScreen from '../screens/app/OnboardingScreen';
+import FriendsScreen from '../screens/app/FriendsScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -275,6 +276,7 @@ export default function AppNavigator() {
       <Stack.Screen name="EditCapsule" component={EditCapsuleScreen} />
       <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="Friends" component={FriendsScreen} />
     </Stack.Navigator>
   );
 }

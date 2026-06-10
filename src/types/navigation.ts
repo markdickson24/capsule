@@ -29,6 +29,7 @@ export type AppStackParamList = {
   ManageMembers: { capsuleId: string };
   Settings: undefined;
   Onboarding: undefined;
+  Friends: undefined;
 };
 
 export type RootStackParamList = {

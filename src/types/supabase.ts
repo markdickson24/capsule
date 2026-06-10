@@ -17,6 +17,39 @@ export type Database = {
   }
   public: {
     Tables: {
+      blocked_users: {
+        Row: {
+          blocked_id: string
+          blocker_id: string
+          created_at: string
+        }
+        Insert: {
+          blocked_id: string
+          blocker_id: string
+          created_at?: string
+        }
+        Update: {
+          blocked_id?: string
+          blocker_id?: string
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blocked_users_blocked_id_fkey"
+            columns: ["blocked_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "blocked_users_blocker_id_fkey"
+            columns: ["blocker_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       capsule_members: {
         Row: {
           capsule_id: string
@@ -136,6 +169,116 @@ export type Database = {
           },
         ]
       }
+      content_reports: {
+        Row: {
+          capsule_id: string | null
+          created_at: string
+          details: string | null
+          id: string
+          reason: string
+          reported_media_id: string | null
+          reported_user_id: string | null
+          reporter_id: string
+          status: string
+          target_type: string
+        }
+        Insert: {
+          capsule_id?: string | null
+          created_at?: string
+          details?: string | null
+          id?: string
+          reason: string
+          reported_media_id?: string | null
+          reported_user_id?: string | null
+          reporter_id: string
+          status?: string
+          target_type: string
+        }
+        Update: {
+          capsule_id?: string | null
+          created_at?: string
+          details?: string | null
+          id?: string
+          reason?: string
+          reported_media_id?: string | null
+          reported_user_id?: string | null
+          reporter_id?: string
+          status?: string
+          target_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_reports_capsule_id_fkey"
+            columns: ["capsule_id"]
+            isOneToOne: false
+            referencedRelation: "capsules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_reports_reported_media_id_fkey"
+            columns: ["reported_media_id"]
+            isOneToOne: false
+            referencedRelation: "media"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_reports_reported_user_id_fkey"
+            columns: ["reported_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "content_reports_reporter_id_fkey"
+            columns: ["reporter_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      friendships: {
+        Row: {
+          addressee_id: string
+          created_at: string
+          id: string
+          requester_id: string
+          responded_at: string | null
+          status: string
+        }
+        Insert: {
+          addressee_id: string
+          created_at?: string
+          id?: string
+          requester_id: string
+          responded_at?: string | null
+          status?: string
+        }
+        Update: {
+          addressee_id?: string
+          created_at?: string
+          id?: string
+          requester_id?: string
+          responded_at?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "friendships_addressee_id_fkey"
+            columns: ["addressee_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "friendships_requester_id_fkey"
+            columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       media: {
         Row: {
           capsule_id: string
@@ -189,7 +332,8 @@ export type Database = {
       }
       notifications: {
         Row: {
-          capsule_id: string
+          actor_id: string | null
+          capsule_id: string | null
           id: string
           pushed_at: string | null
           read_at: string | null
@@ -198,7 +342,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          capsule_id: string
+          actor_id?: string | null
+          capsule_id?: string | null
           id?: string
           pushed_at?: string | null
           read_at?: string | null
@@ -207,7 +352,8 @@ export type Database = {
           user_id: string
         }
         Update: {
-          capsule_id?: string
+          actor_id?: string | null
+          capsule_id?: string | null
           id?: string
           pushed_at?: string | null
           read_at?: string | null
@@ -216,6 +362,13 @@ export type Database = {
           user_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "notifications_actor_id_fkey"
+            columns: ["actor_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "notifications_capsule_id_fkey"
             columns: ["capsule_id"]
