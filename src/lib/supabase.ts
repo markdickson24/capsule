@@ -60,11 +60,24 @@ export async function getFreshAccessToken(): Promise<string> {
 // path's user id from any other source (a cached profile row, etc.) risks a
 // mismatch with the bearer token's subject → "new row violates row-level
 // security policy". Native only, for the same reason as getFreshAccessToken.
-export async function getFreshSession(): Promise<{ accessToken: string; userId: string }> {
-  const { data, error } = await supabase.auth.getSession();
-  const session = data.session;
+export async function getFreshSession(): Promise<{ accessToken: string; userId: string; expiresInSec: number }> {
+  let { data, error } = await supabase.auth.getSession();
+  let session = data.session;
+
+  // getSession() does NOT always refresh an expired token — it can hand back a
+  // stale one. Storage then treats the expired JWT as anonymous (auth.uid()=null)
+  // and RLS denies the insert as "new row violates row-level security policy"
+  // (a 403, not a 400 jwt-expired). Force a refresh when at/near expiry.
+  const now = Math.floor(Date.now() / 1000);
+  if (session?.expires_at && session.expires_at <= now + 60) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.data.session) session = refreshed.data.session;
+    if (refreshed.error) error = refreshed.error;
+  }
+
   if (error || !session?.access_token) {
     throw new Error('Your session expired. Sign in again to continue.');
   }
-  return { accessToken: session.access_token, userId: session.user.id };
+  const expiresInSec = (session.expires_at ?? now) - now;
+  return { accessToken: session.access_token, userId: session.user.id, expiresInSec };
 }

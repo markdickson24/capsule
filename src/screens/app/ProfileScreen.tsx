@@ -73,13 +73,18 @@ async function uploadAvatar(uri: string): Promise<string> {
       .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
     if (error) throw new Error(error.message);
   } else {
-    const { accessToken, userId } = await getFreshSession();
+    const { accessToken, userId, expiresInSec } = await getFreshSession();
     path = `${userId}/avatar.jpg`;
     const resized = await ImageManipulator.manipulateAsync(
       uri,
       [{ resize: { width: 400 } }],
       { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
     );
+    // TEMP diagnostic: surface token freshness + path uid on failure.
+    const tokenSub = (() => {
+      try { return JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub; }
+      catch { return '??'; }
+    })();
     const result = await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/${path}`,
       resized.uri,
@@ -95,7 +100,11 @@ async function uploadAvatar(uri: string): Promise<string> {
       }
     );
     if (result.status < 200 || result.status >= 300) {
-      throw new Error(`Storage ${result.status}: ${result.body?.slice(0, 200) ?? 'no body'}`);
+      throw new Error(
+        `Storage ${result.status}: ${result.body?.slice(0, 160) ?? 'no body'} ` +
+        `| pathUid=${userId.slice(0, 8)} tokenSub=${String(tokenSub).slice(0, 8)} ` +
+        `match=${String(tokenSub) === userId} expiresIn=${expiresInSec}s`
+      );
     }
   }
 
