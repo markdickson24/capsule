@@ -193,11 +193,14 @@ Defined in `supabase-schema.sql`.
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), checkin_lat, checkin_lng, checkin_at |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
-| `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone/superlative_suggested/superlative_closing_soon/superlative_won), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
+| `notifications` | id, user_id, capsule_id (**nullable** — null for friend events), actor_id (nullable — the other user, for friend events), type (invite/unlock/reaction/contribution_nudge/milestone/superlative_suggested/superlative_closing_soon/superlative_won/friend_request/friend_accept), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
 | `superlative_categories` | id, capsule_id, suggested_by, label (3–80 chars), target_type (person/media), status (pending/live/archived), promoted_at, created_at |
 | `superlative_upvotes` | category_id + user_id (composite PK), created_at — drives auto-promote trigger |
 | `superlative_votes` | category_id + voter_id (composite PK), target_user_id XOR target_media_id, created_at, updated_at — anonymous; clients only read own row |
 | `superlative_winners` | id, category_id, target_user_id XOR target_media_id, vote_count, determined_at — one row per (category, tied target); written only by finalize RPC |
+| `content_reports` | id, reporter_id, target_type (media/user), reported_media_id XOR reported_user_id, capsule_id, reason (spam/harassment/nudity/violence/hate/self_harm/other), details (≤500), status (pending/reviewed/actioned/dismissed), created_at — insert+read-own RLS; reviewed out-of-band via service role |
+| `blocked_users` | blocker_id + blocked_id (composite PK), created_at — directional; owner-only RLS (blocked party can't see the row) |
+| `friendships` | id, requester_id, addressee_id, status (pending/accepted), created_at, responded_at — one row per unordered pair (unique index on least/greatest); RLS: read-own, insert-as-requester, update-to-accepted-by-addressee, delete-by-either |
 
 **`users` column privileges:** the `users` SELECT policy is `USING (true)` (every signed-in user can read every profile — needed for search and public profiles). To stop that exposing sensitive fields, `email`, `phone`, and `push_token` are removed from the `authenticated` SELECT grant at the **column level**. Never `select('email')` / `select('phone')` / `select('push_token')` / `select('*')` on `users` from client code — it will fail. The current user's email is on the auth session (`session.user.email`), not this table. Reading another user's `push_token` is server-only (see the `send-invite-push` edge function).
 
@@ -208,6 +211,8 @@ Defined in `supabase-schema.sql`.
 - `_promote_superlative()` — on `superlative_upvotes` insert, flips a pending category to `live` once upvotes hit `ceil(joined/2)`
 - `_stamp_unlock_meta()` — BEFORE UPDATE on `capsules`; when status flips to 'unlocked' stamps `unlocked_at = now()` and `superlative_voting_closes_at = unlocked_at + voting_hours`. Both the unlock cron and the proximity `check_in` path inherit this for free.
 - `_touch_superlative_vote_updated_at()` — bumps `updated_at` when a vote is changed
+- `notify_on_friend_request()` — AFTER INSERT on `friendships` (pending); inserts a `friend_request` notification for the addressee (actor = requester)
+- `notify_on_friend_accept()` — BEFORE UPDATE on `friendships`; on pending→accepted stamps `responded_at` and inserts a `friend_accept` notification for the requester (actor = addressee)
 
 **Permission model:** only owners can see media before unlock. Contributors/viewers see a locked state until `status = 'unlocked'`. Use `isOwner` (`capsule.owner_id === currentUserId`) for owner checks — works even if the `capsule_members` row is missing.
 
@@ -503,6 +508,37 @@ The HTTP call uses the same Vault secret (`cron_unlock_capsules_secret`) as the 
 - `finalize_capsule_superlatives()` is idempotent: `if v_finalized_at is not null then return`. The cron can hit a capsule multiple times safely.
 - When tying capsules' realtime to the section, the parent's `capsule` state must be passed as props (`votingClosesAt`, `votingFinalizedAt`) — the section can't subscribe to capsule changes itself because that's the parent's responsibility.
 - The auto-promote trigger checks `status = 'pending'` before flipping, so concurrent upvotes can't promote twice.
+
+---
+
+## Content Moderation (Report + Block)
+
+UGC compliance for Apple App Store Guideline 1.2. Scope is **report + block**; EULA-at-signup and an admin review console are deferred.
+
+**Tables** (migration `20260609230500_add_reports_and_blocks.sql`):
+- `content_reports` — a user files a report against a `media` item or a `user`. RLS: insert as self, read only your own rows. There is **no** client review path — reports are triaged out-of-band with the service role. CHECK constraints enforce exactly-one target matching `target_type` and no self-report.
+- `blocked_users` — directional `(blocker_id, blocked_id)` block. Owner-only RLS on all of select/insert/delete, so the blocked party can never tell they were blocked.
+
+**Block enforcement is client-side filtering** (not RLS — chosen for speed; can be hardened later):
+- `src/lib/blocks.ts` — `blockStore`: module-level `Set` of blocked IDs with pub/sub, optimistic `block()`/`unblock()` (ignores `23505` duplicate), `refresh()`, `clear()`. `blockStore.has(id)` is the filter primitive; readable synchronously from non-component code (e.g. `fetchPhotos`).
+- `src/hooks/useBlockedUsers.ts` — `useBlockedUsers()` returns the reactive set; refreshes on mount, re-renders on any block change.
+- `useAuth` warms `blockStore.refresh()` on `SIGNED_IN`/`INITIAL_SESSION` and calls `blockStore.clear()` on `SIGNED_OUT` (alongside `cache.clear()`).
+- Filter sites: `CapsuleDetailScreen.fetchPhotos` drops blocked uploaders' media; `MediaViewerModal.loadReactions` drops blocked users' reactions; the `InviteModal` search excludes blocked users. The parent re-runs `fetchPhotos` when `useBlockedUsers()` changes (skipping the first run).
+
+**Report UI** — `src/components/ReportModal.tsx`, a reusable controlled modal (reason radio list + optional ≤500-char details). Entry points: the **flag icon in `MediaViewerModal`'s header** (`targetType="media"`, passes `capsuleId`) and an **overflow `⋯` menu in `PublicProfileScreen`'s nav bar**. The `⋯` opens a small fade-in popup (tap-outside to dismiss) with **Report** and **Block/Unblock**; block goes through `ConfirmModal`. A blocked profile hides the Invite button and shows a notice.
+
+---
+
+## Friends
+
+Explicit friend requests (`friendships` table). Previously "friends" was *derived* from shared capsule membership; it's now an accept/request relationship. Invites to capsules remain open to **anyone** — friends are just a convenience shortcut, not a gate.
+
+- **Data layer** `src/lib/friends.ts` — `getFriendStatus(id)` → `'none' | 'friends' | 'incoming' | 'outgoing'`; `sendFriendRequest` / `acceptFriendRequest` / `removeFriendship` (one delete covers cancel/decline/unfriend); `listFriends` / `listIncomingRequests` / `listOutgoingRequests` (embed the *other* party's profile via the named FK, e.g. `users!friendships_requester_id_fkey`); `countFriends`. The unordered-pair `.or()` filter is `and(requester_id.eq.X,addressee_id.eq.Y),and(requester_id.eq.Y,addressee_id.eq.X)`. 23505 (duplicate pair) is treated as success.
+- **`PublicProfileScreen`** — a friend button that adapts to the status (`Add Friend` → `Requested`/tap-to-cancel → `Accept Request` + `Decline` → `Friends`). **Unfriend** lives in the `⋯` overflow menu (alongside Report/Block). Status is fetched on mount.
+- **`FriendsScreen`** (`AppStack` route `Friends`, opened by tapping the **Friends stat on `ProfileScreen`**) — a Requests section (Accept/Decline) + a Friends list (row → `PublicProfile`). The Profile `Friends` stat now counts accepted friendships via `countFriends()` (cache key `profile`; invalidate on accept/unfriend).
+- **Alerts tab** (`NotificationsScreen`) — `friend_request` rows render with inline **Accept/Decline** (act on `friendships` via `actor_id`, then mark the notification read); `friend_accept` rows tap through to the actor's profile. The notifications query embeds `actor:users!notifications_actor_id_fkey(...)`.
+- **Capsule invite search** (`InviteModal` in `CapsuleDetailScreen`) — a **Friends / Search** tab toggle. Friends tab lists accepted friends not already members (and not blocked); Search is the existing username search. Both use the same `invite()`.
+- **Not built (deferred):** remote push for friend events — `friend_request`/`friend_accept` create durable in-app notifications only; no Expo push is sent yet.
 
 ---
 

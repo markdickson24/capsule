@@ -24,7 +24,11 @@ import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import ReportModal from '../../components/ReportModal';
 import AwardsSection from '../../components/AwardsSection';
+import { blockStore } from '../../lib/blocks';
+import { useBlockedUsers } from '../../hooks/useBlockedUsers';
+import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import { cache } from '../../lib/cache';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
@@ -179,6 +183,8 @@ function InviteModal({
   onInvited: () => void;
 }) {
   const { accentColor } = useTheme();
+  const [tab, setTab] = useState<'friends' | 'search'>('friends');
+  const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserResult[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
@@ -186,6 +192,15 @@ function InviteModal({
   const [error, setError] = useState('');
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inviteTimestamps = useRef<number[]>([]);
+
+  useEffect(() => {
+    listFriends().then(fs =>
+      setFriends(fs.filter(f => !existingMemberIds.includes(f.id) && !blockStore.has(f.id)))
+    );
+  }, []);
+
+  // Friends not yet invited this session.
+  const friendsToShow = friends.filter(f => !invitedIds.includes(f.id));
 
   function onSearch(text: string) {
     setQuery(text);
@@ -200,7 +215,7 @@ function InviteModal({
       if (data) {
         setResults(
           (data as UserResult[]).filter(
-            u => !existingMemberIds.includes(u.id) && !invitedIds.includes(u.id)
+            u => !existingMemberIds.includes(u.id) && !invitedIds.includes(u.id) && !blockStore.has(u.id)
           )
         );
       }
@@ -250,38 +265,82 @@ function InviteModal({
           </TouchableOpacity>
         </View>
 
-        <TextInput
-          style={ms.input}
-          placeholder="Search by username…"
-          placeholderTextColor="#555555"
-          value={query}
-          onChangeText={onSearch}
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoFocus
-        />
+        <View style={ms.tabs}>
+          {(['friends', 'search'] as const).map(t => (
+            <TouchableOpacity
+              key={t}
+              style={[ms.tab, tab === t && { backgroundColor: accentColor }]}
+              onPress={() => setTab(t)}
+              activeOpacity={0.8}
+            >
+              <Text style={[ms.tabText, tab === t && ms.tabTextActive]}>
+                {t === 'friends' ? 'Friends' : 'Search'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        {error ? <Text style={ms.error}>{error}</Text> : null}
-
-        {results.length > 0 && (
-          <View style={ms.results}>
-            {results.map(u => (
-              <View key={u.id} style={ms.row}>
-                <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
-                  <Text style={[ms.avatarText, { color: accentColor }]}>{u.display_name[0].toUpperCase()}</Text>
-                </View>
-                <Text style={ms.name}>{u.display_name}</Text>
-                <TouchableOpacity
-                  style={[ms.inviteBtn, { backgroundColor: accentColor }]}
-                  onPress={() => invite(u.id)}
-                  disabled={inviting === u.id}
-                >
-                  <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
-                </TouchableOpacity>
+        {tab === 'search' ? (
+          <>
+            <TextInput
+              style={ms.input}
+              placeholder="Search by username…"
+              placeholderTextColor="#555555"
+              value={query}
+              onChangeText={onSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+            />
+            {results.length > 0 && (
+              <View style={ms.results}>
+                {results.map(u => (
+                  <View key={u.id} style={ms.row}>
+                    <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
+                      <Text style={[ms.avatarText, { color: accentColor }]}>{u.display_name[0].toUpperCase()}</Text>
+                    </View>
+                    <Text style={ms.name}>{u.display_name}</Text>
+                    <TouchableOpacity
+                      style={[ms.inviteBtn, { backgroundColor: accentColor }]}
+                      onPress={() => invite(u.id)}
+                      disabled={inviting === u.id}
+                    >
+                      <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
-            ))}
+            )}
+          </>
+        ) : (
+          <View style={ms.results}>
+            {friendsToShow.length === 0 ? (
+              <Text style={ms.emptyTab}>
+                {friends.length === 0
+                  ? 'No friends to add yet. Add friends from their profile.'
+                  : 'All your friends are already in this capsule.'}
+              </Text>
+            ) : (
+              friendsToShow.map(f => (
+                <View key={f.id} style={ms.row}>
+                  <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
+                    <Text style={[ms.avatarText, { color: accentColor }]}>{(f.display_name[0] ?? '?').toUpperCase()}</Text>
+                  </View>
+                  <Text style={ms.name}>{f.display_name}</Text>
+                  <TouchableOpacity
+                    style={[ms.inviteBtn, { backgroundColor: accentColor }]}
+                    onPress={() => invite(f.id)}
+                    disabled={inviting === f.id}
+                  >
+                    <Text style={ms.inviteBtnText}>{inviting === f.id ? '…' : 'Invite'}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
           </View>
         )}
+
+        {error ? <Text style={ms.error}>{error}</Text> : null}
 
         {invitedIds.length > 0 && (
           <Text style={ms.success}>
@@ -397,10 +456,12 @@ function VideoSlide({ item, isActive }: { item: MediaItem; isActive: boolean }) 
 function MediaViewerModal({
   items,
   startIndex,
+  capsuleId,
   onClose,
 }: {
   items: MediaItem[];
   startIndex: number;
+  capsuleId: string;
   onClose: () => void;
 }) {
   const currentIndexRef = useRef(startIndex);
@@ -409,6 +470,7 @@ function MediaViewerModal({
   const [currentUserId, setCurrentUserId] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
+  const [showReport, setShowReport] = useState(false);
 
   useEffect(() => {
     loadReactions();
@@ -421,7 +483,8 @@ function MediaViewerModal({
       .from('reactions')
       .select('id, media_id, user_id, emoji')
       .in('media_id', mediaIds);
-    if (data) setReactions(data as Reaction[]);
+    // Hide reactions from users this person has blocked.
+    if (data) setReactions((data as Reaction[]).filter(r => !blockStore.has(r.user_id)));
   }
 
   async function addReaction(mediaId: string, emoji: string) {
@@ -574,15 +637,28 @@ function MediaViewerModal({
               <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
                 {currentIndex + 1} / {items.length}
               </Text>
-              <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
-                {downloading ? (
-                  <LoadingBrand size="small" color="#fff" />
-                ) : (
-                  <Ionicons name={downloadDone ? 'checkmark-circle' : 'download-outline'} size={24} color={downloadDone ? '#30D158' : '#fff'} />
-                )}
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }}>
+                  <Ionicons name="flag-outline" size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
+                  {downloading ? (
+                    <LoadingBrand size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name={downloadDone ? 'checkmark-circle' : 'download-outline'} size={24} color={downloadDone ? '#30D158' : '#fff'} />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </LinearGradient>
+
+          <ReportModal
+            visible={showReport}
+            targetType="media"
+            targetId={items[currentIndex]?.id ?? ''}
+            capsuleId={capsuleId}
+            onClose={() => setShowReport(false)}
+          />
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -763,6 +839,15 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [deleting, setDeleting] = useState(false);
   const heroAnim = useFadeIn(0, 300);
 
+  // Re-filter media when the user's block list changes (e.g. after blocking
+  // someone on their profile and returning here). Skips the initial run.
+  const blockedIds = useBlockedUsers();
+  const firstBlockRun = useRef(true);
+  useEffect(() => {
+    if (firstBlockRun.current) { firstBlockRun.current = false; return; }
+    fetchPhotos();
+  }, [blockedIds]);
+
   async function confirmDelete() {
     setDeleting(true);
     const { data: mediaRows } = await supabase
@@ -804,11 +889,15 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }
 
+    // Hide media uploaded by users this person has blocked.
+    const visibleMedia = mediaData.filter((m: any) => !blockStore.has(m.uploader_id));
+    if (visibleMedia.length === 0) { setPhotos([]); return; }
+
     const { data: signedData } = await supabase.storage
       .from('capsule-media')
-      .createSignedUrls(mediaData.map((m: any) => m.storage_key), 3600);
+      .createSignedUrls(visibleMedia.map((m: any) => m.storage_key), 3600);
 
-    const items: MediaItem[] = mediaData.map((m: any, i: number) => ({
+    const items: MediaItem[] = visibleMedia.map((m: any, i: number) => ({
       id: m.id,
       storage_key: m.storage_key,
       uploader_id: m.uploader_id,
@@ -1340,6 +1429,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         <MediaViewerModal
           items={photos}
           startIndex={activeMediaIndex}
+          capsuleId={capsuleId}
           onClose={() => setActiveMediaIndex(null)}
         />
       )}
@@ -1501,6 +1591,14 @@ const ms = StyleSheet.create({
   },
   title: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
   done: { fontSize: 16, fontWeight: '600', color: '#FF6B35' },
+  tabs: {
+    flexDirection: 'row', gap: 8, marginHorizontal: 24, marginBottom: 12,
+    backgroundColor: '#1A1A1A', borderRadius: 12, padding: 4,
+  },
+  tab: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
+  tabText: { color: '#888888', fontWeight: '700', fontSize: 14 },
+  tabTextActive: { color: '#FFFFFF' },
+  emptyTab: { color: '#555555', fontSize: 14, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
   input: {
     marginHorizontal: 24, backgroundColor: '#1A1A1A', borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,

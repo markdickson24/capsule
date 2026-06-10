@@ -19,6 +19,7 @@ import { AppStackParamList } from '../../types/navigation';
 import { SkeletonProfileCard } from '../../components/Skeleton';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { cache } from '../../lib/cache';
+import { countFriends } from '../../lib/friends';
 import { useSlideUp } from '../../lib/animations';
 
 type Profile = {
@@ -129,20 +130,22 @@ function getMemberSince(createdAt: string): string {
   return `${years}y ${rem}mo`;
 }
 
-function StatItem({ value, label, icon, accentColor }: {
+function StatItem({ value, label, icon, accentColor, onPress }: {
   value: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   accentColor: string;
+  onPress?: () => void;
 }) {
+  const Container: any = onPress ? TouchableOpacity : View;
   return (
-    <View style={styles.statItem}>
+    <Container style={styles.statItem} onPress={onPress} activeOpacity={0.7}>
       <View style={[styles.statIconWrap, { backgroundColor: `${accentColor}15` }]}>
         <Ionicons name={icon} size={16} color={accentColor} />
       </View>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Container>
   );
 }
 
@@ -280,14 +283,7 @@ export default function ProfileScreen() {
       if (!session) throw new Error('No session');
       const userId = session.user.id;
 
-      const myCapsuleIds = (await supabase
-        .from('capsule_members')
-        .select('capsule_id')
-        .eq('user_id', userId)
-        .not('joined_at', 'is', null)
-      ).data?.map((r: any) => r.capsule_id) ?? [];
-
-      const [profileRes, capsulesRes, friendsRes] = await Promise.all([
+      const [profileRes, capsulesRes, friendCount] = await Promise.all([
         supabase
           .from('users')
           .select('id, display_name, bio, avatar_url, created_at')
@@ -298,21 +294,15 @@ export default function ProfileScreen() {
           .select('capsule_id, capsules(status)')
           .eq('user_id', userId)
           .not('joined_at', 'is', null),
-        supabase
-          .from('capsule_members')
-          .select('user_id')
-          .in('capsule_id', myCapsuleIds.length > 0 ? myCapsuleIds : ['__none__'])
-          .not('joined_at', 'is', null)
-          .neq('user_id', userId),
+        countFriends(),
       ]);
 
       const prof = profileRes.data as Profile;
       const capsules = (capsulesRes.data ?? []) as any[];
-      const uniqueFriends = new Set((friendsRes.data ?? []).map((r: any) => r.user_id));
       const s: Stats = {
         capsuleCount: capsules.length,
         unlockedCount: capsules.filter(c => c.capsules?.status === 'unlocked').length,
-        friendCount: uniqueFriends.size,
+        friendCount,
       };
 
       setProfile(prof);
@@ -375,6 +365,7 @@ export default function ProfileScreen() {
                 label="Friends"
                 icon="people-outline"
                 accentColor={accentColor}
+                onPress={() => navigation.navigate('Friends')}
               />
             </View>
           </View>
