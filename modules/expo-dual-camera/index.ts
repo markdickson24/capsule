@@ -41,8 +41,9 @@ export const isDualCameraSupported: boolean =
   Platform.OS !== 'web' && !!nativeModule?.isSupported && NativeView != null;
 
 /**
- * Side-by-side simultaneous dual-camera preview. Renders nothing when the
- * device/platform is unsupported, so callers should gate on `isDualCameraSupported`.
+ * Simultaneous front+back dual-camera preview. `layout` selects `sideBySide`
+ * (default) or `pip`. Renders nothing when the device/platform is unsupported,
+ * so callers should gate on `isDualCameraSupported`.
  */
 export const DualCameraView = React.forwardRef<DualCameraViewRef, DualCameraViewProps>(
   (props, ref) => {

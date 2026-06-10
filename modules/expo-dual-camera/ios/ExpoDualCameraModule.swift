@@ -17,8 +17,10 @@ public class ExpoDualCameraModule: Module {
         view.setMirrorFront(value)
       }
 
-      // `layout` is accepted for forward-compat; only sideBySide is implemented.
-      Prop("layout") { (_: ExpoDualCameraView, _: String) in }
+      // Lens arrangement: "sideBySide" (back|front halves) or "pip" (front bubble over back).
+      Prop("layout") { (view: ExpoDualCameraView, value: String) in
+        view.setLayout(value)
+      }
 
       AsyncFunction("capturePhoto") { (view: ExpoDualCameraView, promise: Promise) in
         view.capturePhoto(promise)

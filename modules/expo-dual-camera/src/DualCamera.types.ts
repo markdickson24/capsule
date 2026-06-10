@@ -1,7 +1,11 @@
 import type { ViewProps } from 'react-native';
 
-/** How the two lenses are arranged in the composite frame. Phase 1 ships `sideBySide`. */
-export type DualCameraLayout = 'sideBySide';
+/**
+ * How the two lenses are arranged in the preview + composite frame.
+ * - `sideBySide` — back | front halves.
+ * - `pip` — full-frame back with a small rounded front bubble in the top-right corner.
+ */
+export type DualCameraLayout = 'sideBySide' | 'pip';
 
 export type DualCaptureResult = {
   /** file:// URI of the composited still (both lenses merged into one JPEG). */
@@ -15,7 +19,7 @@ export type DualCameraInitError = {
 };
 
 export type DualCameraViewProps = ViewProps & {
-  /** Lens arrangement. Only `sideBySide` is implemented in Phase 1. */
+  /** Lens arrangement: `sideBySide` (default) or `pip`. */
   layout?: DualCameraLayout;
   /** Mirror the front-lens half (matches the single-camera selfie behavior). Default true. */
   mirrorFront?: boolean;

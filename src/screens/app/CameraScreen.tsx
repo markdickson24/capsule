@@ -15,9 +15,16 @@ import {
   DualCameraView,
   isDualCameraSupported,
   type DualCameraViewRef,
+  type DualCameraLayout,
 } from '../../../modules/expo-dual-camera';
 
 type CameraMode = 'back' | 'front' | 'dual';
+
+// Live layout options for Dual mode, shown as a switcher over the dual preview.
+const DUAL_LAYOUTS: { value: DualCameraLayout; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { value: 'sideBySide', label: 'Split', icon: 'copy-outline' },
+  { value: 'pip', label: 'PiP', icon: 'albums-outline' },
+];
 
 const MODE_META: Record<CameraMode, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   back: { label: 'Back', icon: 'camera-outline' },
@@ -51,6 +58,7 @@ export default function CameraScreen() {
   const [cameraMode, setCameraMode] = useState<CameraMode>('back');
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const [dualError, setDualError] = useState<string | null>(null);
+  const [dualLayout, setDualLayout] = useState<DualCameraLayout>('sideBySide');
   const [flash, setFlash] = useState<'on' | 'off'>('off');
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
@@ -277,7 +285,7 @@ export default function CameraScreen() {
         <DualCameraView
           ref={dualRef}
           style={StyleSheet.absoluteFill}
-          layout="sideBySide"
+          layout={dualLayout}
           mirrorFront
           onInitError={(e) => {
             // Hardware/permission failure — fall back to the single back camera.
@@ -357,6 +365,26 @@ export default function CameraScreen() {
               <Text style={styles.zoomText}>{zoomDisplay}</Text>
             </Animated.View>
           )}
+
+          {/* Live layout switcher (Dual mode only) — Split vs Picture-in-Picture */}
+          {isDual && (
+            <View style={styles.layoutSwitch}>
+              {DUAL_LAYOUTS.map(({ value, label, icon }) => {
+                const active = value === dualLayout;
+                return (
+                  <TouchableOpacity
+                    key={value}
+                    style={[styles.layoutOption, active && { backgroundColor: accentColor }]}
+                    activeOpacity={0.85}
+                    onPress={() => setDualLayout(value)}
+                  >
+                    <Ionicons name={icon} size={16} color="#FFFFFF" />
+                    <Text style={styles.layoutOptionLabel}>{label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {/* Bottom shutter — extra padding on web so it clears the tab bar */}
@@ -430,6 +458,15 @@ const styles = StyleSheet.create({
   recDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF3B30' },
   recTime: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
   viewfinder: { flex: 1, justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 16 },
+  layoutSwitch: {
+    flexDirection: 'row', gap: 6, backgroundColor: 'rgba(0,0,0,0.45)',
+    borderRadius: 14, padding: 4,
+  },
+  layoutOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 10,
+  },
+  layoutOptionLabel: { color: '#FFFFFF', fontWeight: '600', fontSize: 13 },
   zoomBadge: {
     backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 12,
     paddingHorizontal: 14, paddingVertical: 5,
