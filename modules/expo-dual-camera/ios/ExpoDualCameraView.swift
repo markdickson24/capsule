@@ -1,29 +1,29 @@
 import ExpoModulesCore
 import AVFoundation
 import CoreMedia
+import CoreImage
 import UIKit
 
-// Side-by-side simultaneous front+back capture built on AVCaptureMultiCamSession.
+// Simultaneous front+back capture on AVCaptureMultiCamSession — the same API
+// Snapchat's dual camera and Apple's AVMultiCamPiP sample are built on.
 //
-// Architecture (mirrors Apple's AVMultiCamPiP sample):
-//   - One AVCaptureMultiCamSession with the back and front wide-angle cameras
-//     added via addInputWithNoConnections (multi-cam requires explicit connections).
-//   - Two AVCaptureVideoPreviewLayers, each wired to its input's video port.
-//   - Two AVCapturePhotoOutputs for stills; on capture we fire both and composite
-//     the two JPEGs left|right into a single image.
-//
-// NOTE: This compiles against the iOS SDK but has NOT been run on-device from the
-// authoring environment. Multi-cam needs a physical A12+ iPhone (iOS 13+); expect
-// to iterate on session/hardware-cost tuning when you first run it via an EAS dev build.
+// Capture path mirrors Apple's sample: each lens streams through a cheap
+// AVCaptureVideoDataOutput, and on shutter we grab the next frame from each and
+// composite them. We deliberately avoid two AVCapturePhotoOutputs — those reserve
+// full-resolution still budget and overrun the shared multi-cam hardware cost,
+// which is what produced the "cost limit" failure.
 class ExpoDualCameraView: ExpoView {
   private let session = AVCaptureMultiCamSession()
   private let sessionQueue = DispatchQueue(label: "expo.dualcamera.session")
+  private let dataQueue = DispatchQueue(label: "expo.dualcamera.data")
 
   private let backPreviewLayer = AVCaptureVideoPreviewLayer()
   private let frontPreviewLayer = AVCaptureVideoPreviewLayer()
 
-  private let backPhotoOutput = AVCapturePhotoOutput()
-  private let frontPhotoOutput = AVCapturePhotoOutput()
+  private let backVideoOutput = AVCaptureVideoDataOutput()
+  private let frontVideoOutput = AVCaptureVideoDataOutput()
+  private var backGrabber: FrameGrabber?
+  private var frontGrabber: FrameGrabber?
 
   private var configured = false
   private var mirrorFront = true
@@ -43,15 +43,12 @@ class ExpoDualCameraView: ExpoView {
   private static let pipCornerRatio: CGFloat = 0.12 // of the bubble width
   private static let pipAspect: CGFloat = 4.0 / 3.0 // height / width (portrait still)
 
-  // In-flight capture coordination: collect both halves before compositing.
+  // In-flight capture: grab the next frame from each lens, then composite.
   private var pendingPromise: Promise?
   private var pendingBack: UIImage?
   private var pendingFront: UIImage?
-  private var pendingExpected = 0
-  private var pendingReceived = 0
   private let captureLock = NSLock()
-  private var backDelegate: PhotoCaptureDelegate?
-  private var frontDelegate: PhotoCaptureDelegate?
+  private let ciContext = CIContext(options: nil)
 
   let onInitError = EventDispatcher()
 
@@ -126,8 +123,11 @@ class ExpoDualCameraView: ExpoView {
 
     session.beginConfiguration()
 
-    guard configureCamera(position: .back, previewLayer: backPreviewLayer, photoOutput: backPhotoOutput, mirror: false),
-          configureCamera(position: .front, previewLayer: frontPreviewLayer, photoOutput: frontPhotoOutput, mirror: mirrorFront) else {
+    backGrabber = FrameGrabber { [weak self] buf in self?.onFrame(buf, isBack: true) }
+    frontGrabber = FrameGrabber { [weak self] buf in self?.onFrame(buf, isBack: false) }
+
+    guard configureCamera(position: .back, previewLayer: backPreviewLayer, videoOutput: backVideoOutput, grabber: backGrabber!, mirror: false),
+          configureCamera(position: .front, previewLayer: frontPreviewLayer, videoOutput: frontVideoOutput, grabber: frontGrabber!, mirror: mirrorFront) else {
       session.commitConfiguration()
       return
     }
@@ -135,7 +135,7 @@ class ExpoDualCameraView: ExpoView {
     session.commitConfiguration()
 
     // Belt-and-suspenders: if both lenses still overrun the budget, step the frame
-    // rate down until the session fits (preview connections are already attached).
+    // rate down until the session fits (connections are already attached).
     reduceHardwareCostIfNeeded()
 
     configured = true
@@ -145,46 +145,57 @@ class ExpoDualCameraView: ExpoView {
   /// Drops the capture frame rate on both lenses until `hardwareCost`/`systemPressureCost`
   /// fall within budget. Only kicks in if the chosen formats weren't enough on their own.
   private func reduceHardwareCostIfNeeded() {
-    for fps in [24.0, 20.0, 15.0] {
+    for fps in [24.0, 20.0, 15.0, 12.0] {
       if session.hardwareCost <= 1.0 && session.systemPressureCost <= 1.0 { return }
-      let dur = CMTime(value: 1, timescale: Int32(fps))
-      for device in activeDevices {
-        guard let range = device.activeFormat.videoSupportedFrameRateRanges.first else { continue }
-        let clamped = CMTimeMaximum(dur, range.minFrameDuration)
-        if (try? device.lockForConfiguration()) != nil {
-          device.activeVideoMinFrameDuration = clamped
-          device.activeVideoMaxFrameDuration = clamped
-          device.unlockForConfiguration()
-        }
+      setFrameRate(fps)
+    }
+  }
+
+  /// Clamp every active lens to `fps` (never below the format's own minimum).
+  private func setFrameRate(_ fps: Double) {
+    let dur = CMTime(value: 1, timescale: Int32(fps))
+    for device in activeDevices {
+      guard let range = device.activeFormat.videoSupportedFrameRateRanges.first else { continue }
+      let clamped = CMTimeMaximum(dur, range.minFrameDuration)
+      if (try? device.lockForConfiguration()) != nil {
+        device.activeVideoMinFrameDuration = clamped
+        device.activeVideoMaxFrameDuration = clamped
+        device.unlockForConfiguration()
       }
     }
   }
 
-  /// Picks the highest-resolution multi-cam-supported format at or below `maxWidth` and
-  /// caps it at 30fps. Full-res default formats blow the multi-cam hardware budget, which
-  /// is what makes the second preview connection fail with the "cost limit" error.
+  /// Picks the cheapest usable multi-cam format and caps it at 24fps. Multi-cam shares
+  /// one hardware budget across both lenses, so we prefer *binned* formats (lower power)
+  /// and keep resolution modest — leaving headroom is what stops the second lens failing
+  /// with the "cost limit" error.
   private func applyMultiCamFormat(to device: AVCaptureDevice, maxWidth: Int32 = 1280) {
-    let supported = device.formats.filter { $0.isMultiCamSupported }
-    guard !supported.isEmpty else { return }
+    let multiCam = device.formats.filter { $0.isMultiCamSupported }
+    guard !multiCam.isEmpty else { return }
     func width(_ f: AVCaptureDevice.Format) -> Int32 {
       CMVideoFormatDescriptionGetDimensions(f.formatDescription).width
     }
-    let chosen = supported.filter { width($0) <= maxWidth }.max(by: { width($0) < width($1) })
-      ?? supported.min(by: { width($0) < width($1) })
+    // Binned formats draw far less hardware cost; fall back to all multi-cam formats.
+    let binned = multiCam.filter { $0.isVideoBinned }
+    let pool = binned.isEmpty ? multiCam : binned
+    let chosen = pool.filter { width($0) <= maxWidth }.max(by: { width($0) < width($1) })
+      ?? pool.min(by: { width($0) < width($1) })
     guard let format = chosen, (try? device.lockForConfiguration()) != nil else { return }
     device.activeFormat = format
     if let range = format.videoSupportedFrameRateRanges.first {
-      let cap = CMTimeMaximum(CMTime(value: 1, timescale: 30), range.minFrameDuration)
+      let cap = CMTimeMaximum(CMTime(value: 1, timescale: 24), range.minFrameDuration)
       device.activeVideoMinFrameDuration = cap
       device.activeVideoMaxFrameDuration = cap
     }
     device.unlockForConfiguration()
   }
 
-  /// Adds one camera input with explicit (no-auto) connections to its preview layer and photo output.
+  /// Adds one camera: input (no auto connections) + a preview-layer connection for the
+  /// live feed and a video-data-output connection that supplies frames for capture.
   private func configureCamera(position: AVCaptureDevice.Position,
                                previewLayer: AVCaptureVideoPreviewLayer,
-                               photoOutput: AVCapturePhotoOutput,
+                               videoOutput: AVCaptureVideoDataOutput,
+                               grabber: FrameGrabber,
                                mirror: Bool) -> Bool {
     guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: position),
           let input = try? AVCaptureDeviceInput(device: device),
@@ -205,10 +216,10 @@ class ExpoDualCameraView: ExpoView {
       return false
     }
 
-    // Preview connection
+    // Live preview connection (GPU-cheap).
     let previewConn = AVCaptureConnection(inputPort: port, videoPreviewLayer: previewLayer)
-    guard session.canAddConnection(previewConn) else {
-      emitInitError("Hardware can't run both previews at once (cost limit)")
+    guard ensureCanAdd(previewConn) else {
+      emitInitError("Hardware can't run both previews at once (cost \(String(format: "%.2f", session.hardwareCost)))")
       return false
     }
     session.addConnection(previewConn)
@@ -217,23 +228,43 @@ class ExpoDualCameraView: ExpoView {
       previewConn.isVideoMirrored = true
     }
 
-    // Photo output connection
-    guard session.canAddOutput(photoOutput) else {
-      emitInitError("Could not add the \(position == .back ? "back" : "front") photo output")
+    // Video data output — the capture source. Far cheaper than a photo output because
+    // it streams the (already small) preview format instead of reserving full-res stills.
+    videoOutput.alwaysDiscardsLateVideoFrames = true
+    videoOutput.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+    videoOutput.setSampleBufferDelegate(grabber, queue: dataQueue)
+    guard session.canAddOutput(videoOutput) else {
+      emitInitError("Could not add the \(position == .back ? "back" : "front") video output")
       return false
     }
-    session.addOutputWithNoConnections(photoOutput)
-    let photoConn = AVCaptureConnection(inputPorts: [port], output: photoOutput)
+    session.addOutputWithNoConnections(videoOutput)
+
+    let dataConn = AVCaptureConnection(inputPorts: [port], output: videoOutput)
+    if dataConn.isVideoOrientationSupported {
+      dataConn.videoOrientation = .portrait
+    }
     if mirror {
-      photoConn.automaticallyAdjustsVideoMirroring = false
-      photoConn.isVideoMirrored = true
+      dataConn.automaticallyAdjustsVideoMirroring = false
+      dataConn.isVideoMirrored = true
     }
-    guard session.canAddConnection(photoConn) else {
-      emitInitError("Hardware can't run both photo outputs at once (cost limit)")
+    guard ensureCanAdd(dataConn) else {
+      emitInitError("Hardware can't run both lenses at once (cost \(String(format: "%.2f", session.hardwareCost)))")
       return false
     }
-    session.addConnection(photoConn)
+    session.addConnection(dataConn)
     return true
+  }
+
+  /// True if `conn` can be added — stepping the frame rate down on the already-active
+  /// lenses to reclaim hardware budget if the first check fails. This turns the hard
+  /// "cost limit" failure into a graceful degrade to a lower frame rate.
+  private func ensureCanAdd(_ conn: AVCaptureConnection) -> Bool {
+    if session.canAddConnection(conn) { return true }
+    for fps in [24.0, 20.0, 15.0, 12.0] {
+      setFrameRate(fps)
+      if session.canAddConnection(conn) { return true }
+    }
+    return false
   }
 
   // MARK: - Capture
@@ -251,48 +282,64 @@ class ExpoDualCameraView: ExpoView {
         promise.reject("ERR_BUSY", "A capture is already in progress")
         return
       }
+      // Arm the grab — the next frame from each lens (delivered on dataQueue) is taken.
       self.pendingPromise = promise
       self.pendingBack = nil
       self.pendingFront = nil
-      self.pendingReceived = 0
-      self.pendingExpected = 2
       self.captureLock.unlock()
 
-      self.backDelegate = PhotoCaptureDelegate { [weak self] image in
-        self?.onHalfCaptured(image, isBack: true)
+      // Safety: if frames never arrive, don't leave the JS promise hanging.
+      self.sessionQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        guard let self = self else { return }
+        self.captureLock.lock()
+        let stale = self.pendingPromise
+        if stale != nil {
+          self.pendingPromise = nil
+          self.pendingBack = nil
+          self.pendingFront = nil
+        }
+        self.captureLock.unlock()
+        stale?.reject("ERR_TIMEOUT", "Dual capture timed out waiting for frames")
       }
-      self.frontDelegate = PhotoCaptureDelegate { [weak self] image in
-        self?.onHalfCaptured(image, isBack: false)
-      }
-
-      self.backPhotoOutput.capturePhoto(with: AVCapturePhotoSettings(), delegate: self.backDelegate!)
-      self.frontPhotoOutput.capturePhoto(with: AVCapturePhotoSettings(), delegate: self.frontDelegate!)
     }
   }
 
-  private func onHalfCaptured(_ image: UIImage?, isBack: Bool) {
+  /// Called for every delivered frame. Cheap no-op unless a capture is armed and this
+  /// lens hasn't been grabbed yet — then it converts and stores that one frame.
+  private func onFrame(_ sampleBuffer: CMSampleBuffer, isBack: Bool) {
     captureLock.lock()
+    let wanted = pendingPromise != nil && (isBack ? pendingBack : pendingFront) == nil
+    captureLock.unlock()
+    guard wanted, let image = imageFromSampleBuffer(sampleBuffer) else { return }
+
+    captureLock.lock()
+    guard pendingPromise != nil else { captureLock.unlock(); return }
     if isBack { pendingBack = image } else { pendingFront = image }
-    pendingReceived += 1
-    let done = pendingReceived >= pendingExpected
+    let haveBoth = pendingBack != nil && pendingFront != nil
     let promise = pendingPromise
     let back = pendingBack
     let front = pendingFront
-    if done {
-      pendingPromise = nil
-      backDelegate = nil
-      frontDelegate = nil
-    }
+    if haveBoth { pendingPromise = nil }
     captureLock.unlock()
 
-    guard done, let promise = promise else { return }
+    guard haveBoth, let promise = promise, let b = back, let f = front else { return }
+    finishCapture(back: b, front: f, promise: promise)
+  }
 
+  private func imageFromSampleBuffer(_ sampleBuffer: CMSampleBuffer) -> UIImage? {
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return nil }
+    let ci = CIImage(cvPixelBuffer: pixelBuffer)
+    guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return nil }
+    return UIImage(cgImage: cg)
+  }
+
+  private func finishCapture(back: UIImage, front: UIImage, promise: Promise) {
     let merged: UIImage?
     switch layout {
     case .sideBySide:
-      merged = back.flatMap { b in front.flatMap { f in ExpoDualCameraView.composeSideBySide(left: b, right: f) } }
+      merged = ExpoDualCameraView.composeSideBySide(left: back, right: front)
     case .pip:
-      merged = back.flatMap { b in front.flatMap { f in ExpoDualCameraView.composePiP(base: b, inset: f) } }
+      merged = ExpoDualCameraView.composePiP(base: back, inset: front)
     }
 
     guard let composite = merged,
@@ -370,18 +417,15 @@ class ExpoDualCameraView: ExpoView {
   }
 }
 
-/// Minimal AVCapturePhotoCaptureDelegate that hands back a decoded UIImage.
-private class PhotoCaptureDelegate: NSObject, AVCapturePhotoCaptureDelegate {
-  private let completion: (UIImage?) -> Void
-  init(completion: @escaping (UIImage?) -> Void) { self.completion = completion }
+/// Forwards every delivered video frame to a closure. Held strongly by the view;
+/// `setSampleBufferDelegate` keeps only a weak reference.
+private class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+  private let onFrame: (CMSampleBuffer) -> Void
+  init(onFrame: @escaping (CMSampleBuffer) -> Void) { self.onFrame = onFrame }
 
-  func photoOutput(_ output: AVCapturePhotoOutput,
-                   didFinishProcessingPhoto photo: AVCapturePhoto,
-                   error: Error?) {
-    guard error == nil, let data = photo.fileDataRepresentation(), let image = UIImage(data: data) else {
-      completion(nil)
-      return
-    }
-    completion(image)
+  func captureOutput(_ output: AVCaptureOutput,
+                     didOutput sampleBuffer: CMSampleBuffer,
+                     from connection: AVCaptureConnection) {
+    onFrame(sampleBuffer)
   }
 }
