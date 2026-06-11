@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Privacy &amp; Legal — Capsule</title>
+<link rel="icon" type="image/png" href="favicon.png" />
+<meta name="description" content="Capsule's privacy policy, terms of service, and community guidelines." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #0A0A0A; --surface: #1A1A1A; --border: #2A2A2A;
+    --accent: #2DD4BF; --accent-soft: #5EEAD4;
+    --text: #FFFFFF; --text-2: #9A958F; --text-3: #5A5550;
+    --display: "Fraunces", Georgia, serif;
+    --body: "Hanken Grotesk", system-ui, sans-serif;
+    --maxw: 880px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--body);
+    font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+    position: relative; min-height: 100vh;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+    opacity: 0.04; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--accent); color: #100A06; }
+  .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+
+  /* nav */
+  nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    background: rgba(10,10,10,.72); backdrop-filter: blur(16px) saturate(140%);
+    border-bottom: 1px solid var(--border);
+  }
+  .nav-inner {
+    width: 100%; max-width: 1180px; margin: 0 auto; padding: 16px 28px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
+  .brand .mark {
+    width: 32px; height: 32px; border-radius: 9px; display: block; object-fit: cover;
+    box-shadow: 0 6px 16px -6px rgba(0,0,0,.85), inset 0 0 0 1px rgba(255,255,255,.07);
+  }
+  .back-link { color: var(--text-2); font-size: 15px; font-weight: 600; transition: color .2s; }
+  .back-link:hover { color: var(--text); }
+
+  /* header */
+  header.lh { padding: 150px 0 40px; }
+  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+  h1 { font-family: var(--display); font-weight: 600; font-size: clamp(38px, 6vw, 58px); line-height: 1.02; letter-spacing: -0.02em; margin-top: 14px; }
+  .lead { color: var(--text-2); font-size: 18px; margin-top: 18px; max-width: 36em; }
+  .updated { color: var(--text-3); font-size: 14px; margin-top: 16px; }
+
+  /* in-page jump links */
+  .jump { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 30px; }
+  .jump a {
+    font-size: 14px; font-weight: 600; color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 999px; padding: 9px 16px;
+    transition: border-color .2s, color .2s, background .2s;
+  }
+  .jump a:hover { color: var(--text); border-color: #46413b; background: rgba(255,255,255,.04); }
+
+  .rule { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 8px 0; }
+
+  /* doc sections */
+  .doc { padding: 48px 0 30px; }
+  .doc-block { padding: 36px 0; border-top: 1px solid var(--border); }
+  .doc-block:first-child { border-top: none; }
+  .doc-block h2 { font-family: var(--display); font-weight: 600; font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -0.02em; }
+  .doc-block h3 { font-family: var(--display); font-weight: 600; font-size: 19px; color: var(--text); margin-top: 28px; letter-spacing: -0.01em; }
+  .doc-block p { color: var(--text-2); margin-top: 15px; }
+  .doc-block strong { color: var(--text); font-weight: 600; }
+  .doc-block ul { margin: 12px 0 0 20px; color: var(--text-2); }
+  .doc-block li { margin-top: 9px; padding-left: 4px; }
+  .doc-block a { color: var(--accent); text-decoration: underline; }
+  .doc-block .meta { color: var(--text-3); font-size: 14px; margin-top: 6px; }
+  .placeholder {
+    margin-top: 22px; border: 1.5px dashed var(--border); border-radius: 20px;
+    min-height: 180px; display: grid; place-items: center;
+    color: var(--text-3); font-size: 14px; letter-spacing: .02em;
+    background: linear-gradient(180deg, rgba(255,255,255,.012), transparent);
+  }
+
+  /* footer */
+  footer { border-top: 1px solid var(--border); padding: 40px 0; margin-top: 50px; color: var(--text-3); font-size: 14px; }
+  .foot-inner { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .foot-inner a:hover { color: var(--accent); }
+
+  @media (max-width: 720px){
+    body { font-size: 16px; }
+    .wrap { padding: 0 20px; }
+    .nav-inner { padding: 14px 20px; }
+    header.lh { padding: 120px 0 32px; }
+    .doc { padding: 32px 0 20px; }
+    .doc-block { padding: 30px 0; }
+    .placeholder { min-height: 150px; }
+  }
+  @media (max-width: 460px){
+    .wrap { padding: 0 16px; }
+    .jump { gap: 8px; }
+    .foot-inner { flex-direction: column; align-items: flex-start; gap: 10px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){ html { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><img class="mark" src="logo.png" alt="Capsule logo" /> Capsule</a>
+    <a class="back-link" href="index.html">← Back to site</a>
+  </div>
+</nav>
+
+<header class="lh">
+  <div class="wrap">
+    <div class="eyebrow">Privacy &amp; Legal</div>
+    <h1>Privacy &amp; Legal</h1>
+    <p class="lead">Everything covering how Capsule handles your data, the terms of using the app, and the rules that keep the community safe will live here.</p>
+    <p class="updated">Last updated — June 10, 2026</p>
+    <div class="jump">
+      <a href="#privacy">Privacy Policy</a>
+      <a href="#terms">Terms of Service</a>
+      <a href="#guidelines">Community Guidelines</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap"><div class="rule"></div></div>
+
+<main class="doc">
+  <div class="wrap">
+
+    <section id="privacy" class="doc-block">
+      <h2>Privacy Policy</h2>
+      <p class="meta">Effective June 10, 2026</p>
+
+      <p>This Privacy Policy explains how Capsule ("we," "us," or "our") handles information collected through this website — specifically, the beta waitlist sign-up form. Capsule is a time-locked photo-sharing app currently in pre-release.</p>
+
+      <h3>Information we collect</h3>
+      <p>When you join the waitlist, we collect the <strong>email address</strong> you enter and the fact that you consented to be contacted. When you submit the form, our form processor also receives standard technical information your browser sends with the request (such as your IP address and a timestamp), which is used for spam prevention.</p>
+      <p>This website does <strong>not</strong> use cookies, advertising trackers, or third-party analytics.</p>
+
+      <h3>How we use your information</h3>
+      <p>We use your email address for a single purpose: to send you occasional updates about the Capsule beta and launch. We do not use it for unrelated marketing.</p>
+
+      <h3>How your information is shared</h3>
+      <p>We share your email only with the service providers that help us operate the waitlist:</p>
+      <ul>
+        <li><strong>Formspree</strong> — processes and stores your form submission on our behalf. See the <a href="https://formspree.io/legal/privacy-policy/" target="_blank" rel="noopener">Formspree Privacy Policy</a>.</li>
+        <li>Our email provider, used to contact you about the beta.</li>
+      </ul>
+      <p>We do <strong>not</strong> sell, rent, or trade your email address.</p>
+
+      <h3>Data retention</h3>
+      <p>We keep your email until the beta concludes, until you ask us to delete it, or until you unsubscribe — whichever comes first.</p>
+
+      <h3>Your choices and rights</h3>
+      <p>You can unsubscribe at any time using the link in any email we send. You may also ask us to access, correct, or delete the information we hold about you by emailing us at the address below. Depending on where you live (for example, the EEA/UK under the GDPR, or California under the CCPA/CPRA), you may have additional rights, including the right to withdraw consent and to lodge a complaint with a data protection authority.</p>
+
+      <h3>Children</h3>
+      <p>Capsule and this waitlist are intended for people <strong>13 years and older</strong>. We do not knowingly collect information from children under 13. If you believe a child has submitted their email, contact us and we will delete it.</p>
+
+      <h3>Data security &amp; international transfers</h3>
+      <p>We use reasonable measures to protect your information, but no method of transmission or storage is completely secure. Our service providers may process and store data in the United States and other countries.</p>
+
+      <h3>Changes to this policy</h3>
+      <p>We may update this policy as the product develops. Material changes will be reflected by updating the "Effective" date above.</p>
+
+      <h3>Contact</h3>
+      <p>Questions or requests? Email us at <a href="mailto:mark.dickson0824@gmail.com">mark.dickson0824@gmail.com</a>.</p>
+    </section>
+
+    <section id="terms" class="doc-block">
+      <h2>Terms of Service</h2>
+      <p class="meta">Effective June 10, 2026</p>
+
+      <p>These Terms of Service ("Terms") govern your use of this website and the Capsule beta waitlist (the "Service"). By using the Service or submitting your email, you agree to these Terms. If you do not agree, please don't use the Service.</p>
+
+      <h3>Eligibility</h3>
+      <p>You must be <strong>13 years or older</strong> to use the Service. By joining the waitlist you confirm that you meet this requirement.</p>
+
+      <h3>The waitlist</h3>
+      <p>This website lets you join a waitlist for Capsule, an app that is still in development. Joining the waitlist does not guarantee access to the beta, a specific timeline, or that the app will be released at all. We may invite waitlist members to test the app at our discretion.</p>
+
+      <h3>Pre-release &amp; "as is"</h3>
+      <p>Capsule is pre-release software. Features, availability, and these Terms may change at any time. The Service and any beta access are provided <strong>"as is" and "as available,"</strong> without warranties of any kind, to the fullest extent permitted by law.</p>
+
+      <h3>Acceptable use</h3>
+      <p>You agree not to misuse the Service — including attempting to disrupt it, accessing it through automated scraping or attacks, submitting other people's information without permission, or using it for any unlawful purpose.</p>
+
+      <h3>Intellectual property</h3>
+      <p>The Capsule name, logo, and the content on this website are owned by us and protected by applicable laws. You may not copy, modify, or distribute them without our permission.</p>
+
+      <h3>Third-party services</h3>
+      <p>The waitlist form is processed by <strong>Formspree</strong>; your use of it is also subject to their terms and privacy policy. We are not responsible for third-party services.</p>
+
+      <h3>Limitation of liability</h3>
+      <p>To the fullest extent permitted by law, we will not be liable for any indirect, incidental, or consequential damages arising from your use of the Service.</p>
+
+      <h3>Changes to these Terms</h3>
+      <p>We may update these Terms as the product develops. Material changes will be reflected by updating the "Effective" date above. Continued use of the Service after changes means you accept the updated Terms.</p>
+
+      <h3>Governing law</h3>
+      <p>These Terms are governed by the laws of the United States and the state in which the operator resides, without regard to conflict-of-laws principles.</p>
+
+      <h3>Contact</h3>
+      <p>Questions about these Terms? Email us at <a href="mailto:mark.dickson0824@gmail.com">mark.dickson0824@gmail.com</a>.</p>
+    </section>
+
+    <section id="guidelines" class="doc-block">
+      <h2>Community Guidelines</h2>
+      <p class="meta">Effective June 10, 2026</p>
+
+      <p>Capsule is a place to share memories with people you trust. These Community Guidelines apply to everything you create, upload, or share in the app once it's available. They exist to keep Capsule safe and welcoming. Breaking them can lead to content removal, loss of access to a capsule, or account suspension.</p>
+
+      <h3>The basics</h3>
+      <ul>
+        <li>Be respectful of the people you share with.</li>
+        <li>Only share photos and videos you have the right to share.</li>
+        <li>Respect the privacy of anyone who appears in your content.</li>
+      </ul>
+
+      <h3>What's not allowed</h3>
+      <ul>
+        <li><strong>Illegal content or activity</strong> of any kind.</li>
+        <li><strong>Child sexual abuse material (CSAM)</strong> or any sexual content involving minors. We have zero tolerance and will report it to the appropriate authorities.</li>
+        <li><strong>Pornographic or sexually explicit content.</strong></li>
+        <li><strong>Harassment, bullying, threats, or hate speech</strong> targeting people based on race, ethnicity, religion, disability, gender, sexual orientation, or other protected characteristics.</li>
+        <li><strong>Graphic violence or gore</strong>, or content that promotes self-harm.</li>
+        <li><strong>Sharing someone's private information</strong> or images of them without their consent.</li>
+        <li><strong>Spam, scams, impersonation,</strong> or attempts to deceive other users.</li>
+      </ul>
+
+      <h3>Consent &amp; privacy</h3>
+      <p>Capsules are private and invite-only. Only add people who want to be part of a capsule, and think before sharing content that includes others — make sure they're okay with it.</p>
+
+      <h3>Reporting &amp; blocking</h3>
+      <p>If you see content or behavior that breaks these guidelines, you can <strong>report</strong> it or <strong>block</strong> the user from within the app. Reports are reviewed, and we may remove content or take action on accounts as needed. Blocking is private — the blocked person isn't notified.</p>
+
+      <h3>Enforcement</h3>
+      <p>Depending on the severity, we may remove content, remove someone from a capsule, restrict features, or suspend or terminate accounts. Serious violations may be reported to law enforcement.</p>
+
+      <h3>Age</h3>
+      <p>Capsule is for people <strong>13 years and older</strong>.</p>
+
+      <h3>Contact</h3>
+      <p>Questions or want to appeal a decision? Email us at <a href="mailto:mark.dickson0824@gmail.com">mark.dickson0824@gmail.com</a>.</p>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap foot-inner">
+    <span>© 2026 Capsule. All rights reserved.</span>
+    <a href="index.html" style="color:var(--text-2)">← Back to Capsule</a>
+  </div>
+</footer>
+
+</body>
+</html>
