@@ -31,6 +31,7 @@ import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -1044,6 +1045,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       }
 
       if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
+      const added = assets.length - failed;
+      if (added > 0) toast.show(`${added} photo${added > 1 ? 's' : ''} added`);
     } catch {
       setUploadError('Upload failed. Try again.');
     }
@@ -1054,11 +1057,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   async function pickFromLibrary() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      setUploadError('Photo library access denied. Enable it in Settings.');
-      return;
-    }
+    // No permission prompt: launchImageLibraryAsync uses the iOS PHPicker (and the
+    // Android Photo Picker), which run out-of-process and return only the items the
+    // user explicitly selects — so no library-access dialog is required. Requesting
+    // permission first just added a slow, confusing prompt that made it look like you
+    // couldn't add photos. (Matches the avatar pickers in Onboarding/Profile.)
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
