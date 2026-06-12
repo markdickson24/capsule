@@ -17,6 +17,7 @@ import { randomUUID } from '../../lib/uuid';
 import { AppStackParamList, PendingMedia } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Preview'>;
 
@@ -179,6 +180,10 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
       cache.invalidate('capsules');
       for (const id of ids) cache.invalidate(`capsule:${id}`);
+
+      const n = items.length;
+      const noun = n === 1 ? 'photo' : 'photos';
+      toast.show(ids.length > 1 ? `${n} ${noun} added to ${ids.length} capsules` : `${n} ${noun} added`);
 
       if (ids.length === 1) {
         navigation.replace('CapsuleDetail', { capsuleId: ids[0] });

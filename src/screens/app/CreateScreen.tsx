@@ -18,6 +18,7 @@ import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Permission = 'contributor' | 'viewer';
@@ -172,6 +173,8 @@ export default function CreateScreen() {
           // Capsule created successfully — keep going so partial success is preserved
         }
       }
+      const n = pendingMedia.length;
+      toast.show(`${n} ${n === 1 ? 'photo' : 'photos'} added`);
     }
 
     setLoading(false);

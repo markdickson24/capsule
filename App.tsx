@@ -12,6 +12,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { ThemeProvider } from './src/context/ThemeContext';
 import { ShareIntentProvider } from './src/lib/ShareIntentProvider';
 import { LoadingBrandScreen } from './src/components/LoadingBrand';
+import ToastHost from './src/components/ToastHost';
 
 // Init Sentry once at module load. Skips initialization if no DSN is set,
 // so dev builds without EXPO_PUBLIC_SENTRY_DSN are no-ops.
@@ -47,6 +48,7 @@ function App() {
         <NavigationContainer ref={navigationRef} linking={linking}>
           <StatusBar style="light" />
           <RootNavigator />
+          <ToastHost />
         </NavigationContainer>
       </ThemeProvider>
     </ShareIntentProvider>
