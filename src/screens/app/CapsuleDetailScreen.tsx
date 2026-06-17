@@ -32,6 +32,7 @@ import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
+import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -103,10 +104,21 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
   const { accentColor } = useTheme();
   const [now, setNow] = useState(Date.now());
 
+  const ONE_DAY = 1000 * 60 * 60 * 24;
+
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+    // Self-rescheduling tick: every second once under a day remains (so the
+    // countdown is live to the second), every minute when further out.
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const r = Math.max(0, new Date(unlockAt).getTime() - Date.now());
+      setNow(Date.now());
+      if (r <= 0) return; // unlocked — stop ticking
+      id = setTimeout(tick, r < ONE_DAY ? 1000 : 60_000);
+    };
+    tick();
+    return () => clearTimeout(id);
+  }, [unlockAt]);
 
   const unlock = new Date(unlockAt).getTime();
   const created = createdAt
@@ -115,11 +127,16 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
   const remaining = Math.max(0, unlock - now);
   const progress = (unlock - created) > 0 ? remaining / (unlock - created) : 0;
 
-  const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const timeStr = remaining <= 0
-    ? 'Unlocking soon'
-    : days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
+  const days = Math.floor(remaining / ONE_DAY);
+  const hours = Math.floor((remaining % ONE_DAY) / (1000 * 60 * 60));
+  const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+  let timeStr: string;
+  if (remaining <= 0) timeStr = 'Unlocking soon';
+  else if (days > 0) timeStr = `${days}d ${hours}h left`;
+  else if (hours > 0) timeStr = `${hours}h ${minutes}m ${seconds}s left`;
+  else if (minutes > 0) timeStr = `${minutes}m ${seconds}s left`;
+  else timeStr = `${seconds}s left`;
 
   const unlockDateStr = new Date(unlockAt).toLocaleDateString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric',
@@ -402,7 +419,7 @@ function ReactionsBar({
           {REACTION_EMOJIS.filter(e => !reactedEmojis.has(e)).map(emoji => (
             <TouchableOpacity
               key={emoji}
-              onPress={() => { onAdd(mediaId, emoji); setShowPicker(false); }}
+              onPress={() => { haptics.light(); onAdd(mediaId, emoji); setShowPicker(false); }}
               style={rs.pickerEmoji}
             >
               <Text style={{ fontSize: 28 }}>{emoji}</Text>
