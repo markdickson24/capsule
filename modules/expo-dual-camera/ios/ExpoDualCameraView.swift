@@ -379,20 +379,37 @@ class ExpoDualCameraView: ExpoView {
     }
   }
 
-  /// Composite two images left|right into one, normalizing to the shorter height.
+  /// Composite the two lenses as a clean 50/50 split down the middle: each lens is
+  /// aspect-filled (center-cropped) into its half, matching the side-by-side preview
+  /// (which uses resizeAspectFill on half-width layers). A thin divider marks the seam.
   static func composeSideBySide(left: UIImage, right: UIImage) -> UIImage? {
-    let h = min(left.size.height, right.size.height)
-    let leftW = left.size.width * (h / left.size.height)
-    let rightW = right.size.width * (h / right.size.height)
-    let size = CGSize(width: leftW + rightW, height: h)
+    let canvas = left.size
+    guard canvas.width > 0, canvas.height > 0 else { return nil }
+    let halfW = (canvas.width / 2).rounded()
 
     let format = UIGraphicsImageRendererFormat.default()
     format.scale = 1
-    let renderer = UIGraphicsImageRenderer(size: size, format: format)
-    return renderer.image { _ in
-      left.draw(in: CGRect(x: 0, y: 0, width: leftW, height: h))
-      right.draw(in: CGRect(x: leftW, y: 0, width: rightW, height: h))
+    let renderer = UIGraphicsImageRenderer(size: canvas, format: format)
+    return renderer.image { ctx in
+      drawAspectFill(left, into: CGRect(x: 0, y: 0, width: halfW, height: canvas.height), ctx: ctx.cgContext)
+      drawAspectFill(right, into: CGRect(x: halfW, y: 0, width: canvas.width - halfW, height: canvas.height), ctx: ctx.cgContext)
+
+      // Divider straight down the middle.
+      let lineW = max(1, canvas.width * 0.004)
+      UIColor.white.setFill()
+      ctx.cgContext.fill(CGRect(x: halfW - lineW / 2, y: 0, width: lineW, height: canvas.height))
     }
+  }
+
+  /// Draw `image` to cover `rect` (aspect-fill, center-cropped), clipped to `rect`.
+  private static func drawAspectFill(_ image: UIImage, into rect: CGRect, ctx: CGContext) {
+    ctx.saveGState()
+    ctx.clip(to: rect)
+    let scale = max(rect.width / image.size.width, rect.height / image.size.height)
+    let drawW = image.size.width * scale
+    let drawH = image.size.height * scale
+    image.draw(in: CGRect(x: rect.midX - drawW / 2, y: rect.midY - drawH / 2, width: drawW, height: drawH))
+    ctx.restoreGState()
   }
 
   /// Composite `inset` (front lens, already mirrored by the capture connection) as a
