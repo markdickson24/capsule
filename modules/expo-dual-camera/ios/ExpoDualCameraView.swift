@@ -231,6 +231,9 @@ class ExpoDualCameraView: ExpoView {
       return false
     }
     session.addConnection(previewConn)
+    if previewConn.isVideoOrientationSupported {
+      previewConn.videoOrientation = .portrait
+    }
     if mirror {
       previewConn.automaticallyAdjustsVideoMirroring = false
       previewConn.isVideoMirrored = true
