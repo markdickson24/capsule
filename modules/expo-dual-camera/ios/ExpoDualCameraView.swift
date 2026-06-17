@@ -47,6 +47,8 @@ class ExpoDualCameraView: ExpoView {
   private var pendingPromise: Promise?
   private var pendingBack: UIImage?
   private var pendingFront: UIImage?
+  private var captureSeq = 0
+  private var pendingCaptureId = 0
   private let captureLock = NSLock()
   private let ciContext = CIContext(options: nil)
 
@@ -283,27 +285,29 @@ class ExpoDualCameraView: ExpoView {
         return
       }
       // Arm the grab — the next frame from each lens (delivered on dataQueue) is taken.
+      self.captureSeq += 1
+      let myId = self.captureSeq
+      self.pendingCaptureId = myId
       self.pendingPromise = promise
       self.pendingBack = nil
       self.pendingFront = nil
       self.captureLock.unlock()
 
-      // Safety: if frames never arrive, don't leave the JS promise hanging. Identity-
-      // check `pendingPromise === promise` so a finished capture's stale timeout can't
-      // cancel a *later* capture that reused the slot.
-      self.sessionQueue.asyncAfter(deadline: .now() + 2.0) { [weak self, promise] in
+      // Safety: if frames never arrive, don't leave the JS promise hanging. Match on
+      // the capture id (Promise is a value type, so identity compare isn't possible)
+      // so a finished capture's stale timeout can't cancel a *later* capture.
+      self.sessionQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
         guard let self = self else { return }
         self.captureLock.lock()
-        let isThisCapture = self.pendingPromise === promise
+        let isThisCapture = self.pendingCaptureId == myId && self.pendingPromise != nil
+        let stale = isThisCapture ? self.pendingPromise : nil
         if isThisCapture {
           self.pendingPromise = nil
           self.pendingBack = nil
           self.pendingFront = nil
         }
         self.captureLock.unlock()
-        if isThisCapture {
-          promise.reject("ERR_TIMEOUT", "Dual capture timed out waiting for frames")
-        }
+        stale?.reject("ERR_TIMEOUT", "Dual capture timed out waiting for frames")
       }
     }
   }
