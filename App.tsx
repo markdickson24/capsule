@@ -1,6 +1,7 @@
 import React from 'react';
 import * as Sentry from '@sentry/react-native';
 import { NavigationContainer } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from './src/hooks/useAuth';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
@@ -45,11 +46,16 @@ function App() {
   return (
     <ShareIntentProvider>
       <ThemeProvider>
-        <NavigationContainer ref={navigationRef} linking={linking}>
-          <StatusBar style="light" />
-          <RootNavigator />
-          <ToastHost />
-        </NavigationContainer>
+        {/* Root SafeAreaProvider so overlays rendered as siblings of the navigator
+            (e.g. ToastHost) can read insets — RN Navigation only provides one
+            around the navigator's screens, not its sibling children. */}
+        <SafeAreaProvider>
+          <NavigationContainer ref={navigationRef} linking={linking}>
+            <StatusBar style="light" />
+            <RootNavigator />
+            <ToastHost />
+          </NavigationContainer>
+        </SafeAreaProvider>
       </ThemeProvider>
     </ShareIntentProvider>
   );
