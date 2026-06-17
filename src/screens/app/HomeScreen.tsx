@@ -4,6 +4,7 @@ import {
   TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { haptics } from '../../lib/haptics';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
@@ -140,7 +141,7 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <View style={{ width: 160, height: 28, borderRadius: 8, backgroundColor: '#1A1A1A' }} />
         </View>
@@ -154,7 +155,7 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Animated.View style={[styles.header, headerAnim]}>
         <Text style={styles.title}>My Capsules</Text>
         {capsules.length > 0 && <Text style={styles.count}>{capsules.length} total</Text>}
@@ -166,7 +167,7 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   key={opt}
                   style={[styles.layoutBtn, active && { backgroundColor: `${accentColor}26` }]}
-                  onPress={() => setHomeLayout(opt)}
+                  onPress={() => { haptics.selection(); setHomeLayout(opt); }}
                   hitSlop={6}
                 >
                   <Ionicons
