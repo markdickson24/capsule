@@ -1,10 +1,11 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, PanResponder,
-  TouchableOpacity, Pressable, Animated, Dimensions, Platform,
+  TouchableOpacity, Pressable, Animated, Dimensions, Platform, ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { haptics } from '../../lib/haptics';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -60,6 +61,7 @@ export default function CameraScreen() {
   const [dualError, setDualError] = useState<string | null>(null);
   const [dualLayout, setDualLayout] = useState<DualCameraLayout>('sideBySide');
   const [flash, setFlash] = useState<'on' | 'off'>('off');
+  const [capturing, setCapturing] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [zoom, setZoom] = useState(0);
@@ -118,27 +120,35 @@ export default function CameraScreen() {
   }
 
   async function takePhoto() {
-    if (!cameraRef.current) return;
+    if (!cameraRef.current || capturing) return;
     triggerCaptureFlash();
+    haptics.medium();
+    setCapturing(true);
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.88, skipProcessing: false });
       if (!photo?.uri) return;
       const processedUri = await processPhoto(photo.uri);
       navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
-    } catch {}
+    } catch {} finally {
+      setCapturing(false);
+    }
   }
 
   // Dual mode: fire both lenses, get back the side-by-side composite, then reuse
   // the normal resize/Preview path. Video isn't available in Dual yet (Phase 1).
   async function captureDualPhoto() {
-    if (!dualRef.current) return;
+    if (!dualRef.current || capturing) return;
     triggerCaptureFlash();
+    haptics.medium();
+    setCapturing(true);
     try {
       const res = await dualRef.current.capturePhoto();
       const processedUri = await processPhoto(res.uri);
       navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
     } catch (e: any) {
       setDualError(e?.message ?? 'Dual capture failed. Try again.');
+    } finally {
+      setCapturing(false);
     }
   }
 
@@ -301,6 +311,15 @@ export default function CameraScreen() {
         style={[StyleSheet.absoluteFill, styles.captureFlash, { opacity: flashOpacity }]}
       />
 
+      {/* Processing overlay — capture + resize take a beat; without this it looks
+          like nothing happened. Blocks input so a second tap can't double-fire. */}
+      {capturing && (
+        <View style={[StyleSheet.absoluteFill, styles.processingOverlay]}>
+          <ActivityIndicator size="large" color="#FFFFFF" />
+          <Text style={styles.processingText}>Saving…</Text>
+        </View>
+      )}
+
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         {/* Top bar */}
         <View style={styles.topBar}>
@@ -414,6 +433,14 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   captureFlash: { backgroundColor: '#FFFFFF' },
+  processingOverlay: {
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 14,
+    zIndex: 20,
+  },
+  processingText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
   layout: { flex: 1 },
   permContainer: {
     flex: 1, backgroundColor: '#0A0A0A',
