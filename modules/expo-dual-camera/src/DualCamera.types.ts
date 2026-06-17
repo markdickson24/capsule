@@ -12,6 +12,12 @@ export type DualCaptureResult = {
   uri: string;
   width: number;
   height: number;
+  /**
+   * PiP only: file:// URI of the swapped composite (front as the full frame, back
+   * as the bubble). Lets the viewer offer a BeReal-style tap-to-swap. Undefined for
+   * the side-by-side layout.
+   */
+  altUri?: string;
 };
 
 export type DualCameraInitError = {

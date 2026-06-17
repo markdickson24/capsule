@@ -281,6 +281,7 @@ export type Database = {
       }
       media: {
         Row: {
+          alt_storage_key: string | null
           capsule_id: string
           id: string
           is_flagged: boolean
@@ -292,6 +293,7 @@ export type Database = {
           uploader_id: string | null
         }
         Insert: {
+          alt_storage_key?: string | null
           capsule_id: string
           id?: string
           is_flagged?: boolean
@@ -303,6 +305,7 @@ export type Database = {
           uploader_id?: string | null
         }
         Update: {
+          alt_storage_key?: string | null
           capsule_id?: string
           id?: string
           is_flagged?: boolean

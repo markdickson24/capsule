@@ -352,11 +352,16 @@ class ExpoDualCameraView: ExpoView {
 
   private func finishCapture(back: UIImage, front: UIImage, promise: Promise) {
     let merged: UIImage?
+    // For PiP we also render the swapped composite (front as the full frame, back as
+    // the bubble) so the viewer can offer a BeReal-style tap-to-swap. sideBySide has
+    // no meaningful swap, so it stays single.
+    var altMerged: UIImage? = nil
     switch layout {
     case .sideBySide:
       merged = ExpoDualCameraView.composeSideBySide(left: back, right: front)
     case .pip:
       merged = ExpoDualCameraView.composePiP(base: back, inset: front)
+      altMerged = ExpoDualCameraView.composePiP(base: front, inset: back)
     }
 
     guard let composite = merged,
@@ -365,15 +370,27 @@ class ExpoDualCameraView: ExpoView {
       return
     }
 
+    func write(_ image: UIImage) -> URL? {
+      guard let d = image.jpegData(compressionQuality: 0.9) else { return nil }
+      let u = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dual-\(UUID().uuidString).jpg")
+      return (try? d.write(to: u)) == nil ? nil : u
+    }
+
     let url = FileManager.default.temporaryDirectory
       .appendingPathComponent("dual-\(UUID().uuidString).jpg")
     do {
       try data.write(to: url)
-      promise.resolve([
+      var result: [String: Any] = [
         "uri": url.absoluteString,
         "width": composite.size.width,
         "height": composite.size.height,
-      ])
+      ]
+      // Swapped variant (PiP only). Absent ⇒ not a swappable dual photo.
+      if let alt = altMerged, let altUrl = write(alt) {
+        result["altUri"] = altUrl.absoluteString
+      }
+      promise.resolve(result)
     } catch {
       promise.reject("ERR_WRITE", "Failed to write the dual photo: \(error.localizedDescription)")
     }

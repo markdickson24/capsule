@@ -54,6 +54,8 @@ type MediaItem = {
   mediaType: 'photo' | 'video';
   signedUrl: string;
   thumbnailUri?: string;
+  /** Dual (PiP) photos: signed URL of the swapped composite, for tap-to-swap in the viewer. */
+  altSignedUrl?: string;
 };
 
 const roleIonicon: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -489,6 +491,10 @@ function MediaViewerModal({
   const [downloading, setDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  // Dual (PiP) photos: per-item toggle for which lens is the main frame.
+  const [swapped, setSwapped] = useState<Record<string, boolean>>({});
+  const shownUrl = (item: MediaItem) =>
+    swapped[item.id] && item.altSignedUrl ? item.altSignedUrl : item.signedUrl;
 
   useEffect(() => {
     loadReactions();
@@ -535,14 +541,16 @@ function MediaViewerModal({
 
   async function downloadCurrent() {
     const item = items[currentIndex];
-    if (!item?.signedUrl || downloading) return;
+    // Save whichever view is currently shown (swapped or not) for dual photos.
+    const url = shownUrl(item);
+    if (!url || downloading) return;
     setDownloading(true);
     setDownloadDone(false);
 
     try {
       if (Platform.OS === 'web') {
         const a = document.createElement('a');
-        a.href = item.signedUrl;
+        a.href = url;
         a.download = `capsule-${item.id}.${item.mediaType === 'video' ? 'mp4' : 'jpg'}`;
         a.click();
       } else {
@@ -550,7 +558,7 @@ function MediaViewerModal({
         if (status !== 'granted') { setDownloading(false); return; }
         const ext = item.mediaType === 'video' ? 'mp4' : 'jpg';
         const localUri = FileSystem.cacheDirectory + `capsule-${item.id}.${ext}`;
-        await FileSystem.downloadAsync(item.signedUrl, localUri);
+        await FileSystem.downloadAsync(url, localUri);
         await MediaLibrary.saveToLibraryAsync(localUri);
       }
       setDownloadDone(true);
@@ -628,7 +636,17 @@ function MediaViewerModal({
                 <VideoSlide key={item.id} item={item} isActive={index === currentIndex} />
               ) : (
                 <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                  <Image source={item.signedUrl} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" transition={200} />
+                  <Image source={shownUrl(item)} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" transition={150} />
+                  {/* Dual (PiP) photo — tap the corner bubble to swap which lens is the main frame. */}
+                  {item.altSignedUrl && (
+                    <TouchableOpacity
+                      style={styles.swapBubble}
+                      activeOpacity={0.8}
+                      onPress={() => setSwapped(s => ({ ...s, [item.id]: !s[item.id] }))}
+                    >
+                      <Ionicons name="sync-outline" size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  )}
                 </View>
               )
             )}
@@ -901,7 +919,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   async function fetchPhotos() {
     const { data: mediaData } = await supabase
       .from('media')
-      .select('id, storage_key, uploader_id, uploaded_at, media_type')
+      .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type')
       .eq('capsule_id', capsuleId)
       .order('uploaded_at', { ascending: false });
 
@@ -915,6 +933,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       .from('capsule-media')
       .createSignedUrls(visibleMedia.map((m: any) => m.storage_key), 3600);
 
+    // Sign the swap (alt) composites for dual photos, mapped back by key.
+    const altKeys = visibleMedia.map((m: any) => m.alt_storage_key).filter(Boolean) as string[];
+    const altUrlByKey: Record<string, string> = {};
+    if (altKeys.length) {
+      const { data: altSigned } = await supabase.storage
+        .from('capsule-media')
+        .createSignedUrls(altKeys, 3600);
+      altKeys.forEach((k, i) => {
+        const u = altSigned?.[i]?.signedUrl;
+        if (u) altUrlByKey[k] = u;
+      });
+    }
+
     const items: MediaItem[] = visibleMedia.map((m: any, i: number) => ({
       id: m.id,
       storage_key: m.storage_key,
@@ -922,6 +953,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       uploaded_at: m.uploaded_at,
       mediaType: m.media_type,
       signedUrl: signedData?.[i]?.signedUrl ?? '',
+      altSignedUrl: m.alt_storage_key ? altUrlByKey[m.alt_storage_key] : undefined,
     }));
 
     setPhotos(items);
@@ -1491,6 +1523,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
+  swapBubble: {
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4,

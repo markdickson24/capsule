@@ -29,10 +29,43 @@ type CapsuleOption = {
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
+// Uploads one local file to the capsule-media bucket at `storageKey`. Returns its size.
+async function uploadFile(storageKey: string, uri: string, mimeType: string): Promise<number> {
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const arrayBuffer = await response.arrayBuffer();
+    const { error: uploadErr } = await supabase.storage
+      .from('capsule-media')
+      .upload(storageKey, arrayBuffer, { contentType: mimeType });
+    if (uploadErr) throw new Error(uploadErr.message);
+    return arrayBuffer.byteLength;
+  }
+  const fileInfo = await FileSystem.getInfoAsync(uri);
+  const accessToken = await getFreshAccessToken();
+  const uploadResult = await FileSystem.uploadAsync(
+    `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
+    uri,
+    {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
+        'Content-Type': mimeType,
+      },
+    }
+  );
+  if (uploadResult.status < 200 || uploadResult.status >= 300) {
+    throw new Error(`Storage returned ${uploadResult.status}: ${uploadResult.body}`);
+  }
+  return fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+}
+
 async function uploadToSingle(
   capsuleId: string,
   uri: string,
   mediaType: 'photo' | 'video',
+  altUri?: string,
 ): Promise<void> {
   const session = sessionStore.get();
   if (!session) throw new Error('Not signed in');
@@ -40,36 +73,17 @@ async function uploadToSingle(
   const mimeType = mediaType === 'video' ? 'video/mp4' : 'image/jpeg';
   const ext = mediaType === 'video' ? 'mp4' : 'jpg';
   const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
+  const sizeBytes = await uploadFile(storageKey, uri, mimeType);
 
-  let sizeBytes = 0;
-
-  if (Platform.OS === 'web') {
-    const response = await fetch(uri);
-    const arrayBuffer = await response.arrayBuffer();
-    sizeBytes = arrayBuffer.byteLength;
-    const { error: uploadErr } = await supabase.storage
-      .from('capsule-media')
-      .upload(storageKey, arrayBuffer, { contentType: mimeType });
-    if (uploadErr) throw new Error(uploadErr.message);
-  } else {
-    const fileInfo = await FileSystem.getInfoAsync(uri);
-    sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
-    const accessToken = await getFreshAccessToken();
-    const uploadResult = await FileSystem.uploadAsync(
-      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
-      uri,
-      {
-        httpMethod: 'POST',
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-          'Content-Type': mimeType,
-        },
-      }
-    );
-    if (uploadResult.status < 200 || uploadResult.status >= 300) {
-      throw new Error(`Storage returned ${uploadResult.status}: ${uploadResult.body}`);
+  // Dual (PiP) swap variant — best-effort: if it fails, keep the main photo.
+  let altStorageKey: string | null = null;
+  if (altUri && mediaType === 'photo') {
+    const key = `${capsuleId}/${randomUUID()}.jpg`;
+    try {
+      await uploadFile(key, altUri, 'image/jpeg');
+      altStorageKey = key;
+    } catch {
+      altStorageKey = null;
     }
   }
 
@@ -77,6 +91,7 @@ async function uploadToSingle(
     capsule_id: capsuleId,
     uploader_id: session.user.id,
     storage_key: storageKey,
+    alt_storage_key: altStorageKey,
     media_type: mediaType,
     size_bytes: sizeBytes,
   });
@@ -91,7 +106,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
     const params: any = route.params;
     if (Array.isArray(params?.media)) return params.media;
     if (params?.uri && params?.mediaType) {
-      return [{ uri: params.uri, mediaType: params.mediaType }];
+      return [{ uri: params.uri, mediaType: params.mediaType, altUri: params.altUri }];
     }
     return [];
   }, [route.params]);
@@ -172,7 +187,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
       let done = 0;
       for (const id of ids) {
         for (const item of items) {
-          await uploadToSingle(id, item.uri, item.mediaType);
+          await uploadToSingle(id, item.uri, item.mediaType, item.altUri);
           done += 1;
           setUploadProgress({ done, total });
         }

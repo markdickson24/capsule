@@ -7,6 +7,8 @@ export type AuthStackParamList = {
 export type PendingMedia = {
   uri: string;
   mediaType: 'photo' | 'video';
+  /** PiP dual photos only: the swapped (front-main) composite, uploaded as alt_storage_key. */
+  altUri?: string;
 };
 
 export type AppTabParamList = {
@@ -22,7 +24,7 @@ export type AppStackParamList = {
   CapsuleDetail: { capsuleId: string };
   PublicProfile: { userId: string };
   Preview:
-    | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back' }
+    | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string }
     | { media: PendingMedia[]; source?: 'share' | 'camera' };
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };

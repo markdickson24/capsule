@@ -135,7 +135,9 @@ export default function CameraScreen() {
     try {
       const res = await dualRef.current.capturePhoto();
       const processedUri = await processPhoto(res.uri);
-      navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
+      // PiP returns a swapped composite too — resize it the same way for tap-to-swap.
+      const altUri = res.altUri ? await processPhoto(res.altUri) : undefined;
+      navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo', altUri });
     } catch (e: any) {
       setDualError(e?.message ?? 'Dual capture failed. Try again.');
     } finally {
