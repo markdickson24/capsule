@@ -288,18 +288,22 @@ class ExpoDualCameraView: ExpoView {
       self.pendingFront = nil
       self.captureLock.unlock()
 
-      // Safety: if frames never arrive, don't leave the JS promise hanging.
-      self.sessionQueue.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+      // Safety: if frames never arrive, don't leave the JS promise hanging. Identity-
+      // check `pendingPromise === promise` so a finished capture's stale timeout can't
+      // cancel a *later* capture that reused the slot.
+      self.sessionQueue.asyncAfter(deadline: .now() + 2.0) { [weak self, promise] in
         guard let self = self else { return }
         self.captureLock.lock()
-        let stale = self.pendingPromise
-        if stale != nil {
+        let isThisCapture = self.pendingPromise === promise
+        if isThisCapture {
           self.pendingPromise = nil
           self.pendingBack = nil
           self.pendingFront = nil
         }
         self.captureLock.unlock()
-        stale?.reject("ERR_TIMEOUT", "Dual capture timed out waiting for frames")
+        if isThisCapture {
+          promise.reject("ERR_TIMEOUT", "Dual capture timed out waiting for frames")
+        }
       }
     }
   }
