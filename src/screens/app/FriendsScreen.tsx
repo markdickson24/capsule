@@ -77,10 +77,14 @@ export default function FriendsScreen({ navigation }: Props) {
           contentContainerStyle={styles.body}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
         >
-          {incoming.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Requests</Text>
-              {incoming.map(p => (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>
+              {incoming.length > 0 ? `Requests (${incoming.length})` : 'Requests'}
+            </Text>
+            {incoming.length === 0 ? (
+              <Text style={styles.requestsEmpty}>No pending requests</Text>
+            ) : (
+              incoming.map(p => (
                 <View key={p.id} style={styles.row}>
                   <TouchableOpacity style={styles.rowMain} onPress={() => openProfile(p.id)}>
                     <Avatar url={p.avatar_url} name={p.display_name} size={44} />
@@ -99,9 +103,9 @@ export default function FriendsScreen({ navigation }: Props) {
                     </TouchableOpacity>
                   </View>
                 </View>
-              ))}
-            </View>
-          )}
+              ))
+            )}
+          </View>
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>
@@ -151,6 +155,7 @@ const styles = StyleSheet.create({
   },
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   name: { fontSize: 16, color: '#FFFFFF', fontWeight: '600' },
+  requestsEmpty: { fontSize: 14, color: '#555555', paddingVertical: 8 },
   requestActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acceptBtn: { borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
   acceptText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },
