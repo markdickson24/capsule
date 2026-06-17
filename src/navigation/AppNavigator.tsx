@@ -9,6 +9,7 @@ import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import LoadingBrand, { LoadingBrandScreen } from '../components/LoadingBrand';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
+import { haptics } from '../lib/haptics';
 import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
@@ -65,6 +66,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           const isCamera = route.name === 'Camera';
 
           const onPress = () => {
+            if (isCamera) haptics.medium();
+            else haptics.light();
             if (!isFocused) navigation.navigate(route.name);
           };
 
