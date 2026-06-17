@@ -15,6 +15,7 @@ import { SkeletonNotificationRow } from '../../components/Skeleton';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { cache } from '../../lib/cache';
 import { acceptFriendRequest, removeFriendship } from '../../lib/friends';
+import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 
 type Actor = { id: string; display_name: string; avatar_url: string | null };
@@ -26,6 +27,7 @@ type NotificationRow = {
   type:
     | 'invite'
     | 'unlock'
+    | 'unlock_reminder'
     | 'reaction'
     | 'superlative_suggested'
     | 'superlative_closing_soon'
@@ -47,6 +49,7 @@ const SUPERLATIVE_TYPES: NotificationRow['type'][] = [
 function isCapsuleNav(type: NotificationRow['type']) {
   return (
     type === 'unlock' ||
+    type === 'unlock_reminder' ||
     type === 'reaction' ||
     type === 'superlative_suggested' ||
     type === 'superlative_closing_soon' ||
@@ -148,19 +151,31 @@ export default function NotificationsScreen() {
     } else {
       setNotifications(prev => prev.filter(n => n.id !== item.id));
     }
-    // Persist read_at in background
+    void persistRead(item);
+  }
+
+  // Persist read_at. IMPORTANT: a supabase query only runs when it is awaited /
+  // then'd — a bare `supabase...update()` expression is a silent no-op, which is
+  // why dismissed notifications (e.g. an accepted friend request) kept reappearing
+  // after a tab switch. We await, then invalidate the cache *after* the write
+  // commits so a focus-refetch can't resurrect the row from the still-unread DB state.
+  async function persistRead(item: DisplayNotification) {
     const session = sessionStore.get();
     if (!session) return;
     const now = new Date().toISOString();
-    if (item.type === 'reaction' && item.capsule_id) {
-      supabase.from('notifications')
-        .update({ read_at: now })
-        .eq('user_id', session.user.id)
-        .eq('capsule_id', item.capsule_id)
-        .eq('type', 'reaction');
-    } else {
-      supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
+    const query = item.type === 'reaction' && item.capsule_id
+      ? supabase.from('notifications')
+          .update({ read_at: now })
+          .eq('user_id', session.user.id)
+          .eq('capsule_id', item.capsule_id)
+          .eq('type', 'reaction')
+      : supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
+    const { error } = await query;
+    if (error) {
+      console.warn('Failed to mark notification read:', error.message);
+      return;
     }
+    cache.invalidate('notifications');
   }
 
   async function accept(notif: DisplayNotification) {
@@ -175,6 +190,7 @@ export default function NotificationsScreen() {
       .eq('id', memberId);
 
     if (!error) {
+      haptics.success();
       dismiss(notif);
       setPendingMap(prev => {
         const next = { ...prev };
@@ -192,6 +208,7 @@ export default function NotificationsScreen() {
     setAccepting(item.id);
     const { error } = await acceptFriendRequest(item.actor_id);
     if (!error) {
+      haptics.success();
       dismiss(item);
       cache.invalidate('profile');
     }
@@ -200,6 +217,7 @@ export default function NotificationsScreen() {
 
   function declineFriend(item: DisplayNotification) {
     if (!item.actor_id) return;
+    haptics.light();
     removeFriendship(item.actor_id);
     dismiss(item);
   }
@@ -292,6 +310,7 @@ export default function NotificationsScreen() {
                 <Ionicons
                   name={
                     item.type === 'unlock' ? 'lock-open-outline'
+                    : item.type === 'unlock_reminder' ? 'hourglass-outline'
                     : item.type === 'reaction' ? 'heart-outline'
                     : item.type === 'superlative_won' ? 'trophy'
                     : item.type === 'superlative_closing_soon' ? 'time-outline'
@@ -303,6 +322,7 @@ export default function NotificationsScreen() {
                   size={28}
                   color={
                     item.type === 'unlock' ? '#30D158'
+                    : item.type === 'unlock_reminder' ? accentColor
                     : item.type === 'friend_accept' ? '#30D158'
                     : item.type === 'reaction' ? accentColor
                     : item.type === 'friend_request' ? accentColor
@@ -316,6 +336,11 @@ export default function NotificationsScreen() {
                       <>
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
                         {' '}just unlocked!
+                      </>
+                    ) : item.type === 'unlock_reminder' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
+                        {' '}is unlocking soon
                       </>
                     ) : item.type === 'reaction' ? (
                       <>
