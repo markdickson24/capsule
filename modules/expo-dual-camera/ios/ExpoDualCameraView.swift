@@ -218,10 +218,16 @@ class ExpoDualCameraView: ExpoView {
       return false
     }
 
+    // Multi-cam preview layers must be associated with the session *without* an
+    // automatic connection before a manual AVCaptureConnection can be added —
+    // otherwise canAddConnection returns false even though hardware cost is fine
+    // (this is what produced the "cost 0.09" failure: structural, not budget).
+    previewLayer.setSessionWithNoConnection(session)
+
     // Live preview connection (GPU-cheap).
     let previewConn = AVCaptureConnection(inputPort: port, videoPreviewLayer: previewLayer)
     guard ensureCanAdd(previewConn) else {
-      emitInitError("Hardware can't run both previews at once (cost \(String(format: "%.2f", session.hardwareCost)))")
+      emitInitError("Couldn't attach the \(position == .back ? "back" : "front") preview (cost \(String(format: "%.2f", session.hardwareCost)))")
       return false
     }
     session.addConnection(previewConn)
