@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, memo } from 'react';
 import {
-  View, Animated, StyleSheet, AccessibilityInfo,
+  View, Animated, Easing, StyleSheet, AccessibilityInfo,
   ViewStyle, Platform,
 } from 'react-native';
 
@@ -40,11 +40,13 @@ const SkeletonBox = memo(function SkeletonBox({
         Animated.timing(opacity, {
           toValue: 1,
           duration: 800,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: 0.5,
           duration: 800,
+          easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
       ]),
