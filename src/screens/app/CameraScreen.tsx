@@ -1,7 +1,7 @@
 import React, { useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, PanResponder,
-  TouchableOpacity, Pressable, Animated, Dimensions, Platform, ActivityIndicator,
+  TouchableOpacity, Animated, Dimensions, Platform, ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -30,6 +30,9 @@ const DUAL_LAYOUTS: { value: DualCameraLayout; label: string; icon: keyof typeof
 const MAX_RECORD_SECONDS = 30;
 const HOLD_THRESHOLD_MS = 300;
 const DOUBLE_TAP_MS = 300;
+// Snapchat-style drag-to-zoom: dragging up ~75% of the screen height covers the
+// full 1×–5× zoom range while recording.
+const ZOOM_DRAG_FACTOR = 0.75;
 
 // Height of the custom tab bar on web (no safe area inset on web)
 const WEB_TAB_BAR_HEIGHT = 60;
@@ -79,6 +82,8 @@ export default function CameraScreen() {
   const zoomRef = useRef(0);
   const lastPinchDistance = useRef<number | null>(null);
   const isPinching = useRef(false);
+  // Zoom level captured when the shutter is pressed, so drag-to-zoom is relative.
+  const dragStartZoom = useRef(0);
 
   const shutterAnim = useRef(new Animated.Value(0)).current;
   const flashOpacity = useRef(new Animated.Value(0)).current;
@@ -87,6 +92,20 @@ export default function CameraScreen() {
 
   function animateShutter(toValue: number) {
     Animated.timing(shutterAnim, { toValue, duration: 150, useNativeDriver: false }).start();
+  }
+
+  // Apply a new zoom level (clamped 0–1) and flash the zoom badge. Only touches
+  // refs / stable setters / Animated values, so it's safe to call from the
+  // single-creation PanResponders without stale-closure risk.
+  function bumpZoom(target: number) {
+    const z = Math.min(1, Math.max(0, target));
+    zoomRef.current = z;
+    setZoom(z);
+    zoomOpacity.setValue(1);
+    if (zoomFadeTimer.current) clearTimeout(zoomFadeTimer.current);
+    zoomFadeTimer.current = setTimeout(() => {
+      Animated.timing(zoomOpacity, { toValue: 0, duration: 400, useNativeDriver: true }).start();
+    }, 800);
   }
 
   const innerSize = shutterAnim.interpolate({ inputRange: [0, 1], outputRange: [64, 26] });
@@ -223,15 +242,7 @@ export default function CameraScreen() {
         const dist = getPinchDistance(touches);
         if (lastPinchDistance.current !== null) {
           const delta = (dist - lastPinchDistance.current) / 250;
-          const newZoom = Math.min(1, Math.max(0, zoomRef.current + delta));
-          zoomRef.current = newZoom;
-          setZoom(newZoom);
-          // Show zoom badge
-          zoomOpacity.setValue(1);
-          if (zoomFadeTimer.current) clearTimeout(zoomFadeTimer.current);
-          zoomFadeTimer.current = setTimeout(() => {
-            Animated.timing(zoomOpacity, { toValue: 0, duration: 400, useNativeDriver: true }).start();
-          }, 800);
+          bumpZoom(zoomRef.current + delta);
         }
         lastPinchDistance.current = dist;
       }
@@ -257,6 +268,32 @@ export default function CameraScreen() {
         }
       }
     },
+  })).current;
+
+  // Latest-handler refs so the single-creation shutter PanResponder always invokes
+  // the current onPressIn/onPressOut closures (which read live state like `facing`
+  // and `isDual`), avoiding stale-closure bugs.
+  const onPressInRef = useRef(onPressIn);
+  const onPressOutRef = useRef(onPressOut);
+  onPressInRef.current = onPressIn;
+  onPressOutRef.current = onPressOut;
+
+  // Shutter gesture: press/hold drives photo vs. video (via onPressIn/onPressOut),
+  // and — Snapchat-style — dragging up/down while recording zooms in/out. The zoom
+  // is relative to the press point: full 1×–5× over a 75%-of-screen drag.
+  const shutterResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      dragStartZoom.current = zoomRef.current;
+      onPressInRef.current();
+    },
+    onPanResponderMove: (_e, gesture) => {
+      if (!isRecordingRef.current) return; // zoom only once recording has started
+      bumpZoom(dragStartZoom.current - gesture.dy / (SCREEN_H * ZOOM_DRAG_FACTOR));
+    },
+    onPanResponderRelease: () => { onPressOutRef.current(); },
+    onPanResponderTerminate: () => { onPressOutRef.current(); },
   })).current;
 
   if (!cameraPermission) return <View style={styles.container} />;
@@ -395,7 +432,7 @@ export default function CameraScreen() {
               ? 'Tap for a dual photo'
               : isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
           </Text>
-          <Pressable onPressIn={onPressIn} onPressOut={onPressOut}>
+          <View {...shutterResponder.panHandlers}>
             <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>
               <Animated.View
                 style={[styles.shutterInner, {
@@ -404,7 +441,7 @@ export default function CameraScreen() {
                 }]}
               />
             </Animated.View>
-          </Pressable>
+          </View>
         </View>
       </SafeAreaView>
     </View>

@@ -20,6 +20,11 @@ class ExpoDualCameraView: ExpoView {
   private let backPreviewLayer = AVCaptureVideoPreviewLayer()
   private let frontPreviewLayer = AVCaptureVideoPreviewLayer()
 
+  // Shared blurred backdrop behind the two side-by-side feeds (sideBySide only).
+  // Fed by the back lens's data-output frames (already running), throttled.
+  private let backdropLayer = CALayer()
+  private var lastBackdropAt: CFTimeInterval = 0
+
   private let backVideoOutput = AVCaptureVideoDataOutput()
   private let frontVideoOutput = AVCaptureVideoDataOutput()
   private var backGrabber: FrameGrabber?
@@ -59,6 +64,13 @@ class ExpoDualCameraView: ExpoView {
     backgroundColor = .black
     backPreviewLayer.videoGravity = .resizeAspectFill
     frontPreviewLayer.videoGravity = .resizeAspectFill
+    // Snapchat-style split: a single blurred backdrop (driven by the back lens)
+    // sits behind the two aspect-fit feeds so the letterbox gaps aren't black.
+    backdropLayer.contentsGravity = .resizeAspectFill
+    backdropLayer.masksToBounds = true
+    backPreviewLayer.backgroundColor = UIColor.clear.cgColor
+    frontPreviewLayer.backgroundColor = UIColor.clear.cgColor
+    layer.addSublayer(backdropLayer)
     layer.addSublayer(backPreviewLayer)
     layer.addSublayer(frontPreviewLayer)
     sessionQueue.async { [weak self] in self?.configureSession() }
@@ -87,16 +99,24 @@ class ExpoDualCameraView: ExpoView {
 
   override func layoutSubviews() {
     super.layoutSubviews()
+    backdropLayer.frame = bounds
+    backdropLayer.isHidden = layout != .sideBySide
     switch layout {
     case .sideBySide:
       // Reset any PiP styling on the front layer.
       frontPreviewLayer.cornerRadius = 0
       frontPreviewLayer.borderWidth = 0
       frontPreviewLayer.masksToBounds = false
+      // Show each feed whole (aspect-fit); the blurred backdrop fills the gaps.
+      backPreviewLayer.videoGravity = .resizeAspect
+      frontPreviewLayer.videoGravity = .resizeAspect
       let half = bounds.width / 2
       backPreviewLayer.frame = CGRect(x: 0, y: 0, width: half, height: bounds.height)
       frontPreviewLayer.frame = CGRect(x: half, y: 0, width: half, height: bounds.height)
     case .pip:
+      // Full-frame back + filled front bubble.
+      backPreviewLayer.videoGravity = .resizeAspectFill
+      frontPreviewLayer.videoGravity = .resizeAspectFill
       backPreviewLayer.frame = bounds
       let w = bounds.width * Self.pipWidthRatio
       let h = w * Self.pipAspect
@@ -324,6 +344,12 @@ class ExpoDualCameraView: ExpoView {
   /// Called for every delivered frame. Cheap no-op unless a capture is armed and this
   /// lens hasn't been grabbed yet — then it converts and stores that one frame.
   private func onFrame(_ sampleBuffer: CMSampleBuffer, isBack: Bool) {
+    // Drive the live blurred backdrop from the back lens (split layout only).
+    // The data output already runs continuously, so this adds no capture cost.
+    if isBack && layout == .sideBySide {
+      updateBackdrop(sampleBuffer)
+    }
+
     captureLock.lock()
     let wanted = pendingPromise != nil && (isBack ? pendingBack : pendingFront) == nil
     captureLock.unlock()
@@ -348,6 +374,34 @@ class ExpoDualCameraView: ExpoView {
     let ci = CIImage(cvPixelBuffer: pixelBuffer)
     guard let cg = ciContext.createCGImage(ci, from: ci.extent) else { return nil }
     return UIImage(cgImage: cg)
+  }
+
+  /// Render a cheap, heavily-blurred thumbnail of the back lens into `backdropLayer`.
+  /// Throttled to ~14fps and downscaled to ~96px before blurring so it stays well
+  /// within the multi-cam hardware budget. Runs on `dataQueue` (the delegate queue).
+  private func updateBackdrop(_ sampleBuffer: CMSampleBuffer) {
+    let now = CACurrentMediaTime()
+    if now - lastBackdropAt < 0.07 { return }
+    lastBackdropAt = now
+
+    guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+    let ci = CIImage(cvPixelBuffer: pixelBuffer)
+    guard ci.extent.width > 0 else { return }
+
+    let scale = 96.0 / ci.extent.width
+    let small = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+    guard let filter = CIFilter(name: "CIGaussianBlur") else { return }
+    filter.setValue(small.clampedToExtent(), forKey: kCIInputImageKey)
+    filter.setValue(8.0, forKey: kCIInputRadiusKey)
+    guard let output = filter.outputImage,
+          let cg = ciContext.createCGImage(output, from: small.extent) else { return }
+
+    DispatchQueue.main.async { [weak self] in
+      CATransaction.begin()
+      CATransaction.setDisableActions(true)
+      self?.backdropLayer.contents = cg
+      CATransaction.commit()
+    }
   }
 
   private func finishCapture(back: UIImage, front: UIImage, promise: Promise) {
@@ -396,25 +450,26 @@ class ExpoDualCameraView: ExpoView {
     }
   }
 
-  /// Composite the two lenses as a clean 50/50 split down the middle: each lens is
-  /// aspect-filled (center-cropped) into its half, matching the side-by-side preview
-  /// (which uses resizeAspectFill on half-width layers). A thin divider marks the seam.
+  /// Snapchat-style split: a single blurred backdrop (from the back lens) fills the
+  /// whole frame, and each lens is drawn WHOLE (aspect-fit, never cropped) centered
+  /// in its half, so the letterbox gaps reveal the soft backdrop instead of black.
+  /// No divider. `left` is the back lens, `right` the front lens — matching the
+  /// side-by-side preview arrangement.
   static func composeSideBySide(left: UIImage, right: UIImage) -> UIImage? {
     let canvas = left.size
     guard canvas.width > 0, canvas.height > 0 else { return nil }
     let halfW = (canvas.width / 2).rounded()
+    let backdrop = blurredImage(left, radius: canvas.width * 0.04)
 
     let format = UIGraphicsImageRendererFormat.default()
     format.scale = 1
     let renderer = UIGraphicsImageRenderer(size: canvas, format: format)
     return renderer.image { ctx in
-      drawAspectFill(left, into: CGRect(x: 0, y: 0, width: halfW, height: canvas.height), ctx: ctx.cgContext)
-      drawAspectFill(right, into: CGRect(x: halfW, y: 0, width: canvas.width - halfW, height: canvas.height), ctx: ctx.cgContext)
-
-      // Divider straight down the middle.
-      let lineW = max(1, canvas.width * 0.004)
-      UIColor.white.setFill()
-      ctx.cgContext.fill(CGRect(x: halfW - lineW / 2, y: 0, width: lineW, height: canvas.height))
+      // Shared blurred backdrop (back lens) across the entire frame.
+      drawAspectFill(backdrop ?? left, into: CGRect(origin: .zero, size: canvas), ctx: ctx.cgContext)
+      // Each lens shown whole, centered in its half.
+      drawAspectFit(left, into: CGRect(x: 0, y: 0, width: halfW, height: canvas.height), ctx: ctx.cgContext)
+      drawAspectFit(right, into: CGRect(x: halfW, y: 0, width: canvas.width - halfW, height: canvas.height), ctx: ctx.cgContext)
     }
   }
 
@@ -427,6 +482,28 @@ class ExpoDualCameraView: ExpoView {
     let drawH = image.size.height * scale
     image.draw(in: CGRect(x: rect.midX - drawW / 2, y: rect.midY - drawH / 2, width: drawW, height: drawH))
     ctx.restoreGState()
+  }
+
+  /// Draw `image` to fit inside `rect` (aspect-fit, whole image, centered). No crop.
+  private static func drawAspectFit(_ image: UIImage, into rect: CGRect, ctx: CGContext) {
+    let scale = min(rect.width / image.size.width, rect.height / image.size.height)
+    let drawW = image.size.width * scale
+    let drawH = image.size.height * scale
+    image.draw(in: CGRect(x: rect.midX - drawW / 2, y: rect.midY - drawH / 2, width: drawW, height: drawH))
+  }
+
+  /// Gaussian-blur `image` for use as a soft backdrop. Clamps to extent first so the
+  /// blur doesn't darken/feather the edges, then crops back to the original size.
+  private static func blurredImage(_ image: UIImage, radius: CGFloat) -> UIImage? {
+    guard let cg = image.cgImage else { return nil }
+    let ci = CIImage(cgImage: cg)
+    guard let filter = CIFilter(name: "CIGaussianBlur") else { return nil }
+    filter.setValue(ci.clampedToExtent(), forKey: kCIInputImageKey)
+    filter.setValue(radius, forKey: kCIInputRadiusKey)
+    guard let output = filter.outputImage else { return nil }
+    let ctx = CIContext(options: nil)
+    guard let result = ctx.createCGImage(output, from: ci.extent) else { return nil }
+    return UIImage(cgImage: result)
   }
 
   /// Composite `inset` (front lens, already mirrored by the capture connection) as a

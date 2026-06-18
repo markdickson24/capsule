@@ -854,6 +854,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
+  const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
   const [showGallery, setShowGallery] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -917,6 +918,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   async function fetchPhotos() {
+    // True count even when RLS hides the rows (surprise-mode capsules
+    // lock the owner out of reading media until unlock).
+    supabase
+      .rpc('capsule_media_count', { p_capsule_id: capsuleId })
+      .then(({ data }) => { if (typeof data === 'number') setMediaCount(data); });
+
     const { data: mediaData } = await supabase
       .from('media')
       .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type')
@@ -1189,7 +1196,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
   const isOwner = capsule.owner_id === currentUserId;
   const myRole = members.find(m => m.user_id === currentUserId)?.role ?? null;
-  const canSeePhotos = !isLocked || isOwner;
+  // Surprise mode: even the owner is locked out of previewing until unlock.
+  const canSeePhotos = !isLocked || (isOwner && !capsule.owner_preview_locked);
   const contributionLocked = capsule.contribution_lock_at
     ? new Date(capsule.contribution_lock_at) <= new Date()
     : false;
@@ -1369,8 +1377,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <View style={styles.lockedBox}>
             <Ionicons name="lock-closed-outline" size={32} color="#555555" />
             <Text style={styles.lockedText}>Media reveals on {unlockDate}</Text>
-            {photos.length > 0 && (
-              <Text style={[styles.lockedCount, { color: accentColor }]}>{photos.length} {photos.length === 1 ? 'memory' : 'memories'} waiting</Text>
+            {isOwner && capsule.owner_preview_locked && (
+              <Text style={styles.lockedHint}>Hidden from you too — you chose to keep it a surprise.</Text>
+            )}
+            {mediaCount > 0 && (
+              <Text style={[styles.lockedCount, { color: accentColor }]}>{mediaCount} {mediaCount === 1 ? 'memory' : 'memories'} waiting</Text>
             )}
           </View>
         )}
@@ -1606,6 +1617,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#2A2A2A',
   },
   lockedText: { fontSize: 15, color: '#888888', textAlign: 'center' },
+  lockedHint: { fontSize: 12, color: '#555555', textAlign: 'center', paddingHorizontal: 12 },
   lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
