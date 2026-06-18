@@ -109,6 +109,7 @@ export type Database = {
           description: string | null
           id: string
           owner_id: string
+          owner_preview_locked: boolean
           proximity_radius_m: number
           status: string
           superlative_closing_soon_sent_at: string | null
@@ -128,6 +129,7 @@ export type Database = {
           description?: string | null
           id?: string
           owner_id: string
+          owner_preview_locked?: boolean
           proximity_radius_m?: number
           status?: string
           superlative_closing_soon_sent_at?: string | null
@@ -147,6 +149,7 @@ export type Database = {
           description?: string | null
           id?: string
           owner_id?: string
+          owner_preview_locked?: boolean
           proximity_radius_m?: number
           status?: string
           superlative_closing_soon_sent_at?: string | null
@@ -681,6 +684,10 @@ export type Database = {
       can_insert_capsule_member: {
         Args: { p_capsule_id: string; p_user_id: string }
         Returns: boolean
+      }
+      capsule_media_count: {
+        Args: { p_capsule_id: string }
+        Returns: number
       }
       check_in: {
         Args: { p_capsule_id: string; p_lat: number; p_lng: number }

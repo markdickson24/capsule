@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput, Animated,
-  TouchableOpacity, ScrollView, Platform,
+  TouchableOpacity, ScrollView, Platform, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -101,6 +101,7 @@ export default function CreateScreen() {
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
+  const [hideFromMe, setHideFromMe] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -142,6 +143,7 @@ export default function CreateScreen() {
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
         unlock_mode: unlockMode,
         superlative_voting_hours: votingHours,
+        owner_preview_locked: hideFromMe,
         status: 'active',
         visibility: 'invite',
       });
@@ -259,6 +261,27 @@ export default function CreateScreen() {
         <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
 
         <View style={styles.section}>
+          <Text style={styles.label}>Keep it a surprise</Text>
+          <View style={styles.surpriseRow}>
+            <View style={styles.surpriseTextWrap}>
+              <Text style={styles.surpriseTitle}>Hide contents from me too</Text>
+              <Text style={styles.surpriseSub}>
+                {hideFromMe
+                  ? "You won't see any photos — even your own — until it unlocks for everyone."
+                  : "You can preview photos as they're added before unlock."}
+              </Text>
+            </View>
+            <Switch
+              value={hideFromMe}
+              onValueChange={setHideFromMe}
+              trackColor={{ false: '#2A2A2A', true: accentColor }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#2A2A2A"
+            />
+          </View>
+        </View>
+
+        <View style={styles.section}>
           <Text style={styles.label}>Invited people can</Text>
           <View style={styles.toggle}>
             <TouchableOpacity
@@ -320,6 +343,20 @@ const styles = StyleSheet.create({
   toggleText: { color: '#666666', fontWeight: '600', fontSize: 15 },
   toggleTextActive: { color: '#FF6B35' },
   modeHint: { fontSize: 13, color: '#888888' },
+  surpriseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  surpriseTextWrap: { flex: 1, gap: 3 },
+  surpriseTitle: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  surpriseSub: { fontSize: 13, color: '#888888', lineHeight: 18 },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
   createButton: {
     backgroundColor: '#FF6B35', borderRadius: 16,
