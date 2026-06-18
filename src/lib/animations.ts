@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback } from 'react';
-import { Animated } from 'react-native';
+import { Animated, Easing } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 
 export function useFadeIn(delay = 0, duration = 300) {
@@ -13,6 +13,7 @@ export function useFadeIn(delay = 0, duration = 300) {
       toValue: 1,
       duration,
       delay,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start();
   }, [focused]);
@@ -34,12 +35,14 @@ export function useSlideUp(delay = 0, duration = 350) {
         toValue: 1,
         duration,
         delay,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(translateY, {
         toValue: 0,
         duration,
         delay,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
@@ -63,12 +66,14 @@ export function useListItemEntrance(index: number, baseDelay = 0) {
         toValue: 1,
         duration: 300,
         delay,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
       Animated.timing(translateY, {
         toValue: 0,
         duration: 300,
         delay,
+        easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
     ]).start();
