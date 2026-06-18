@@ -1,6 +1,7 @@
 import React from 'react';
+import LoadingBrand from './LoadingBrand';
 import {
-  View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator,
+  View, Text, StyleSheet, Modal, TouchableOpacity,
 } from 'react-native';
 
 interface ConfirmModalProps {
@@ -50,7 +51,7 @@ export default function ConfirmModal({
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <LoadingBrand size="small" color="#FFFFFF" />
               ) : (
                 <Text style={styles.confirmText}>{confirmLabel}</Text>
               )}

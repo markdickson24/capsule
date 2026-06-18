@@ -5,10 +5,11 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { ActivityIndicator } from 'react-native';
 import { AppTabParamList, AppStackParamList } from '../types/navigation';
+import LoadingBrand, { LoadingBrandScreen } from '../components/LoadingBrand';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
+import { haptics } from '../lib/haptics';
 import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
@@ -23,6 +24,7 @@ import EditCapsuleScreen from '../screens/app/EditCapsuleScreen';
 import ManageMembersScreen from '../screens/app/ManageMembersScreen';
 import SettingsScreen from '../screens/app/SettingsScreen';
 import OnboardingScreen from '../screens/app/OnboardingScreen';
+import FriendsScreen from '../screens/app/FriendsScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -64,6 +66,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           const isCamera = route.name === 'Camera';
 
           const onPress = () => {
+            if (isCamera) haptics.medium();
+            else haptics.light();
             if (!isFocused) navigation.navigate(route.name);
           };
 
@@ -258,13 +262,7 @@ export default function AppNavigator() {
     };
   }, []);
 
-  if (initialRoute === null) {
-    return (
-      <View style={{ flex: 1, backgroundColor: '#0A0A0A', justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator color={accentColor} size="large" />
-      </View>
-    );
-  }
+  if (initialRoute === null) return <LoadingBrandScreen />;
 
   return (
     <Stack.Navigator initialRouteName={initialRoute} screenOptions={{ headerShown: false }}>
@@ -281,6 +279,7 @@ export default function AppNavigator() {
       <Stack.Screen name="EditCapsule" component={EditCapsuleScreen} />
       <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="Friends" component={FriendsScreen} />
     </Stack.Navigator>
   );
 }

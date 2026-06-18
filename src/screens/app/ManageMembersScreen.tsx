@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, FlatList,
-  TouchableOpacity, ActivityIndicator, Alert,
+  TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -13,6 +14,7 @@ import { AppStackParamList } from '../../types/navigation';
 import { Avatar } from './ProfileScreen';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonMemberRow } from '../../components/Skeleton';
+import ConfirmModal from '../../components/ConfirmModal';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'ManageMembers'>;
 
@@ -36,6 +38,7 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<{ userId: string; displayName: string } | null>(null);
 
   async function fetchMembers() {
     const session = sessionStore.get();
@@ -56,28 +59,22 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
     fetchMembers().finally(() => setLoading(false));
   }, [capsuleId]));
 
-  async function removeMember(userId: string, displayName: string) {
-    Alert.alert(
-      'Remove Member',
-      `Remove ${displayName} from this capsule?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            setRemoving(userId);
-            await supabase
-              .from('capsule_members')
-              .delete()
-              .eq('capsule_id', capsuleId)
-              .eq('user_id', userId);
-            setMembers(prev => prev.filter(m => m.user_id !== userId));
-            setRemoving(null);
-          },
-        },
-      ]
-    );
+  function requestRemove(userId: string, displayName: string) {
+    setPendingRemoval({ userId, displayName });
+  }
+
+  async function confirmRemove() {
+    if (!pendingRemoval) return;
+    const { userId } = pendingRemoval;
+    setRemoving(userId);
+    await supabase
+      .from('capsule_members')
+      .delete()
+      .eq('capsule_id', capsuleId)
+      .eq('user_id', userId);
+    setMembers(prev => prev.filter(m => m.user_id !== userId));
+    setRemoving(null);
+    setPendingRemoval(null);
   }
 
   if (loading) {
@@ -138,11 +135,11 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
               </View>
               {!isOwner && !isSelf ? (
                 removing === item.user_id ? (
-                  <ActivityIndicator color="#FF3B30" size="small" />
+                  <LoadingBrand size="small" color="#FF3B30" />
                 ) : (
                   <TouchableOpacity
                     style={styles.removeBtn}
-                    onPress={() => removeMember(item.user_id, displayName)}
+                    onPress={() => requestRemove(item.user_id, displayName)}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   >
                     <Ionicons name="person-remove-outline" size={20} color="#FF3B30" />
@@ -155,6 +152,21 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
           );
         }}
         ItemSeparatorComponent={() => <View style={styles.sep} />}
+      />
+
+      <ConfirmModal
+        visible={pendingRemoval !== null}
+        title="Remove member?"
+        message={
+          pendingRemoval
+            ? `Remove ${pendingRemoval.displayName} from this capsule? They lose access immediately.`
+            : ''
+        }
+        confirmLabel="Remove"
+        destructive
+        loading={removing === pendingRemoval?.userId}
+        onConfirm={confirmRemove}
+        onCancel={() => setPendingRemoval(null)}
       />
     </SafeAreaView>
   );

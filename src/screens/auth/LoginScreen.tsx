@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -91,7 +92,7 @@ export default function LoginScreen({ navigation }: Props) {
         </View>
 
         <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Sign In</Text>}
+          {loading ? <LoadingBrand size="small" color="#fff" /> : <Text style={styles.buttonText}>Sign In</Text>}
         </TouchableOpacity>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -120,7 +121,7 @@ export default function LoginScreen({ navigation }: Props) {
               autoFocus
             />
             <TouchableOpacity style={styles.resetButton} onPress={handleForgot} disabled={resetLoading}>
-              {resetLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Send Reset Link</Text>}
+              {resetLoading ? <LoadingBrand size="small" color="#fff" /> : <Text style={styles.buttonText}>Send Reset Link</Text>}
             </TouchableOpacity>
             <TouchableOpacity onPress={() => { setShowForgot(false); setError(''); }}>
               <Text style={styles.forgotText}>Back to sign in</Text>
@@ -136,7 +137,7 @@ export default function LoginScreen({ navigation }: Props) {
 
         <TouchableOpacity style={styles.googleButton} onPress={handleGoogle} disabled={googleLoading}>
           {googleLoading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <LoadingBrand size="small" color="#FFFFFF" />
           ) : (
             <>
               <Ionicons name="logo-google" size={20} color="#FFFFFF" />

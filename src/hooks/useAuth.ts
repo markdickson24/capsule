@@ -4,6 +4,7 @@ import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { cache } from '../lib/cache';
+import { blockStore } from '../lib/blocks';
 
 export function useAuth() {
   // On web, `sessionStore` has already done a synchronous localStorage read at
@@ -35,7 +36,19 @@ export function useAuth() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       settle(session);
-      if (event === 'SIGNED_OUT') cache.clear();
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        // Warm the block list so content is filtered before screens mount.
+        if (session) blockStore.refresh();
+      }
+      if (event === 'SIGNED_OUT') {
+        cache.clear();
+        blockStore.clear();
+        // If the user didn't trigger this (Sign Out button / account deletion),
+        // mark the boot so WelcomeScreen can show a "session expired" banner.
+        if (!sessionStore.consumeIntentionalSignOut()) {
+          sessionStore.markSessionExpired();
+        }
+      }
     });
 
     return () => {

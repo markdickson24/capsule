@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, ActivityIndicator, Platform, KeyboardAvoidingView,
+  TouchableOpacity, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,11 +11,12 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshSession } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import ColorPicker from '../../components/ColorPicker';
 import { AppStackParamList } from '../../types/navigation';
+import type { TablesUpdate } from '../../types/supabase';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -54,19 +56,24 @@ export default function OnboardingScreen({ navigation }: Props) {
     setAvatarUri(result.assets[0].uri);
   }
 
-  async function uploadAvatar(uri: string, userId: string): Promise<string | null> {
-    const session = sessionStore.get();
-    if (!session) return null;
-    const path = `${userId}/avatar.jpg`;
+  async function uploadAvatar(uri: string): Promise<string> {
+    // Path user id must equal auth.uid() (avatars RLS), so derive it from the
+    // live session — never a passed-in / cached id. See ProfileScreen.uploadAvatar.
+    let path: string;
 
     if (Platform.OS === 'web') {
+      const session = sessionStore.get();
+      if (!session) throw new Error('Not signed in');
+      path = `${session.user.id}/avatar.jpg`;
       const resp = await fetch(uri);
       const buf = await resp.arrayBuffer();
       const { error } = await supabase.storage
         .from('avatars')
         .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-      if (error) return null;
+      if (error) throw new Error(error.message);
     } else {
+      const { accessToken, userId } = await getFreshSession();
+      path = `${userId}/avatar.jpg`;
       const resized = await ImageManipulator.manipulateAsync(
         uri,
         [{ resize: { width: 400 } }],
@@ -77,15 +84,18 @@ export default function OnboardingScreen({ navigation }: Props) {
         resized.uri,
         {
           httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
           headers: {
-            Authorization: `Bearer ${session.access_token}`,
+            Authorization: `Bearer ${accessToken}`,
             apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
             'Content-Type': 'image/jpeg',
             'x-upsert': 'true',
           },
         }
       );
-      if (result.status >= 400) return null;
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Storage ${result.status}: ${result.body?.slice(0, 200) ?? 'no body'}`);
+      }
     }
 
     const { data } = supabase.storage.from('avatars').getPublicUrl(path);
@@ -102,10 +112,16 @@ export default function OnboardingScreen({ navigation }: Props) {
 
     let avatarUrl: string | null = null;
     if (avatarUri) {
-      avatarUrl = await uploadAvatar(avatarUri, userId);
+      try {
+        avatarUrl = await uploadAvatar(avatarUri);
+      } catch (e: any) {
+        setSaving(false);
+        setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
+        return;
+      }
     }
 
-    const updates: Record<string, unknown> = {
+    const updates: TablesUpdate<'users'> = {
       display_name: displayName.trim(),
       accent_color: pendingColor,
       bio: bio.trim() || null,
@@ -300,7 +316,7 @@ export default function OnboardingScreen({ navigation }: Props) {
               activeOpacity={0.85}
             >
               {saving
-                ? <ActivityIndicator color="#fff" />
+                ? <LoadingBrand size="small" color="#fff" />
                 : <Text style={styles.footerPrimaryText}>Skip & finish</Text>
               }
             </TouchableOpacity>

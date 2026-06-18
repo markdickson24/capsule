@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,28 +17,32 @@ export default function SignUpScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
 
   async function handleSignUp() {
+    setError('');
+    setInfo('');
     if (!email.trim() || !password.trim()) {
-      Alert.alert('Missing fields', 'Please fill in all fields.');
+      setError('Please fill in all fields.');
       return;
     }
     if (password.length < 8) {
-      Alert.alert('Weak password', 'Password must be at least 8 characters.');
+      setError('Password must be at least 8 characters.');
       return;
     }
 
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
     });
     setLoading(false);
 
-    if (error) {
-      Alert.alert('Sign up failed', error.message);
+    if (signUpError) {
+      setError(signUpError.message);
     } else if (data.session === null) {
-      Alert.alert('Check your email', 'We sent you a confirmation link. Click it to finish signing up.');
+      setInfo('Check your email — we sent you a confirmation link.');
     }
   }
 
@@ -71,9 +76,12 @@ export default function SignUpScreen({ navigation }: Props) {
           />
         </View>
 
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {info ? <Text style={styles.info}>{info}</Text> : null}
+
         <TouchableOpacity style={styles.button} onPress={handleSignUp} disabled={loading}>
           {loading ? (
-            <ActivityIndicator color="#fff" />
+            <LoadingBrand size="small" color="#fff" />
           ) : (
             <Text style={styles.buttonText}>Create Account</Text>
           )}
@@ -115,4 +123,6 @@ const styles = StyleSheet.create({
   buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   switchText: { color: '#888888', textAlign: 'center', fontSize: 15 },
   link: { color: '#FF6B35', fontWeight: '600' },
+  error: { color: '#FF3B30', textAlign: 'center', fontSize: 14 },
+  info: { color: '#30D158', textAlign: 'center', fontSize: 14 },
 });

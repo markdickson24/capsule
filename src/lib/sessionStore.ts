@@ -1,5 +1,9 @@
 import { Session } from '@supabase/supabase-js';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const EXPIRED_KEY = 'cap_session_expired_v1';
+let _intentional = false;
 
 // On web, Supabase persists the session in localStorage under
 // `sb-<projectRef>-auth-token`. Read it synchronously at module load so the app
@@ -29,4 +33,31 @@ let _session: Session | null = readWebSessionSync();
 export const sessionStore = {
   get: () => _session,
   set: (s: Session | null) => { _session = s; },
+
+  // Call right before any user-initiated supabase.auth.signOut(). The next
+  // SIGNED_OUT auth event will consume this flag and NOT mark the boot as
+  // session-expired. Pair with markSessionExpired in useAuth to differentiate
+  // "I tapped Sign Out" from "my refresh token died in the background."
+  markIntentionalSignOut: () => { _intentional = true; },
+  consumeIntentionalSignOut: () => {
+    const v = _intentional;
+    _intentional = false;
+    return v;
+  },
+
+  // Persisted flag — survives an app cold-boot so WelcomeScreen can show a
+  // "Your session expired" banner regardless of whether the bad auth state
+  // hit us while the app was open or while it was backgrounded.
+  markSessionExpired: async () => {
+    try { await AsyncStorage.setItem(EXPIRED_KEY, '1'); } catch {}
+  },
+  consumeSessionExpired: async (): Promise<boolean> => {
+    try {
+      const v = await AsyncStorage.getItem(EXPIRED_KEY);
+      if (v) await AsyncStorage.removeItem(EXPIRED_KEY);
+      return v === '1';
+    } catch {
+      return false;
+    }
+  },
 };

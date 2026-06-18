@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { sessionStore } from './sessionStore';
+import type { Database } from '../types/supabase';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -24,7 +25,7 @@ const authOptions =
         detectSessionInUrl: false,
       };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: authOptions,
 });
 
@@ -39,4 +40,44 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 if (Platform.OS === 'web') {
   (supabase as any).accessToken = async () =>
     sessionStore.get()?.access_token ?? supabaseAnonKey;
+}
+
+// Returns a guaranteed-fresh access token for raw native uploads
+// (FileSystem.uploadAsync), which attach the bearer manually and therefore
+// bypass the JS client's automatic refresh. The cached sessionStore token can
+// be stale if the app sat idle/backgrounded past the 1h token lifetime —
+// storage-api then rejects the upload with HTTP 400 "jwt expired". On native,
+// getSession() refreshes an expired token before returning; do NOT call this on
+// web, where getSession() can hang on a stuck refresh (see accessToken override
+// above). Web uploads go through supabase.storage, which refreshes on its own.
+export async function getFreshAccessToken(): Promise<string> {
+  return (await getFreshSession()).accessToken;
+}
+
+// Like getFreshAccessToken, but also returns the user id from the SAME session.
+// Use this when building a storage path that must match `auth.uid()` (e.g. the
+// avatars bucket's RLS check `auth.uid()::text = foldername[1]`). Deriving the
+// path's user id from any other source (a cached profile row, etc.) risks a
+// mismatch with the bearer token's subject → "new row violates row-level
+// security policy". Native only, for the same reason as getFreshAccessToken.
+export async function getFreshSession(): Promise<{ accessToken: string; userId: string; expiresInSec: number }> {
+  let { data, error } = await supabase.auth.getSession();
+  let session = data.session;
+
+  // getSession() does NOT always refresh an expired token — it can hand back a
+  // stale one. Storage then treats the expired JWT as anonymous (auth.uid()=null)
+  // and RLS denies the insert as "new row violates row-level security policy"
+  // (a 403, not a 400 jwt-expired). Force a refresh when at/near expiry.
+  const now = Math.floor(Date.now() / 1000);
+  if (session?.expires_at && session.expires_at <= now + 60) {
+    const refreshed = await supabase.auth.refreshSession();
+    if (refreshed.data.session) session = refreshed.data.session;
+    if (refreshed.error) error = refreshed.error;
+  }
+
+  if (error || !session?.access_token) {
+    throw new Error('Your session expired. Sign in again to continue.');
+  }
+  const expiresInSec = (session.expires_at ?? now) - now;
+  return { accessToken: session.access_token, userId: session.user.id, expiresInSec };
 }

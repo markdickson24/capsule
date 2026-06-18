@@ -23,6 +23,7 @@ No test suite or linter configured yet.
 - **expo-image** — cached image loading with native disk/memory cache
 - **expo-haptics** — tactile feedback on calendar and UI interactions
 - **expo-location** — foreground GPS for proximity check-in (native only)
+- **expo-share-intent** — iOS Share Extension + Android intent filter for receiving photos/videos from other apps
 - **TypeScript** ~5.9
 
 ### Project Structure
@@ -30,10 +31,14 @@ No test suite or linter configured yet.
 ```
 src/
   components/
+    AwardsSection.tsx        # Superlatives UI inside CapsuleDetail — voting open / tallying / finalized cards
     ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
     ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
     DatePicker.tsx           # Shared date/time picker — custom calendar grid, month/year picker, quick presets, haptics
     Skeleton.tsx             # Shimmer skeleton loaders (SkeletonBox, SkeletonCard, SkeletonProfileCard, etc.)
+    SuggestCategoryModal.tsx # Bottom sheet for proposing a superlative category (label + target type)
+    VoteSheet.tsx            # Bottom sheet for casting / changing a vote (person picker or media grid)
+    VotingWindowPicker.tsx   # 24h / 48h / 7d / custom-hours picker for the Awards voting window
   context/
     ThemeContext.tsx         # accentColor per-user, loads from Supabase on auth
   hooks/
@@ -43,11 +48,16 @@ src/
     usePushNotifications.native.ts  # Token registration + tap routing (iOS/Android only)
     usePushNotifications.web.ts     # No-op stub for web
     usePushNotifications.ts         # TS fallback stub
+    useShareIntent.native.ts        # Consumes expo-share-intent, routes to Preview or stash
+    useShareIntent.web.ts           # No-op stub for web
+    useShareIntent.ts               # TS fallback stub
   lib/
     animations.ts           # Reusable animation hooks (useFadeIn, useSlideUp, useListItemEntrance)
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
     sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load)
+    shareIntentStash.ts     # In-memory stash for media shared while signed out — drained after login
+    ShareIntentProvider.{native,web,tsx}  # Platform-split provider wrapper (real on native, passthrough on web)
     uuid.ts                 # randomUUID() helper
     googleAuth.ts           # signInWithGoogle() via expo-auth-session
     navigationRef.ts        # Imperative nav ref for use outside components
@@ -65,13 +75,17 @@ src/
     database.ts             # Capsule, User, etc. row types — keep in sync with the DB
 supabase/
   functions/
-    unlock-capsules/        # Edge function: marks active capsules with unlock_at <= now() as unlocked
-                            # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
-                            # by a pg_cron job that reads the secret from Supabase Vault.
-    send-invite-push/       # Edge function: sends the "you were invited" push. Reads the invitee's
-                            # push_token with the service role so clients never need read access to it.
-  migrations/               # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
-                            # is the original schema and has drifted — the migrations are the source of truth.
+    unlock-capsules/         # Edge function: marks active capsules with unlock_at <= now() as unlocked
+                             # and pushes notifications. Auth: Bearer CRON_SECRET. Triggered every minute
+                             # by a pg_cron job that reads the secret from Supabase Vault.
+    send-invite-push/        # Edge function: sends the "you were invited" push. Reads the invitee's
+                             # push_token with the service role so clients never need read access to it.
+    send-superlative-pushes/ # Edge function: reads unpushed superlative_* notifications and sends Expo
+                             # pushes (suggested / closing_soon / won). Called every minute by the same
+                             # cron that runs close_superlative_windows. Shares CRON_SECRET with
+                             # unlock-capsules.
+  migrations/                # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
+                             # is the original schema and has drifted — the migrations are the source of truth.
 ```
 
 ---
@@ -114,7 +128,7 @@ RootNavigator (App.tsx)
     Onboarding        (no params — 4-step wizard, animation: 'fade')
 ```
 
-Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is set by `PreviewScreen` when creating a new capsule from the camera flow — the media auto-uploads after the capsule is created.
+Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is a `PendingMedia[]` set by `PreviewScreen` when creating a new capsule from the camera/share flow — every item auto-uploads sequentially after the capsule is created.
 
 **`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
 
@@ -159,9 +173,11 @@ The JS client adds both automatically. `FileSystem.uploadAsync` does not — add
 
 **Use `FileSystem.uploadAsync` for native uploads** (iOS/Android). Uses NSURLSession — file bytes never cross the JS bridge, far faster than `fetch(uri).blob()`. Web falls back to `fetch + arrayBuffer + supabase.storage.upload()`.
 
+**For the native `Authorization` header, use `getFreshAccessToken()` (`src/lib/supabase.ts`) — never `sessionStore.get().access_token` directly.** `FileSystem.uploadAsync` attaches the bearer manually and so bypasses the JS client's automatic token refresh. The cached `sessionStore` token can be expired if the app sat idle/backgrounded past the 1h token lifetime, and storage-api rejects a stale token with **HTTP 400 `jwt expired`** (not 401) — which manifests as a generic `Storage 400` upload failure. `getFreshAccessToken()` calls `getSession()`, which on native refreshes an expired token before returning. Do **not** call it on web — `getSession()` can hang there (see Web Auth Gotchas); web uploads go through `supabase.storage`, which refreshes on its own. All five native upload sites (avatar in Profile + Onboarding, media in Preview, CapsuleDetail, and Create's `pendingMedia` auto-upload) route through it.
+
 **`createSignedUrls` response:** map by array index, not `item.path`. Use `signedData?.[i]?.signedUrl`. Signed URLs expire after 3600 seconds.
 
-**Avatar upload path:** `${userId}/avatar.jpg` with `upsert: true`.
+**Avatar upload path:** `${userId}/avatar.jpg` with `upsert: true`. The `avatars` bucket INSERT/UPDATE RLS is `auth.uid()::text = (storage.foldername(name))[1]`, so **the `userId` in the path MUST be the authenticated user** — derive it from the live session (native: `getFreshSession()`, which returns `{ accessToken, userId }` from the same `getSession()` call; web: `sessionStore.get().user.id`). Never build the path from a cached `profile.id`: if it lags the live session (e.g. after switching accounts) the path folder won't match the bearer token's subject and storage returns 403 `new row violates row-level security policy`. A 403 here is an auth.uid/path mismatch, **not** an expired token (that's a 400 `jwt expired`).
 **Media upload path:** `${capsuleId}/${randomUUID()}.${ext}`.
 
 ---
@@ -172,18 +188,33 @@ Defined in `supabase-schema.sql`.
 
 | Table | Key columns |
 |---|---|
-| `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), onboarded_at (null = needs wizard), created_at |
-| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100) |
+| `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), home_layout (list/grid, default 'list'), onboarded_at (null = needs wizard), created_at |
+| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), checkin_lat, checkin_lng, checkin_at |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
-| `notifications` | id, user_id, capsule_id, type (invite/unlock/reaction/contribution_nudge/milestone), sent_at, read_at |
+| `notifications` | id, user_id, capsule_id (**nullable** — null for friend events), actor_id (nullable — the other user, for friend events), type (invite/unlock/reaction/contribution_nudge/milestone/superlative_suggested/superlative_closing_soon/superlative_won/friend_request/friend_accept), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
+| `superlative_categories` | id, capsule_id, suggested_by, label (3–80 chars), target_type (person/media), status (pending/live/archived), promoted_at, created_at |
+| `superlative_upvotes` | category_id + user_id (composite PK), created_at — drives auto-promote trigger |
+| `superlative_votes` | category_id + voter_id (composite PK), target_user_id XOR target_media_id, created_at, updated_at — anonymous; clients only read own row |
+| `superlative_winners` | id, category_id, target_user_id XOR target_media_id, vote_count, determined_at — one row per (category, tied target); written only by finalize RPC |
+| `content_reports` | id, reporter_id, target_type (media/user), reported_media_id XOR reported_user_id, capsule_id, reason (spam/harassment/nudity/violence/hate/self_harm/other), details (≤500), status (pending/reviewed/actioned/dismissed), created_at — insert+read-own RLS; reviewed out-of-band via service role |
+| `blocked_users` | blocker_id + blocked_id (composite PK), created_at — directional; owner-only RLS (blocked party can't see the row) |
+| `friendships` | id, requester_id, addressee_id, status (pending/accepted), created_at, responded_at — one row per unordered pair (unique index on least/greatest); RLS: read-own, insert-as-requester, update-to-accepted-by-addressee, delete-by-either |
 
 **`users` column privileges:** the `users` SELECT policy is `USING (true)` (every signed-in user can read every profile — needed for search and public profiles). To stop that exposing sensitive fields, `email`, `phone`, and `push_token` are removed from the `authenticated` SELECT grant at the **column level**. Never `select('email')` / `select('phone')` / `select('push_token')` / `select('*')` on `users` from client code — it will fail. The current user's email is on the auth session (`session.user.email`), not this table. Reading another user's `push_token` is server-only (see the `send-invite-push` edge function).
+
+> ⚠️ **Adding a new client-readable column to `users`?** Because the grant is column-level (the table-wide SELECT grant was revoked), a new column added via `ALTER TABLE ADD COLUMN` gets **no** SELECT grant by default — `authenticated` will have INSERT/UPDATE but not SELECT. Any query selecting it then fails with `42501 permission denied` for the **entire** query (not just that column), silently breaking unrelated fields in the same `select()`. **Always `grant select (...)` the new column to `authenticated` in the same migration.** This bit `home_layout` (added in `20260610020000`, granted in `20260610210000_grant_home_layout_select.sql`): the missing grant made `ThemeContext`'s `select('accent_color, home_layout')` 403, so accent color reset to default on every sign-in.
 
 **Triggers:**
 - `handle_new_user()` — auto-creates `users` row on `auth.users` insert
 - `notify_on_reaction()` — inserts reaction notification (not to self)
+- `notify_on_superlative_suggested()` — fan-out on `superlative_categories` insert; notifies every other joined member
+- `_promote_superlative()` — on `superlative_upvotes` insert, flips a pending category to `live` once upvotes hit `ceil(joined/2)`
+- `_stamp_unlock_meta()` — BEFORE UPDATE on `capsules`; when status flips to 'unlocked' stamps `unlocked_at = now()` and `superlative_voting_closes_at = unlocked_at + voting_hours`. Both the unlock cron and the proximity `check_in` path inherit this for free.
+- `_touch_superlative_vote_updated_at()` — bumps `updated_at` when a vote is changed
+- `notify_on_friend_request()` — AFTER INSERT on `friendships` (pending); inserts a `friend_request` notification for the addressee (actor = requester)
+- `notify_on_friend_accept()` — BEFORE UPDATE on `friendships`; on pending→accepted stamps `responded_at` and inserts a `friend_accept` notification for the requester (actor = addressee)
 
 **Permission model:** only owners can see media before unlock. Contributors/viewers see a locked state until `status = 'unlocked'`. Use `isOwner` (`capsule.owner_id === currentUserId`) for owner checks — works even if the `capsule_members` row is missing.
 
@@ -205,18 +236,67 @@ Defined in `supabase-schema.sql`.
 - Use `useIsFocused()` to stop camera rendering when tab is not active
 - Navigates to `Preview` with `{ uri, mediaType, facing }`
 
+**Camera mode dropdown:** a side dropdown (top-left, `styles.modeDropdown`) selects `cameraMode: 'back' | 'front' | 'dual'`. `facing` is derived (`front`→front, else back). `Back`/`Front` render `CameraView`; `Dual` renders `<DualCameraView>` (see below). The Dual option only appears when `isDualCameraSupported`. In Dual mode: pinch/zoom + double-tap-flip are disabled, hold-to-record is disabled (tap-only), and the reverse button is hidden.
+
+---
+
+## Dual Camera (`modules/expo-dual-camera`)
+
+Simultaneous front+back capture (Snapchat-style) with two **selectable layouts** — `sideBySide` (back|front halves) and `pip` (full back + a rounded front bubble top-right). `expo-camera` cannot do multi-cam, so this is a **local Expo native module** (autolinked from `modules/`, survives `expo prebuild --clean`). Consumed by `CameraScreen` via `import { DualCameraView, isDualCameraSupported, DualCameraViewRef, DualCameraLayout } from '../../../modules/expo-dual-camera'`.
+
+- **Layout prop:** `<DualCameraView layout="sideBySide" | "pip" />`. `CameraScreen` holds `dualLayout` state and shows a **live switcher** (Split / PiP segmented control, `styles.layoutSwitch`) over the dual preview, bottom-center. The native `setLayout` re-runs `layoutSubviews` and the capture path picks the matching compositor, so switching is instant and applies to the next still.
+- **iOS (`ios/ExpoDualCameraView.swift`):** `AVCaptureMultiCamSession` with back+front wide-angle inputs added via `addInputWithNoConnections` and explicit `AVCaptureConnection`s (multi-cam requires manual connections). Two `AVCaptureVideoPreviewLayer`s, arranged by `layout` in `layoutSubviews` (halves for sideBySide; full back + corner bubble for pip — PiP geometry is width-fraction constants so preview + composite stay in sync). **Capture uses the Apple AVMultiCamPiP / Snapchat pattern: each lens runs an `AVCaptureVideoDataOutput` (a `FrameGrabber` delegate), NOT an `AVCapturePhotoOutput`.** On `capturePhoto()` we "arm" a grab; the next frame delivered from each lens (on `dataQueue`) is converted via a shared `CIContext` to a `UIImage`, then both are merged by `composeSideBySide` or `composePiP` (rounded, white-bordered, aspect-fill inset) into one JPEG in a temp file. The front lens is mirrored at the capture connection (and the data connection is set to `.portrait`), so compositors draw it as-is. A 2s timeout rejects the promise if frames never arrive. `capturePhoto()` is a view `AsyncFunction` resolving `{ uri, width, height }`.
+  - **Hardware-cost budget (the "cost limit" bug):** `AVCaptureMultiCamSession` shares one hardware-cost budget across both lenses, and two `AVCapturePhotoOutput`s blew it (they reserve full-res still budget) — capture is now video-data-output based for that reason. Cost is further kept in budget by `applyMultiCamFormat` (prefers **binned**, modest-resolution formats — *cheapest*, not highest-res — capped at 24fps), and `ensureCanAdd` (steps frame rate 24→12fps and retries `canAddConnection` instead of failing). `reduceHardwareCostIfNeeded` is the post-commit safety net. Init-error messages report the live `session.hardwareCost` (e.g. "cost 1.20") so an on-device run is diagnostic.
+- **Android (`android/.../ExpoDualCameraModule.kt`):** reports `isSupported = false` (concurrent dual-cam is rare/device-specific). Dual mode is hidden there.
+- **JS (`index.ts`):** guards `Platform.OS !== 'web'` + try/catch around `requireNativeModule`/`requireNativeView`, so web and Expo Go (pre-prebuild) fall back to `isDualCameraSupported = false` and `<DualCameraView>` renders null. `isDualCameraSupported` reads the native `isSupported` constant (true only on A12+ iPhones, iOS 13+).
+- **Capture flow:** `CameraScreen.captureDualPhoto()` calls `dualRef.current.capturePhoto()`, runs the result through the same `processPhoto` (resize 1920) + `Preview` navigation as single-camera photos.
+- **PiP swap (BeReal-style):** in PiP, `capturePhoto()` also returns `altUri` — the swapped composite (`composePiP(base: front, inset: back)`), i.e. front as the full frame. Both composites are uploaded: the default → `media.storage_key`, the swap → `media.alt_storage_key` (added in `20260616120000_add_media_alt_key.sql`; a non-null `alt_storage_key` marks a swappable dual photo). `PreviewScreen.uploadToSingle(…, altUri?)` uploads both via the shared `uploadFile` helper. In the viewer (`MediaViewerModal`), `fetchPhotos` signs both keys; a corner **swap button** (`styles.swapBubble`) toggles per-item `swapped[id]`, and `shownUrl(item)` picks `altSignedUrl` vs `signedUrl` for both the displayed image and the download. sideBySide has no `altUri` (no meaningful swap). Only newly-captured dual photos are swappable; pre-existing flattened ones aren't. **The camera→new-capsule `pendingMedia` path does not carry `altUri` yet** (alt is threaded only through the single-item `Preview` route).
+- **Requirements:** needs a custom dev/EAS build + a physical multi-cam iPhone — **does not run in Expo Go or the simulator**. Uses the existing `NSCameraUsageDescription`/`NSMicrophoneUsageDescription` from the `expo-camera` plugin (no app.json change).
+- **Not yet implemented (Phase 2):** dual **video** (the `AVCaptureVideoDataOutput`s are already there for stills; full video needs `AVAssetWriter` compositing of both feeds into one MP4); in Dual mode video is disabled and single-lens video still works in Back/Front. The Swift is authored against the SDK but **not yet device-verified** — expect on-device iteration on session/hardware-cost tuning. If capture still fails, the error now carries the actual cost number; lower `applyMultiCamFormat`'s `maxWidth` (e.g. 960) and/or the starting fps from there.
+
 ---
 
 ## Preview Screen (`PreviewScreen.tsx`)
 
-- Shows photo or looping video before adding to a capsule
+- Shows photo(s) or looping video(s) before adding to a capsule
 - Fetches user's active capsules (non-unlocked, where role is owner or contributor and `joined_at` is not null)
-- **Multi-select:** capsule selection via horizontal chip scroll with `Set<string>`. Multiple capsules can be selected; uploads run sequentially with progress display (`N/M`)
-- After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
-- **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: { uri, mediaType }` — the media auto-uploads after capsule creation
+- **Two route shapes** (discriminated at runtime in a `useMemo`):
+  - `{ uri, mediaType, facing? }` — single-item form, used by `CameraScreen`
+  - `{ media: PendingMedia[], source?: 'share' | 'camera' }` — multi-item form, used by `useShareIntent`
+- **Carousel for multi-item:** horizontal `FlatList` with `pagingEnabled`, page dots overlay, "N / total" counter pill in the top bar. `currentIndex` tracked via `onMomentumScrollEnd`
+- **Single shared `useVideoPlayer`** keyed by `currentItem.uri` — only mounts a `VideoView` for the item at `currentIndex`; other video slides show a play-icon placeholder. This avoids the rules-of-hooks problem of one player per item
+- The outer swipe-down PanResponder requires `g.dy > Math.abs(g.dx)` to start, so the horizontal `FlatList` keeps its gesture for paging
+- **Multi-select capsules** via horizontal chip scroll with `Set<string>`. After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
+- **Upload loop is (capsule × media)** sequential — total progress is `selectedIds.size * items.length`
+- **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: PendingMedia[]` — the media auto-uploads after capsule creation
 - Swipe down > 100px triggers discard confirmation modal
 - Upload: web uses `arrayBuffer`, native uses `FileSystem.uploadAsync`
 - Cache invalidation after upload: `cache.invalidate('capsules')` + per-capsule keys
+
+---
+
+## Share Intent (`expo-share-intent`)
+
+Receives photos/videos shared from other apps (Photos, Files, Messages, Instagram, etc.) and routes them into the `PreviewScreen` capsule-selection flow.
+
+- **Library:** `expo-share-intent` 5.1.1 (the last major that supports Expo SDK 54 — v6 requires SDK 55). Adds an iOS Share Extension target and Android `SEND` / `SEND_MULTIPLE` intent filters via a config plugin in `app.json`
+- **Config plugin** accepts images + videos, single + multi:
+  - iOS activation rules: `NSExtensionActivationSupportsImageWithMaxCount: 10`, `NSExtensionActivationSupportsMovieWithMaxCount: 10`
+  - Android: `androidIntentFilters: ['image/*', 'video/*']` + `androidMultiIntentFilters: ['image/*', 'video/*']`
+  - Extension display name: "Capsule"
+- **Provider:** `<ShareIntentProvider>` in `src/lib/ShareIntentProvider.{native,web,tsx}` — wraps `App.tsx` outside `ThemeProvider`. Native imports the real provider from `expo-share-intent`; web returns `children` as-is
+- **Hook:** `useShareIntent(session)` in `src/hooks/useShareIntent.native.ts` consumes `useShareIntentContext()` and:
+  1. Filters `shareIntent.files` to image/* and video/* by `mimeType`, maps to `PendingMedia[]`
+  2. If signed in: navigates to `Preview` with `{ media, source: 'share' }`
+  3. If signed out: writes the array to `shareIntentStash`, lets the user log in, then on the next render with `session` set it drains the stash and navigates
+  4. Always calls `resetShareIntent()` so the same payload isn't re-handled on next render
+- **`shareIntentStash`** (`src/lib/shareIntentStash.ts`) — module-level `PendingMedia[] | null`. Survives the Auth → App navigator swap because it's just a JS variable, not navigation state
+- **Web:** the hook + provider are no-ops; `expo-share-intent` is native-only. Platform split via `.native.ts` / `.web.ts` files, same pattern as `usePushNotifications`
+- **Build requirements:**
+  - **Cannot run in Expo Go** — requires a custom dev client / EAS build (iOS share extension is a separate native target)
+  - Bumps native config; a fresh `eas build` is required before the share sheet entry appears
+  - The auto-generated iOS share extension target uses bundle ID `com.markdickson.capsule.share-extension` and app group `group.com.markdickson.capsule.share-extension`. **When prompted by `eas credentials`, register the extension target alongside the main app** — see the "iOS Extension Target" note in the `expo-share-intent` README
+- **Snapchat caveat:** Snapchat's "Share" sheet typically hands over a URL or text, not the underlying image. To get a Snap into Capsule, the user usually saves the Snap to Photos first, then shares from Photos → Capsule. Most other apps (Photos, Messages, Instagram saves, Files) share the actual image file
 
 ---
 
@@ -285,10 +365,12 @@ For equal-width thumbnail rows, use `flex: 1, aspectRatio: 1` — **not** `width
 The primary accent color is user-customizable. All app screens use `useTheme()` from `src/context/ThemeContext.tsx` — never hardcode `#FF6B35` in app screens.
 
 ```tsx
-const { accentColor, setAccentColor } = useTheme();
+const { accentColor, setAccentColor, homeLayout, setHomeLayout } = useTheme();
 ```
 
-`ThemeProvider` wraps `NavigationContainer` in `App.tsx`. It loads `users.accent_color` from Supabase on login and resets to the default on logout. `setAccentColor` updates state instantly and persists to Supabase in the background.
+`ThemeProvider` wraps `NavigationContainer` in `App.tsx`. It loads `users.accent_color` **and `users.home_layout`** from Supabase on login (one query) and resets both to defaults on logout. `setAccentColor` / `setHomeLayout` update state instantly and persist to Supabase in the background.
+
+**Home layout preference** (`homeLayout: 'list' | 'grid'`, default `'list'`) — `HomeScreen` renders its capsule `FlatList` as one-column comfortable cards (`list`) or two-column compact cards (`grid`), chosen via a small list/grid toggle in the Home header. The `FlatList` takes `key={homeLayout}` (forces remount when `numColumns` changes) and `columnWrapperStyle` only in grid. `CapsuleCard` takes a `variant` prop; the grid variant drops the description and shrinks. Per-user, synced like `accent_color`.
 
 **Auth screens (LoginScreen, SignUpScreen, WelcomeScreen) keep the static `#FF6B35`** — no user is loaded at that point.
 
@@ -364,6 +446,7 @@ Controlled component. Props: `{ visible, title, message, confirmLabel?, cancelLa
 Edge function that marks `status = 'active'` capsules whose `unlock_at <= now()` as `'unlocked'` and sends Expo push notifications to all joined members. Only acts on `unlock_mode = 'time'` capsules — `proximity`/`both` capsules unlock via the `check_in` RPC instead (see Proximity Unlock).
 
 - **Trigger:** `pg_cron` job `unlock-capsules` runs `* * * * *` (every minute).
+- **Countdown reminders:** the same function also fires pre-unlock reminder pushes at three tiers — **1 day / 1 hour / 10 minutes** before `unlock_at` (`dispatchReminders`, runs every tick regardless of whether anything unlocked). For each tier it does an atomic `update({ <tier>_sent_at: now }).is(<tier>_sent_at, null).gt('unlock_at', now).lte('unlock_at', now + tier).select()` — claiming+stamping in one statement so a tier sends **at most once** per capsule (race-safe). Stamp columns: `capsules.unlock_reminder_{1d,1h,10m}_sent_at` (migration `20260616000000_unlock_reminders.sql`). It inserts durable `unlock_reminder` notification rows (new type; `pushed_at` set since it pushes inline) and posts the Expo push. Body copy is derived from *actual* remaining time (`formatRemaining`), so it reads correctly ("tomorrow" / "in about 3 hours" / "in 10 minutes") even for short-lived capsules that enter a tier late. `time`-mode only, same as unlocking. Client renders `unlock_reminder` in `NotificationsScreen` (hourglass icon, taps through to the capsule).
 - **Auth:** `Authorization: Bearer <CRON_SECRET>` required (`if (CRON_SECRET && auth !== ...)` in the function). The function's `CRON_SECRET` env var is set in Supabase Dashboard → Functions → unlock-capsules → Secrets. The matching value is also stored in Supabase Vault as `cron_unlock_capsules_secret`, and the cron command reads it at execution time via `(select decrypted_secret from vault.decrypted_secrets where name = 'cron_unlock_capsules_secret')`.
 - **Idempotency:** the `.eq('status', 'active')` filter means repeat calls within a minute don't re-unlock or re-notify. The in-memory rate-limit (`lastCallTime`) in the function is dead code on edge runtimes — it doesn't survive cold starts — but doesn't matter because the work is idempotent.
 - **Rotating the secret:** update Vault (`select vault.update_secret(secret_id, new_value)`) AND set the new value on the function's env vars. Order doesn't matter for safety — the function uses module-load env, so a redeploy is needed for the function to pick up the new value (deploying the same code via `mcp__supabase__deploy_edge_function` works).
@@ -381,11 +464,97 @@ A capsule's `unlock_mode` (`time` | `proximity` | `both`) controls how it opens:
 
 **Unlock-mode picker** — `CreateScreen` and `EditCapsuleScreen` have an "Unlock When" selector (Date / Together / Both). Choosing Proximity hides the unlock-date field and skips its validation; `unlock_at` is `not null` so it still gets a placeholder value (unused for `proximity`).
 
+## Superlatives (Awards)
+
+Per-capsule, yearbook-style awards. Members suggest categories; once enough upvote a suggestion it auto-promotes to live; voting opens when the capsule unlocks and runs for an owner-configured window; winners are revealed when the window closes.
+
+### Lifecycle
+- **suggest** — any joined member calls INSERT on `superlative_categories` with a label (3–80 chars) and `target_type ∈ {'person','media'}`. RLS verifies `suggested_by = auth.uid()`, capsule membership, and `status = 'pending'`. An AFTER INSERT trigger (`notify_on_superlative_suggested`) inserts `superlative_suggested` notification rows for every other joined member.
+- **upvote** — members INSERT into `superlative_upvotes`. The `_promote_superlative` trigger reads the current upvote count + joined-member count; if `count >= ceil(joined/2)` it flips the category's status to `live`. SECURITY DEFINER bypasses the "owner only" UPDATE policy.
+- **vote** — members upsert into `superlative_votes` keyed on the composite PK `(category_id, voter_id)`. RLS enforces: voter is self, no self-vote (`target_user_id <> auth.uid()`), category is `live`, voting window is open, and the target row belongs to the category's capsule + matches its `target_type` (checked via the `_superlative_target_valid` helper). Voters can update or delete their own row until the window closes.
+- **finalize** — when `now() >= superlative_voting_closes_at` the `close_superlative_windows()` cron picks up the capsule and calls `finalize_capsule_superlatives()`: computes winners with `rank() = 1` (ties = co-winners), archives any pending suggestions that never crossed the threshold, sets `superlative_voting_finalized_at`, and inserts `superlative_won` notification rows for winning members (and uploaders of winning media).
+
+### Voting window
+- `capsules.superlative_voting_hours` (1–720, default 48) — owner picks this on Create / Edit via `<VotingWindowPicker>`.
+- `_stamp_unlock_meta` BEFORE UPDATE trigger stamps `superlative_voting_closes_at = unlocked_at + voting_hours` the moment status flips to `unlocked`. Works for both the time-cron and the proximity `check_in` path.
+- 2 hours before close, `dispatch_superlative_closing_soon()` fans out `superlative_closing_soon` notifications and stamps `superlative_closing_soon_sent_at` so it fires once.
+
+### RLS + anonymity
+- `superlative_categories` — members read; members insert (only `status = 'pending'`); owner can update / delete.
+- `superlative_upvotes` — members read and upvote pending categories; voters can remove their own upvote.
+- `superlative_votes` — **the voter can only read their own rows**. Aggregated counts come from `tally_superlatives(capsule_id)` — a SECURITY DEFINER RPC that returns `(category_id, target_*, vote_count)` rows but only after `now() >= voting_closes_at`. This is what makes the "tallies hidden during voting" rule enforceable on the server.
+- `superlative_winners` — read-only for members; writes happen only via `finalize_capsule_superlatives`. The reveal UI reads from this table directly, not from `tally_superlatives`.
+
+### Notifications + push
+Three new notification types: `superlative_suggested`, `superlative_closing_soon`, `superlative_won`. All three:
+1. Are inserted by a trigger or by the finalize/dispatch functions (rows are durable; the in-app `NotificationsScreen` reads them).
+2. Are delivered as Expo pushes by the `send-superlative-pushes` edge function, which the cron pings every minute via `net.http_post`. The function pulls notifications where `pushed_at IS NULL AND type IN (...)`, builds per-type Expo payloads with `data.capsuleId`, posts to `exp.host`, and stamps `pushed_at` so retries can't double-send.
+3. Tap routing: the native push handler already routes any `data.capsuleId` to `CapsuleDetail`; `NotificationsScreen` does the same on tap.
+
+The unlock push body is intentionally worded to double as the "voting opens" cue — no separate notification is sent for that moment.
+
+### Cron job
+`close-superlative-windows` runs `* * * * *` and executes three statements in sequence each minute:
+```sql
+select public.dispatch_superlative_closing_soon();
+select public.close_superlative_windows();
+select net.http_post(... send-superlative-pushes ...);
+```
+The HTTP call uses the same Vault secret (`cron_unlock_capsules_secret`) as the unlock cron. Both edge functions must have `CRON_SECRET` env vars set to the matching plaintext.
+
+### Client integration
+- `<AwardsSection>` lives in `CapsuleDetailScreen` under the media grid, only on unlocked capsules. It branches on `voting_closes_at` / `voting_finalized_at`:
+  - **voting open** — pending cards with upvote button + progress bar to threshold, live cards with Vote / Change pill
+  - **voting closed, pre-finalize** — `"Tallying votes…"` placeholder
+  - **finalized** — staggered `WinnerCard` reveals (avatar for person, thumbnail for media; tied co-winners side by side)
+- Realtime subscription on `superlative_categories` (filtered to capsule) drives upvote / auto-promote updates. A second subscription on `superlative_winners` INSERTs drives the finalize → reveal transition.
+- The parent's existing realtime channel on `capsules` UPDATEs catches `superlative_voting_finalized_at` flipping and re-renders the section with the new props.
+
+### Gotchas
+- The voter's own vote IS readable client-side (so "Your vote: X" works). Anonymity is about *other* voters — tallies for them route through the time-gated RPC or the winners table.
+- `finalize_capsule_superlatives()` is idempotent: `if v_finalized_at is not null then return`. The cron can hit a capsule multiple times safely.
+- When tying capsules' realtime to the section, the parent's `capsule` state must be passed as props (`votingClosesAt`, `votingFinalizedAt`) — the section can't subscribe to capsule changes itself because that's the parent's responsibility.
+- The auto-promote trigger checks `status = 'pending'` before flipping, so concurrent upvotes can't promote twice.
+
+---
+
+## Content Moderation (Report + Block)
+
+UGC compliance for Apple App Store Guideline 1.2. Scope is **report + block**; EULA-at-signup and an admin review console are deferred.
+
+**Tables** (migration `20260609230500_add_reports_and_blocks.sql`):
+- `content_reports` — a user files a report against a `media` item or a `user`. RLS: insert as self, read only your own rows. There is **no** client review path — reports are triaged out-of-band with the service role. CHECK constraints enforce exactly-one target matching `target_type` and no self-report.
+- `blocked_users` — directional `(blocker_id, blocked_id)` block. Owner-only RLS on all of select/insert/delete, so the blocked party can never tell they were blocked.
+
+**Block enforcement is client-side filtering** (not RLS — chosen for speed; can be hardened later):
+- `src/lib/blocks.ts` — `blockStore`: module-level `Set` of blocked IDs with pub/sub, optimistic `block()`/`unblock()` (ignores `23505` duplicate), `refresh()`, `clear()`. `blockStore.has(id)` is the filter primitive; readable synchronously from non-component code (e.g. `fetchPhotos`).
+- `src/hooks/useBlockedUsers.ts` — `useBlockedUsers()` returns the reactive set; refreshes on mount, re-renders on any block change.
+- `useAuth` warms `blockStore.refresh()` on `SIGNED_IN`/`INITIAL_SESSION` and calls `blockStore.clear()` on `SIGNED_OUT` (alongside `cache.clear()`).
+- Filter sites: `CapsuleDetailScreen.fetchPhotos` drops blocked uploaders' media; `MediaViewerModal.loadReactions` drops blocked users' reactions; the `InviteModal` search excludes blocked users. The parent re-runs `fetchPhotos` when `useBlockedUsers()` changes (skipping the first run).
+
+**Report UI** — `src/components/ReportModal.tsx`, a reusable controlled modal (reason radio list + optional ≤500-char details). Entry points: the **flag icon in `MediaViewerModal`'s header** (`targetType="media"`, passes `capsuleId`) and an **overflow `⋯` menu in `PublicProfileScreen`'s nav bar**. The `⋯` opens a small fade-in popup (tap-outside to dismiss) with **Report** and **Block/Unblock**; block goes through `ConfirmModal`. A blocked profile hides the Invite button and shows a notice.
+
+---
+
+## Friends
+
+Explicit friend requests (`friendships` table). Previously "friends" was *derived* from shared capsule membership; it's now an accept/request relationship. Invites to capsules remain open to **anyone** — friends are just a convenience shortcut, not a gate.
+
+- **Data layer** `src/lib/friends.ts` — `getFriendStatus(id)` → `'none' | 'friends' | 'incoming' | 'outgoing'`; `sendFriendRequest` / `acceptFriendRequest` / `removeFriendship` (one delete covers cancel/decline/unfriend); `listFriends` / `listIncomingRequests` / `listOutgoingRequests` (embed the *other* party's profile via the named FK, e.g. `users!friendships_requester_id_fkey`); `countFriends`. The unordered-pair `.or()` filter is `and(requester_id.eq.X,addressee_id.eq.Y),and(requester_id.eq.Y,addressee_id.eq.X)`. 23505 (duplicate pair) is treated as success.
+- **`PublicProfileScreen`** — a friend button that adapts to the status (`Add Friend` → `Requested`/tap-to-cancel → `Accept Request` + `Decline` → `Friends`). **Unfriend** lives in the `⋯` overflow menu (alongside Report/Block). Status is fetched on mount.
+- **`FriendsScreen`** (`AppStack` route `Friends`, opened by tapping the **Friends stat on `ProfileScreen`**) — a Requests section (Accept/Decline) + a Friends list (row → `PublicProfile`). The Profile `Friends` stat now counts accepted friendships via `countFriends()` (cache key `profile`; invalidate on accept/unfriend).
+- **Alerts tab** (`NotificationsScreen`) — `friend_request` rows render with inline **Accept/Decline** (act on `friendships` via `actor_id`, then mark the notification read); `friend_accept` rows tap through to the actor's profile. The notifications query embeds `actor:users!notifications_actor_id_fkey(...)`.
+- **Capsule invite search** (`InviteModal` in `CapsuleDetailScreen`) — a **Friends / Search** tab toggle. Friends tab lists accepted friends not already members (and not blocked); Search is the existing username search. Both use the same `invite()`.
+- **Not built (deferred):** remote push for friend events — `friend_request`/`friend_accept` create durable in-app notifications only; no Expo push is sent yet.
+
+---
+
 ## Utilities
 
 - `src/lib/uuid.ts` — `randomUUID()`. Use this instead of `crypto.randomUUID()` — `crypto` global is not reliably typed in the Expo TS config.
+- `src/lib/haptics.ts` — `haptics.{light,medium,heavy,selection,success,warning,error}()`. Central wrapper over `expo-haptics`; no-ops on web and swallows errors so call sites need no platform guard. **Use this for all tactile feedback** rather than importing `expo-haptics` directly. Wired into: tab bar taps (light; camera button medium), camera shutter (medium), reactions (light), notification accept (success) / decline (light), Home layout toggle (selection). `DatePicker` predates it and still calls `expo-haptics` directly.
 - `src/lib/googleAuth.ts` — `signInWithGoogle()`. Returns `{ error?: string }`.
-- `src/context/ThemeContext.tsx` — `useTheme()` returns `{ accentColor, setAccentColor }`. `ThemeProvider` must wrap the app.
+- `src/context/ThemeContext.tsx` — `useTheme()` returns `{ accentColor, setAccentColor, homeLayout, setHomeLayout }`. `ThemeProvider` must wrap the app.
 - `src/lib/sessionStore.ts` — `sessionStore.get()` / `sessionStore.set()`. Module-level session cache, updated by `useAuth` on every `onAuthStateChange` event. **Always use `sessionStore.get()` instead of `await supabase.auth.getSession()` inside screens.** `getSession()` on web hangs when the access token is expired because it blocks on an internal refresh network call. `sessionStore.get()` is synchronous and never hangs.
 
 ## Cache System (`src/lib/cache.ts`)

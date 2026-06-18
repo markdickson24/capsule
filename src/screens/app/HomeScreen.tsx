@@ -4,6 +4,7 @@ import {
   TouchableOpacity, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { haptics } from '../../lib/haptics';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
@@ -11,7 +12,7 @@ import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
-import { useTheme } from '../../context/ThemeContext';
+import { useTheme, type HomeLayout } from '../../context/ThemeContext';
 import { SkeletonCard } from '../../components/Skeleton';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
@@ -47,23 +48,29 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
   return <Text style={[styles.countdownText, { color: accentColor }]}>{hoursLeft}h left</Text>;
 }
 
-function CapsuleCard({ capsule, onPress, onLongPress, index }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number }) {
+function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number; variant?: HomeLayout }) {
   const { accentColor } = useTheme();
   const isLocked = capsule.status !== 'unlocked';
   const entrance = useListItemEntrance(index);
+  const isGrid = variant === 'grid';
   return (
-    <Animated.View style={entrance}>
-      <TouchableOpacity style={[styles.card, !isLocked && { borderColor: `${accentColor}40` }]} onPress={onPress} onLongPress={onLongPress} delayLongPress={400}>
+    <Animated.View style={[entrance, isGrid && styles.gridCell]}>
+      <TouchableOpacity
+        style={[styles.card, isGrid && styles.cardGrid, !isLocked && { borderColor: `${accentColor}40` }]}
+        onPress={onPress}
+        onLongPress={onLongPress}
+        delayLongPress={400}
+      >
         <View style={styles.cardTop}>
           <Ionicons
             name={isLocked ? 'time-outline' : 'lock-open-outline'}
-            size={24}
+            size={isGrid ? 20 : 24}
             color={isLocked ? '#888888' : '#30D158'}
           />
           <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} />
         </View>
-        <Text style={styles.cardTitle}>{capsule.title}</Text>
-        {capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
+        <Text style={[styles.cardTitle, isGrid && styles.cardTitleGrid]} numberOfLines={isGrid ? 2 : undefined}>{capsule.title}</Text>
+        {!isGrid && capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
         <Text style={styles.cardDate}>
           {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
         </Text>
@@ -92,7 +99,7 @@ function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCou
 }
 
 export default function HomeScreen() {
-  const { accentColor } = useTheme();
+  const { accentColor, homeLayout, setHomeLayout } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [refreshing, setRefreshing] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -134,7 +141,7 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
           <View style={{ width: 160, height: 28, borderRadius: 8, backgroundColor: '#1A1A1A' }} />
         </View>
@@ -148,10 +155,31 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <Animated.View style={[styles.header, headerAnim]}>
         <Text style={styles.title}>My Capsules</Text>
         {capsules.length > 0 && <Text style={styles.count}>{capsules.length} total</Text>}
+        {capsules.length > 0 && (
+          <View style={styles.layoutToggle}>
+            {(['list', 'grid'] as const).map(opt => {
+              const active = homeLayout === opt;
+              return (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.layoutBtn, active && { backgroundColor: `${accentColor}26` }]}
+                  onPress={() => { haptics.selection(); setHomeLayout(opt); }}
+                  hitSlop={6}
+                >
+                  <Ionicons
+                    name={opt === 'list' ? 'reorder-four-outline' : 'grid-outline'}
+                    size={18}
+                    color={active ? accentColor : '#666666'}
+                  />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </Animated.View>
 
       {capsules.length === 0 && archivedCapsules.length === 0 ? (
@@ -174,12 +202,16 @@ export default function HomeScreen() {
         </View>
       ) : (
         <FlatList
+          key={homeLayout}
           data={capsules}
           keyExtractor={(item) => item.id}
+          numColumns={homeLayout === 'grid' ? 2 : 1}
+          columnWrapperStyle={homeLayout === 'grid' ? styles.gridRow : undefined}
           renderItem={({ item, index }) => (
             <CapsuleCard
               capsule={item}
               index={index}
+              variant={homeLayout}
               onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: item.id })}
               onLongPress={
                 item.owner_id === userId && item.status !== 'unlocked'
@@ -217,9 +249,11 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'baseline', gap: 8 },
+  header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   count: { fontSize: 14, color: '#555555' },
+  layoutToggle: { flexDirection: 'row', gap: 2, marginLeft: 'auto', backgroundColor: '#1A1A1A', borderRadius: 10, padding: 3 },
+  layoutBtn: { padding: 6, borderRadius: 8 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
   emptyArt: { flexDirection: 'row', marginBottom: 8 },
   emptyArtBack: { transform: [{ rotate: '-12deg' }, { translateX: 18 }, { translateY: 8 }], opacity: 0.5 },
@@ -238,6 +272,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
   },
+  cardGrid: { flex: 1, padding: 14, gap: 6, minHeight: 116 },
+  gridCell: { flex: 1 },
+  gridRow: { gap: 12 },
+  cardTitleGrid: { fontSize: 15 },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   countdownText: { fontSize: 13, fontWeight: '700', color: '#FF6B35' },
   unlockedBadge: { flexDirection: 'row', alignItems: 'center' },

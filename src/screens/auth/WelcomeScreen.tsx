@@ -1,10 +1,12 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../types/navigation';
 import { signInWithGoogle } from '../../lib/googleAuth';
+import { sessionStore } from '../../lib/sessionStore';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Welcome'>;
@@ -13,6 +15,11 @@ type Props = {
 export default function WelcomeScreen({ navigation }: Props) {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
+  const [expired, setExpired] = useState(false);
+
+  useEffect(() => {
+    sessionStore.consumeSessionExpired().then(setExpired);
+  }, []);
 
   async function handleGoogle() {
     setGoogleLoading(true);
@@ -24,6 +31,15 @@ export default function WelcomeScreen({ navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {expired && (
+        <View style={styles.expiredBanner}>
+          <Ionicons name="lock-closed-outline" size={16} color="#FFB020" />
+          <Text style={styles.expiredText}>Your session expired. Please sign in again.</Text>
+          <TouchableOpacity onPress={() => setExpired(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={14} color="#FFB020" />
+          </TouchableOpacity>
+        </View>
+      )}
       <View style={styles.hero}>
         <Ionicons name="time-outline" size={72} color="#FF6B35" />
         <Text style={styles.title}>Capsule</Text>
@@ -33,7 +49,7 @@ export default function WelcomeScreen({ navigation }: Props) {
       <View style={styles.actions}>
         <TouchableOpacity style={styles.googleButton} onPress={handleGoogle} disabled={googleLoading}>
           {googleLoading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <LoadingBrand size="small" color="#FFFFFF" />
           ) : (
             <>
               <Ionicons name="logo-google" size={20} color="#FFFFFF" />
@@ -146,5 +162,23 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontSize: 14,
     textAlign: 'center',
+  },
+  expiredBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,176,32,0.12)',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,176,32,0.35)',
+  },
+  expiredText: {
+    flex: 1,
+    color: '#FFD18A',
+    fontSize: 13,
+    fontWeight: '600',
   },
 });

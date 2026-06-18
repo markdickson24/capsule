@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
-  View, Text, StyleSheet, ScrollView,
-  TouchableOpacity, ActivityIndicator, Modal, TextInput,
+  View, Text, StyleSheet, ScrollView, RefreshControl,
+  TouchableOpacity, Modal, TextInput,
   Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -14,7 +15,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Avatar } from './ProfileScreen';
@@ -23,8 +24,15 @@ import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import ReportModal from '../../components/ReportModal';
+import AwardsSection from '../../components/AwardsSection';
+import { blockStore } from '../../lib/blocks';
+import { useBlockedUsers } from '../../hooks/useBlockedUsers';
+import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
+import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -46,6 +54,8 @@ type MediaItem = {
   mediaType: 'photo' | 'video';
   signedUrl: string;
   thumbnailUri?: string;
+  /** Dual (PiP) photos: signed URL of the swapped composite, for tap-to-swap in the viewer. */
+  altSignedUrl?: string;
 };
 
 const roleIonicon: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -96,10 +106,21 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
   const { accentColor } = useTheme();
   const [now, setNow] = useState(Date.now());
 
+  const ONE_DAY = 1000 * 60 * 60 * 24;
+
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 60_000);
-    return () => clearInterval(id);
-  }, []);
+    // Self-rescheduling tick: every second once under a day remains (so the
+    // countdown is live to the second), every minute when further out.
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const r = Math.max(0, new Date(unlockAt).getTime() - Date.now());
+      setNow(Date.now());
+      if (r <= 0) return; // unlocked — stop ticking
+      id = setTimeout(tick, r < ONE_DAY ? 1000 : 60_000);
+    };
+    tick();
+    return () => clearTimeout(id);
+  }, [unlockAt]);
 
   const unlock = new Date(unlockAt).getTime();
   const created = createdAt
@@ -108,11 +129,16 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
   const remaining = Math.max(0, unlock - now);
   const progress = (unlock - created) > 0 ? remaining / (unlock - created) : 0;
 
-  const days = Math.floor(remaining / (1000 * 60 * 60 * 24));
-  const hours = Math.floor((remaining % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  const timeStr = remaining <= 0
-    ? 'Unlocking soon'
-    : days > 0 ? `${days}d ${hours}h left` : `${hours}h left`;
+  const days = Math.floor(remaining / ONE_DAY);
+  const hours = Math.floor((remaining % ONE_DAY) / (1000 * 60 * 60));
+  const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+  let timeStr: string;
+  if (remaining <= 0) timeStr = 'Unlocking soon';
+  else if (days > 0) timeStr = `${days}d ${hours}h left`;
+  else if (hours > 0) timeStr = `${hours}h ${minutes}m ${seconds}s left`;
+  else if (minutes > 0) timeStr = `${minutes}m ${seconds}s left`;
+  else timeStr = `${seconds}s left`;
 
   const unlockDateStr = new Date(unlockAt).toLocaleDateString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric',
@@ -177,6 +203,8 @@ function InviteModal({
   onInvited: () => void;
 }) {
   const { accentColor } = useTheme();
+  const [tab, setTab] = useState<'friends' | 'search'>('friends');
+  const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<UserResult[]>([]);
   const [inviting, setInviting] = useState<string | null>(null);
@@ -184,6 +212,15 @@ function InviteModal({
   const [error, setError] = useState('');
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inviteTimestamps = useRef<number[]>([]);
+
+  useEffect(() => {
+    listFriends().then(fs =>
+      setFriends(fs.filter(f => !existingMemberIds.includes(f.id) && !blockStore.has(f.id)))
+    );
+  }, []);
+
+  // Friends not yet invited this session.
+  const friendsToShow = friends.filter(f => !invitedIds.includes(f.id));
 
   function onSearch(text: string) {
     setQuery(text);
@@ -198,7 +235,7 @@ function InviteModal({
       if (data) {
         setResults(
           (data as UserResult[]).filter(
-            u => !existingMemberIds.includes(u.id) && !invitedIds.includes(u.id)
+            u => !existingMemberIds.includes(u.id) && !invitedIds.includes(u.id) && !blockStore.has(u.id)
           )
         );
       }
@@ -248,38 +285,82 @@ function InviteModal({
           </TouchableOpacity>
         </View>
 
-        <TextInput
-          style={ms.input}
-          placeholder="Search by username…"
-          placeholderTextColor="#555555"
-          value={query}
-          onChangeText={onSearch}
-          autoCapitalize="none"
-          autoCorrect={false}
-          autoFocus
-        />
+        <View style={ms.tabs}>
+          {(['friends', 'search'] as const).map(t => (
+            <TouchableOpacity
+              key={t}
+              style={[ms.tab, tab === t && { backgroundColor: accentColor }]}
+              onPress={() => setTab(t)}
+              activeOpacity={0.8}
+            >
+              <Text style={[ms.tabText, tab === t && ms.tabTextActive]}>
+                {t === 'friends' ? 'Friends' : 'Search'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
-        {error ? <Text style={ms.error}>{error}</Text> : null}
-
-        {results.length > 0 && (
-          <View style={ms.results}>
-            {results.map(u => (
-              <View key={u.id} style={ms.row}>
-                <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
-                  <Text style={[ms.avatarText, { color: accentColor }]}>{u.display_name[0].toUpperCase()}</Text>
-                </View>
-                <Text style={ms.name}>{u.display_name}</Text>
-                <TouchableOpacity
-                  style={[ms.inviteBtn, { backgroundColor: accentColor }]}
-                  onPress={() => invite(u.id)}
-                  disabled={inviting === u.id}
-                >
-                  <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
-                </TouchableOpacity>
+        {tab === 'search' ? (
+          <>
+            <TextInput
+              style={ms.input}
+              placeholder="Search by username…"
+              placeholderTextColor="#555555"
+              value={query}
+              onChangeText={onSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+            />
+            {results.length > 0 && (
+              <View style={ms.results}>
+                {results.map(u => (
+                  <View key={u.id} style={ms.row}>
+                    <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
+                      <Text style={[ms.avatarText, { color: accentColor }]}>{u.display_name[0].toUpperCase()}</Text>
+                    </View>
+                    <Text style={ms.name}>{u.display_name}</Text>
+                    <TouchableOpacity
+                      style={[ms.inviteBtn, { backgroundColor: accentColor }]}
+                      onPress={() => invite(u.id)}
+                      disabled={inviting === u.id}
+                    >
+                      <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
-            ))}
+            )}
+          </>
+        ) : (
+          <View style={ms.results}>
+            {friendsToShow.length === 0 ? (
+              <Text style={ms.emptyTab}>
+                {friends.length === 0
+                  ? 'No friends to add yet. Add friends from their profile.'
+                  : 'All your friends are already in this capsule.'}
+              </Text>
+            ) : (
+              friendsToShow.map(f => (
+                <View key={f.id} style={ms.row}>
+                  <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
+                    <Text style={[ms.avatarText, { color: accentColor }]}>{(f.display_name[0] ?? '?').toUpperCase()}</Text>
+                  </View>
+                  <Text style={ms.name}>{f.display_name}</Text>
+                  <TouchableOpacity
+                    style={[ms.inviteBtn, { backgroundColor: accentColor }]}
+                    onPress={() => invite(f.id)}
+                    disabled={inviting === f.id}
+                  >
+                    <Text style={ms.inviteBtnText}>{inviting === f.id ? '…' : 'Invite'}</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
           </View>
         )}
+
+        {error ? <Text style={ms.error}>{error}</Text> : null}
 
         {invitedIds.length > 0 && (
           <Text style={ms.success}>
@@ -340,7 +421,7 @@ function ReactionsBar({
           {REACTION_EMOJIS.filter(e => !reactedEmojis.has(e)).map(emoji => (
             <TouchableOpacity
               key={emoji}
-              onPress={() => { onAdd(mediaId, emoji); setShowPicker(false); }}
+              onPress={() => { haptics.light(); onAdd(mediaId, emoji); setShowPicker(false); }}
               style={rs.pickerEmoji}
             >
               <Text style={{ fontSize: 28 }}>{emoji}</Text>
@@ -395,10 +476,12 @@ function VideoSlide({ item, isActive }: { item: MediaItem; isActive: boolean }) 
 function MediaViewerModal({
   items,
   startIndex,
+  capsuleId,
   onClose,
 }: {
   items: MediaItem[];
   startIndex: number;
+  capsuleId: string;
   onClose: () => void;
 }) {
   const currentIndexRef = useRef(startIndex);
@@ -407,6 +490,11 @@ function MediaViewerModal({
   const [currentUserId, setCurrentUserId] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  // Dual (PiP) photos: per-item toggle for which lens is the main frame.
+  const [swapped, setSwapped] = useState<Record<string, boolean>>({});
+  const shownUrl = (item: MediaItem) =>
+    swapped[item.id] && item.altSignedUrl ? item.altSignedUrl : item.signedUrl;
 
   useEffect(() => {
     loadReactions();
@@ -419,7 +507,8 @@ function MediaViewerModal({
       .from('reactions')
       .select('id, media_id, user_id, emoji')
       .in('media_id', mediaIds);
-    if (data) setReactions(data as Reaction[]);
+    // Hide reactions from users this person has blocked.
+    if (data) setReactions((data as Reaction[]).filter(r => !blockStore.has(r.user_id)));
   }
 
   async function addReaction(mediaId: string, emoji: string) {
@@ -452,14 +541,16 @@ function MediaViewerModal({
 
   async function downloadCurrent() {
     const item = items[currentIndex];
-    if (!item?.signedUrl || downloading) return;
+    // Save whichever view is currently shown (swapped or not) for dual photos.
+    const url = shownUrl(item);
+    if (!url || downloading) return;
     setDownloading(true);
     setDownloadDone(false);
 
     try {
       if (Platform.OS === 'web') {
         const a = document.createElement('a');
-        a.href = item.signedUrl;
+        a.href = url;
         a.download = `capsule-${item.id}.${item.mediaType === 'video' ? 'mp4' : 'jpg'}`;
         a.click();
       } else {
@@ -467,7 +558,7 @@ function MediaViewerModal({
         if (status !== 'granted') { setDownloading(false); return; }
         const ext = item.mediaType === 'video' ? 'mp4' : 'jpg';
         const localUri = FileSystem.cacheDirectory + `capsule-${item.id}.${ext}`;
-        await FileSystem.downloadAsync(item.signedUrl, localUri);
+        await FileSystem.downloadAsync(url, localUri);
         await MediaLibrary.saveToLibraryAsync(localUri);
       }
       setDownloadDone(true);
@@ -545,7 +636,17 @@ function MediaViewerModal({
                 <VideoSlide key={item.id} item={item} isActive={index === currentIndex} />
               ) : (
                 <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                  <Image source={item.signedUrl} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" transition={200} />
+                  <Image source={shownUrl(item)} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" transition={150} />
+                  {/* Dual (PiP) photo — tap the corner bubble to swap which lens is the main frame. */}
+                  {item.altSignedUrl && (
+                    <TouchableOpacity
+                      style={styles.swapBubble}
+                      activeOpacity={0.8}
+                      onPress={() => setSwapped(s => ({ ...s, [item.id]: !s[item.id] }))}
+                    >
+                      <Ionicons name="sync-outline" size={16} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  )}
                 </View>
               )
             )}
@@ -572,15 +673,28 @@ function MediaViewerModal({
               <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
                 {currentIndex + 1} / {items.length}
               </Text>
-              <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
-                {downloading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Ionicons name={downloadDone ? 'checkmark-circle' : 'download-outline'} size={24} color={downloadDone ? '#30D158' : '#fff'} />
-                )}
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }}>
+                  <Ionicons name="flag-outline" size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
+                  {downloading ? (
+                    <LoadingBrand size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name={downloadDone ? 'checkmark-circle' : 'download-outline'} size={24} color={downloadDone ? '#30D158' : '#fff'} />
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           </LinearGradient>
+
+          <ReportModal
+            visible={showReport}
+            targetType="media"
+            targetId={items[currentIndex]?.id ?? ''}
+            capsuleId={capsuleId}
+            onClose={() => setShowReport(false)}
+          />
         </Animated.View>
       </Animated.View>
     </Modal>
@@ -703,7 +817,7 @@ function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
         disabled={busy}
       >
         {busy
-          ? <ActivityIndicator color="#FFFFFF" />
+          ? <LoadingBrand size="small" color="#FFFFFF" />
           : <Text style={chk.btnText}>We're here — check in</Text>}
       </TouchableOpacity>
     </View>
@@ -743,6 +857,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
   const [showGallery, setShowGallery] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await Promise.all([load(), fetchPhotos()]);
+    setRefreshing(false);
+  }
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
   const [showInvite, setShowInvite] = useState(false);
@@ -753,6 +874,15 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const heroAnim = useFadeIn(0, 300);
+
+  // Re-filter media when the user's block list changes (e.g. after blocking
+  // someone on their profile and returning here). Skips the initial run.
+  const blockedIds = useBlockedUsers();
+  const firstBlockRun = useRef(true);
+  useEffect(() => {
+    if (firstBlockRun.current) { firstBlockRun.current = false; return; }
+    fetchPhotos();
+  }, [blockedIds]);
 
   async function confirmDelete() {
     setDeleting(true);
@@ -789,23 +919,41 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   async function fetchPhotos() {
     const { data: mediaData } = await supabase
       .from('media')
-      .select('id, storage_key, uploader_id, uploaded_at, media_type')
+      .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type')
       .eq('capsule_id', capsuleId)
       .order('uploaded_at', { ascending: false });
 
     if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }
 
+    // Hide media uploaded by users this person has blocked.
+    const visibleMedia = mediaData.filter((m: any) => !blockStore.has(m.uploader_id));
+    if (visibleMedia.length === 0) { setPhotos([]); return; }
+
     const { data: signedData } = await supabase.storage
       .from('capsule-media')
-      .createSignedUrls(mediaData.map((m: any) => m.storage_key), 3600);
+      .createSignedUrls(visibleMedia.map((m: any) => m.storage_key), 3600);
 
-    const items: MediaItem[] = mediaData.map((m: any, i: number) => ({
+    // Sign the swap (alt) composites for dual photos, mapped back by key.
+    const altKeys = visibleMedia.map((m: any) => m.alt_storage_key).filter(Boolean) as string[];
+    const altUrlByKey: Record<string, string> = {};
+    if (altKeys.length) {
+      const { data: altSigned } = await supabase.storage
+        .from('capsule-media')
+        .createSignedUrls(altKeys, 3600);
+      altKeys.forEach((k, i) => {
+        const u = altSigned?.[i]?.signedUrl;
+        if (u) altUrlByKey[k] = u;
+      });
+    }
+
+    const items: MediaItem[] = visibleMedia.map((m: any, i: number) => ({
       id: m.id,
       storage_key: m.storage_key,
       uploader_id: m.uploader_id,
       uploaded_at: m.uploaded_at,
       mediaType: m.media_type,
       signedUrl: signedData?.[i]?.signedUrl ?? '',
+      altSignedUrl: m.alt_storage_key ? altUrlByKey[m.alt_storage_key] : undefined,
     }));
 
     setPhotos(items);
@@ -838,7 +986,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
-      setCapsule(capsuleRes.data);
+      setCapsule(capsuleRes.data as Capsule);
     }
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
@@ -912,8 +1060,9 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               .upload(storageKey, arrayBuffer, { contentType: mimeType });
             if (uploadErr) throw new Error(uploadErr.message);
           } else {
-            const fileInfo = await FileSystem.getInfoAsync(asset.uri, { size: true });
+            const fileInfo = await FileSystem.getInfoAsync(asset.uri);
             sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+            const accessToken = await getFreshAccessToken();
             const result = await FileSystem.uploadAsync(
               `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
               asset.uri,
@@ -921,7 +1070,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 httpMethod: 'POST',
                 uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
                 headers: {
-                  Authorization: `Bearer ${session.access_token}`,
+                  Authorization: `Bearer ${accessToken}`,
                   apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
                   'Content-Type': mimeType,
                 },
@@ -945,6 +1094,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       }
 
       if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
+      const added = assets.length - failed;
+      if (added > 0) toast.show(`${added} photo${added > 1 ? 's' : ''} added`);
     } catch {
       setUploadError('Upload failed. Try again.');
     }
@@ -955,11 +1106,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   async function pickFromLibrary() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      setUploadError('Photo library access denied. Enable it in Settings.');
-      return;
-    }
+    // No permission prompt: launchImageLibraryAsync uses the iOS PHPicker (and the
+    // Android Photo Picker), which run out-of-process and return only the items the
+    // user explicitly selects — so no library-access dialog is required. Requesting
+    // permission first just added a slow, confusing prompt that made it look like you
+    // couldn't add photos. (Matches the avatar pickers in Onboarding/Profile.)
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsMultipleSelection: true,
@@ -1062,7 +1213,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={accentColor}
+          />
+        }
+      >
         <Animated.View style={heroAnim}>
         <View style={styles.hero}>
           <Ionicons
@@ -1221,7 +1382,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
             {uploading ? (
               <View style={styles.uploadingRow}>
-                <ActivityIndicator color={accentColor} size="small" />
+                <LoadingBrand size="medium" color={accentColor} />
                 <Text style={styles.uploadingText}>
                   Uploading {uploadCount.done}/{uploadCount.total}…
                 </Text>
@@ -1254,6 +1415,28 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             )}
           </View>
+        )}
+
+        {!isLocked && (
+          <AwardsSection
+            capsuleId={capsuleId}
+            joinedMemberCount={members.filter(m => m.joined_at !== null).length}
+            members={members
+              .filter(m => m.joined_at !== null && m.users !== null)
+              .map(m => ({
+                user_id: m.user_id,
+                display_name: m.users?.display_name ?? 'Member',
+                avatar_url: m.users?.avatar_url ?? null,
+              }))}
+            media={photos.map(p => ({
+              id: p.id,
+              mediaType: p.mediaType,
+              signedUrl: p.signedUrl,
+              thumbnailUri: p.thumbnailUri,
+            }))}
+            votingClosesAt={(capsule as any).superlative_voting_closes_at ?? null}
+            votingFinalizedAt={(capsule as any).superlative_voting_finalized_at ?? null}
+          />
         )}
 
         {isOwner && (
@@ -1298,6 +1481,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         <MediaViewerModal
           items={photos}
           startIndex={activeMediaIndex}
+          capsuleId={capsuleId}
           onClose={() => setActiveMediaIndex(null)}
         />
       )}
@@ -1339,6 +1523,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
+  swapBubble: {
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4,
@@ -1459,6 +1656,14 @@ const ms = StyleSheet.create({
   },
   title: { fontSize: 22, fontWeight: '800', color: '#FFFFFF' },
   done: { fontSize: 16, fontWeight: '600', color: '#FF6B35' },
+  tabs: {
+    flexDirection: 'row', gap: 8, marginHorizontal: 24, marginBottom: 12,
+    backgroundColor: '#1A1A1A', borderRadius: 12, padding: 4,
+  },
+  tab: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
+  tabText: { color: '#888888', fontWeight: '700', fontSize: 14 },
+  tabTextActive: { color: '#FFFFFF' },
+  emptyTab: { color: '#555555', fontSize: 14, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
   input: {
     marginHorizontal: 24, backgroundColor: '#1A1A1A', borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,

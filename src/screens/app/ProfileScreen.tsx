@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
-  TextInput, Modal, ActivityIndicator, Platform,
+  TextInput, Modal, Platform,
   ScrollView, KeyboardAvoidingView, Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -12,13 +12,14 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshSession } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import { SkeletonProfileCard } from '../../components/Skeleton';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { cache } from '../../lib/cache';
+import { countFriends } from '../../lib/friends';
 import { useSlideUp } from '../../lib/animations';
 
 type Profile = {
@@ -56,39 +57,56 @@ export function Avatar({ url, name, size, accent }: { url: string | null; name: 
   );
 }
 
-async function uploadAvatar(uri: string, userId: string): Promise<string | null> {
-  const session = sessionStore.get();
-  if (!session) return null;
-
-  const path = `${userId}/avatar.jpg`;
+async function uploadAvatar(uri: string): Promise<string> {
+  // The avatars RLS check is `auth.uid()::text = foldername[1]`, so the path's
+  // user id MUST be the authenticated user — never a cached profile.id, which
+  // can lag behind the live session and trigger a 403 RLS violation.
+  let path: string;
 
   if (Platform.OS === 'web') {
+    const session = sessionStore.get();
+    if (!session) throw new Error('Not signed in');
+    path = `${session.user.id}/avatar.jpg`;
     const resp = await fetch(uri);
     const buf = await resp.arrayBuffer();
     const { error } = await supabase.storage
       .from('avatars')
       .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-    if (error) return null;
+    if (error) throw new Error(error.message);
   } else {
+    const { accessToken, userId, expiresInSec } = await getFreshSession();
+    path = `${userId}/avatar.jpg`;
     const resized = await ImageManipulator.manipulateAsync(
       uri,
       [{ resize: { width: 400 } }],
       { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG }
     );
+    // TEMP diagnostic: surface token freshness + path uid on failure.
+    const tokenSub = (() => {
+      try { return JSON.parse(atob(accessToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).sub; }
+      catch { return '??'; }
+    })();
     const result = await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/avatars/${path}`,
       resized.uri,
       {
         httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
           'Content-Type': 'image/jpeg',
           'x-upsert': 'true',
         },
       }
     );
-    if (result.status >= 400) return null;
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(
+        `Storage ${result.status}: ${result.body?.slice(0, 160) ?? 'no body'} ` +
+        `| pathUid=${userId.slice(0, 8)} tokenSub=${String(tokenSub).slice(0, 8)} ` +
+        `match=${String(tokenSub) === userId} expiresIn=${expiresInSec}s`
+      );
+    }
   }
 
   const { data } = supabase.storage.from('avatars').getPublicUrl(path);
@@ -112,20 +130,22 @@ function getMemberSince(createdAt: string): string {
   return `${years}y ${rem}mo`;
 }
 
-function StatItem({ value, label, icon, accentColor }: {
+function StatItem({ value, label, icon, accentColor, onPress }: {
   value: string;
   label: string;
   icon: keyof typeof Ionicons.glyphMap;
   accentColor: string;
+  onPress?: () => void;
 }) {
+  const Container: any = onPress ? TouchableOpacity : View;
   return (
-    <View style={styles.statItem}>
+    <Container style={styles.statItem} onPress={onPress} activeOpacity={0.7}>
       <View style={[styles.statIconWrap, { backgroundColor: `${accentColor}15` }]}>
         <Ionicons name={icon} size={16} color={accentColor} />
       </View>
       <Text style={styles.statValue}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
-    </View>
+    </Container>
   );
 }
 
@@ -164,9 +184,13 @@ function EditProfileModal({
 
     let avatar_url = profile.avatar_url;
     if (avatarUri) {
-      const uploaded = await uploadAvatar(avatarUri, profile.id);
-      if (uploaded) avatar_url = uploaded;
-      else { setError('Avatar upload failed. Try again.'); setSaving(false); return; }
+      try {
+        avatar_url = await uploadAvatar(avatarUri);
+      } catch (e: any) {
+        setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
+        setSaving(false);
+        return;
+      }
     }
 
     const { error: err } = await supabase
@@ -259,14 +283,7 @@ export default function ProfileScreen() {
       if (!session) throw new Error('No session');
       const userId = session.user.id;
 
-      const myCapsuleIds = (await supabase
-        .from('capsule_members')
-        .select('capsule_id')
-        .eq('user_id', userId)
-        .not('joined_at', 'is', null)
-      ).data?.map((r: any) => r.capsule_id) ?? [];
-
-      const [profileRes, capsulesRes, friendsRes] = await Promise.all([
+      const [profileRes, capsulesRes, friendCount] = await Promise.all([
         supabase
           .from('users')
           .select('id, display_name, bio, avatar_url, created_at')
@@ -277,21 +294,15 @@ export default function ProfileScreen() {
           .select('capsule_id, capsules(status)')
           .eq('user_id', userId)
           .not('joined_at', 'is', null),
-        supabase
-          .from('capsule_members')
-          .select('user_id')
-          .in('capsule_id', myCapsuleIds.length > 0 ? myCapsuleIds : ['__none__'])
-          .not('joined_at', 'is', null)
-          .neq('user_id', userId),
+        countFriends(),
       ]);
 
       const prof = profileRes.data as Profile;
       const capsules = (capsulesRes.data ?? []) as any[];
-      const uniqueFriends = new Set((friendsRes.data ?? []).map((r: any) => r.user_id));
       const s: Stats = {
         capsuleCount: capsules.length,
         unlockedCount: capsules.filter(c => c.capsules?.status === 'unlocked').length,
-        friendCount: uniqueFriends.size,
+        friendCount,
       };
 
       setProfile(prof);
@@ -354,6 +365,7 @@ export default function ProfileScreen() {
                 label="Friends"
                 icon="people-outline"
                 accentColor={accentColor}
+                onPress={() => navigation.navigate('Friends')}
               />
             </View>
           </View>
@@ -379,9 +391,9 @@ export default function ProfileScreen() {
             activeOpacity={0.7}
           >
             <View style={[styles.actionIconWrap, { backgroundColor: `${accentColor}15` }]}>
-              <Ionicons name="color-palette-outline" size={18} color={accentColor} />
+              <Ionicons name="settings-outline" size={18} color={accentColor} />
             </View>
-            <Text style={styles.actionText}>Appearance</Text>
+            <Text style={styles.actionText}>Settings</Text>
             <Ionicons name="chevron-forward" size={18} color="#444" />
           </TouchableOpacity>
         </Animated.View>
@@ -419,7 +431,7 @@ export default function ProfileScreen() {
             </Text>
             <TouchableOpacity
               style={styles.destructBtn}
-              onPress={() => supabase.auth.signOut()}
+              onPress={() => { sessionStore.markIntentionalSignOut(); supabase.auth.signOut(); }}
             >
               <Text style={styles.destructBtnText}>Sign Out</Text>
             </TouchableOpacity>

@@ -14,16 +14,48 @@ import { useTheme } from '../../context/ThemeContext';
 import { SkeletonNotificationRow } from '../../components/Skeleton';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { cache } from '../../lib/cache';
+import { acceptFriendRequest, removeFriendship } from '../../lib/friends';
+import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
+
+type Actor = { id: string; display_name: string; avatar_url: string | null };
 
 type NotificationRow = {
   id: string;
-  capsule_id: string;
-  type: 'invite' | 'unlock' | 'reaction';
+  capsule_id: string | null;
+  actor_id: string | null;
+  type:
+    | 'invite'
+    | 'unlock'
+    | 'unlock_reminder'
+    | 'reaction'
+    | 'superlative_suggested'
+    | 'superlative_closing_soon'
+    | 'superlative_won'
+    | 'friend_request'
+    | 'friend_accept';
   sent_at: string;
   read_at: string | null;
   capsules: { title: string } | null;
+  actor: Actor | null;
 };
+
+const SUPERLATIVE_TYPES: NotificationRow['type'][] = [
+  'superlative_suggested',
+  'superlative_closing_soon',
+  'superlative_won',
+];
+
+function isCapsuleNav(type: NotificationRow['type']) {
+  return (
+    type === 'unlock' ||
+    type === 'unlock_reminder' ||
+    type === 'reaction' ||
+    type === 'superlative_suggested' ||
+    type === 'superlative_closing_soon' ||
+    type === 'superlative_won'
+  );
+}
 
 type DisplayNotification = NotificationRow & { reactionCount?: number };
 
@@ -42,13 +74,14 @@ function processNotifications(raw: NotificationRow[]): DisplayNotification[] {
   const reactionGroups: Record<string, { latest: NotificationRow; count: number }> = {};
 
   for (const n of raw) {
-    if (n.type === 'reaction') {
-      if (!reactionGroups[n.capsule_id]) {
-        reactionGroups[n.capsule_id] = { latest: n, count: 0 };
+    if (n.type === 'reaction' && n.capsule_id) {
+      const cid = n.capsule_id;
+      if (!reactionGroups[cid]) {
+        reactionGroups[cid] = { latest: n, count: 0 };
       }
-      reactionGroups[n.capsule_id].count++;
-      if (n.sent_at > reactionGroups[n.capsule_id].latest.sent_at) {
-        reactionGroups[n.capsule_id].latest = n;
+      reactionGroups[cid].count++;
+      if (n.sent_at > reactionGroups[cid].latest.sent_at) {
+        reactionGroups[cid].latest = n;
       }
     } else {
       display.push(n);
@@ -87,7 +120,7 @@ export default function NotificationsScreen() {
       const [notifsRes, pendingRes] = await Promise.all([
         supabase
           .from('notifications')
-          .select('id, capsule_id, type, sent_at, read_at, capsules(title)')
+          .select('id, capsule_id, actor_id, type, sent_at, read_at, capsules(title), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
           .eq('user_id', userId)
           .is('read_at', null)
           .order('sent_at', { ascending: false }),
@@ -118,23 +151,37 @@ export default function NotificationsScreen() {
     } else {
       setNotifications(prev => prev.filter(n => n.id !== item.id));
     }
-    // Persist read_at in background
+    void persistRead(item);
+  }
+
+  // Persist read_at. IMPORTANT: a supabase query only runs when it is awaited /
+  // then'd — a bare `supabase...update()` expression is a silent no-op, which is
+  // why dismissed notifications (e.g. an accepted friend request) kept reappearing
+  // after a tab switch. We await, then invalidate the cache *after* the write
+  // commits so a focus-refetch can't resurrect the row from the still-unread DB state.
+  async function persistRead(item: DisplayNotification) {
     const session = sessionStore.get();
     if (!session) return;
     const now = new Date().toISOString();
-    if (item.type === 'reaction') {
-      supabase.from('notifications')
-        .update({ read_at: now })
-        .eq('user_id', session.user.id)
-        .eq('capsule_id', item.capsule_id)
-        .eq('type', 'reaction');
-    } else {
-      supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
+    const query = item.type === 'reaction' && item.capsule_id
+      ? supabase.from('notifications')
+          .update({ read_at: now })
+          .eq('user_id', session.user.id)
+          .eq('capsule_id', item.capsule_id)
+          .eq('type', 'reaction')
+      : supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
+    const { error } = await query;
+    if (error) {
+      console.warn('Failed to mark notification read:', error.message);
+      return;
     }
+    cache.invalidate('notifications');
   }
 
   async function accept(notif: DisplayNotification) {
-    const memberId = pendingMap[notif.capsule_id];
+    const capsuleId = notif.capsule_id;
+    if (!capsuleId) return;
+    const memberId = pendingMap[capsuleId];
     if (!memberId) return;
     setAccepting(notif.id);
     const { error } = await supabase
@@ -143,16 +190,36 @@ export default function NotificationsScreen() {
       .eq('id', memberId);
 
     if (!error) {
+      haptics.success();
       dismiss(notif);
       setPendingMap(prev => {
         const next = { ...prev };
-        delete next[notif.capsule_id];
+        delete next[capsuleId];
         return next;
       });
       cache.invalidate('capsules', 'profile');
-      navigation.navigate('CapsuleDetail', { capsuleId: notif.capsule_id });
+      navigation.navigate('CapsuleDetail', { capsuleId });
     }
     setAccepting(null);
+  }
+
+  async function acceptFriend(item: DisplayNotification) {
+    if (!item.actor_id) return;
+    setAccepting(item.id);
+    const { error } = await acceptFriendRequest(item.actor_id);
+    if (!error) {
+      haptics.success();
+      dismiss(item);
+      cache.invalidate('profile');
+    }
+    setAccepting(null);
+  }
+
+  function declineFriend(item: DisplayNotification) {
+    if (!item.actor_id) return;
+    haptics.light();
+    removeFriendship(item.actor_id);
+    dismiss(item);
   }
 
   async function onRefresh() {
@@ -217,8 +284,8 @@ export default function NotificationsScreen() {
         ) : (
           <View style={styles.list}>
           {notifications.map((item, idx) => {
-            const isPending = item.type === 'invite' && !!pendingMap[item.capsule_id];
-            const isAccepted = item.type === 'invite' && !pendingMap[item.capsule_id];
+            const isPending = item.type === 'invite' && !!item.capsule_id && !!pendingMap[item.capsule_id];
+            const isAccepted = item.type === 'invite' && (!item.capsule_id || !pendingMap[item.capsule_id]);
             const key = item.type === 'reaction' ? `reaction-${item.capsule_id}` : item.id;
 
             return (
@@ -227,26 +294,39 @@ export default function NotificationsScreen() {
                 style={styles.card}
                 activeOpacity={0.7}
                 onPress={() => {
-                  if (item.type === 'unlock' || item.type === 'reaction') {
+                  if (isCapsuleNav(item.type) && item.capsule_id) {
                     dismiss(item);
                     navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
-                  } else if (item.type === 'invite' && !pendingMap[item.capsule_id]) {
+                  } else if (item.type === 'invite' && item.capsule_id && !pendingMap[item.capsule_id]) {
                     // accepted invite — tap to open capsule and dismiss
                     dismiss(item);
                     navigation.navigate('CapsuleDetail', { capsuleId: item.capsule_id });
+                  } else if (item.type === 'friend_accept' && item.actor_id) {
+                    dismiss(item);
+                    navigation.navigate('PublicProfile', { userId: item.actor_id });
                   }
                 }}
               >
                 <Ionicons
                   name={
                     item.type === 'unlock' ? 'lock-open-outline'
+                    : item.type === 'unlock_reminder' ? 'hourglass-outline'
                     : item.type === 'reaction' ? 'heart-outline'
+                    : item.type === 'superlative_won' ? 'trophy'
+                    : item.type === 'superlative_closing_soon' ? 'time-outline'
+                    : item.type === 'superlative_suggested' ? 'sparkles-outline'
+                    : item.type === 'friend_request' ? 'person-add-outline'
+                    : item.type === 'friend_accept' ? 'people'
                     : 'cube-outline'
                   }
                   size={28}
                   color={
                     item.type === 'unlock' ? '#30D158'
+                    : item.type === 'unlock_reminder' ? accentColor
+                    : item.type === 'friend_accept' ? '#30D158'
                     : item.type === 'reaction' ? accentColor
+                    : item.type === 'friend_request' ? accentColor
+                    : SUPERLATIVE_TYPES.includes(item.type) ? accentColor
                     : '#888888'
                   }
                 />
@@ -257,12 +337,43 @@ export default function NotificationsScreen() {
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
                         {' '}just unlocked!
                       </>
+                    ) : item.type === 'unlock_reminder' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
+                        {' '}is unlocking soon
+                      </>
                     ) : item.type === 'reaction' ? (
                       <>
                         {(item.reactionCount ?? 1) > 1
                           ? `${item.reactionCount} people reacted to your photos in `
                           : 'Someone reacted to your photo in '}
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                      </>
+                    ) : item.type === 'superlative_won' ? (
+                      <>
+                        You won an award in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                        {' '}🎉
+                      </>
+                    ) : item.type === 'superlative_closing_soon' ? (
+                      <>
+                        Voting closes in 2 hours in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                      </>
+                    ) : item.type === 'superlative_suggested' ? (
+                      <>
+                        A new award category was suggested in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                      </>
+                    ) : item.type === 'friend_request' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.actor?.display_name ?? 'Someone'}</Text>
+                        {' '}sent you a friend request
+                      </>
+                    ) : item.type === 'friend_accept' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.actor?.display_name ?? 'Someone'}</Text>
+                        {' '}accepted your friend request
                       </>
                     ) : (
                       <>
@@ -292,7 +403,22 @@ export default function NotificationsScreen() {
                   </View>
                 )}
 
-                {(item.type === 'unlock' || item.type === 'reaction') && (
+                {item.type === 'friend_request' && (
+                  <View style={styles.friendActions}>
+                    <TouchableOpacity
+                      style={[styles.acceptBtn, { backgroundColor: accentColor }]}
+                      onPress={() => acceptFriend(item)}
+                      disabled={accepting === item.id}
+                    >
+                      <Text style={styles.acceptBtnText}>{accepting === item.id ? '…' : 'Accept'}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={styles.declineBtn} onPress={() => declineFriend(item)}>
+                      <Ionicons name="close" size={18} color="#888888" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {isCapsuleNav(item.type) && (
                   <Ionicons name="chevron-forward" size={18} color="#555555" />
                 )}
               </TouchableOpacity>
@@ -348,4 +474,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 7,
   },
   joinedText: { color: '#30D158', fontWeight: '700', fontSize: 13 },
+  friendActions: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  declineBtn: {
+    width: 34, height: 34, borderRadius: 10, borderWidth: 1, borderColor: '#2A2A2A',
+    alignItems: 'center', justifyContent: 'center',
+  },
 });

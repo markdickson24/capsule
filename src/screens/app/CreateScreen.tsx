@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput, Animated,
-  TouchableOpacity, ScrollView, ActivityIndicator, Platform,
+  TouchableOpacity, ScrollView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import * as FileSystem from 'expo-file-system/legacy';
-import { supabase } from '../../lib/supabase';
+import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,7 +16,9 @@ import { AppStackParamList, AppTabParamList, PendingMedia } from '../../types/na
 import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
+import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
 type Permission = 'contributor' | 'viewer';
@@ -56,8 +59,9 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
       .from('capsule-media')
       .upload(storageKey, arrayBuffer, { contentType: mimeType });
   } else {
-    const fileInfo = await FileSystem.getInfoAsync(media.uri, { size: true });
+    const fileInfo = await FileSystem.getInfoAsync(media.uri);
     sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
+    const accessToken = await getFreshAccessToken();
     await FileSystem.uploadAsync(
       `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
       media.uri,
@@ -65,7 +69,7 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
         httpMethod: 'POST',
         uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
         headers: {
-          Authorization: `Bearer ${session.access_token}`,
+          Authorization: `Bearer ${accessToken}`,
           apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
           'Content-Type': mimeType,
         },
@@ -87,12 +91,16 @@ export default function CreateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Create'>>();
   const pendingMedia = route.params?.pendingMedia ?? null;
+  const pendingCount = pendingMedia?.length ?? 0;
+  const pendingHasVideo = pendingMedia?.some(m => m.mediaType === 'video') ?? false;
+  const pendingHasPhoto = pendingMedia?.some(m => m.mediaType === 'photo') ?? false;
   const [title, setTitle] = useState(route.params?.presetTitle ?? '');
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
+  const [votingHours, setVotingHours] = useState(48);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -109,6 +117,10 @@ export default function CreateScreen() {
         setError('Contribution lock must be before the unlock date.');
         return;
       }
+    }
+    if (votingHours < 1 || votingHours > 720) {
+      setError('Voting window must be between 1 and 720 hours.');
+      return;
     }
 
     setLoading(true);
@@ -129,6 +141,7 @@ export default function CreateScreen() {
         unlock_at: (unlockDate ?? defaultUnlockDate()).toISOString(),
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
         unlock_mode: unlockMode,
+        superlative_voting_hours: votingHours,
         status: 'active',
         visibility: 'invite',
       });
@@ -152,12 +165,16 @@ export default function CreateScreen() {
       return;
     }
 
-    if (pendingMedia) {
-      try {
-        await uploadMedia(capsuleId, pendingMedia);
-      } catch {
-        // Capsule created successfully — media upload failed but user can retry from detail
+    if (pendingMedia && pendingMedia.length > 0) {
+      for (const media of pendingMedia) {
+        try {
+          await uploadMedia(capsuleId, media);
+        } catch {
+          // Capsule created successfully — keep going so partial success is preserved
+        }
       }
+      const n = pendingMedia.length;
+      toast.show(`${n} ${n === 1 ? 'photo' : 'photos'} added`);
     }
 
     setLoading(false);
@@ -169,7 +186,7 @@ export default function CreateScreen() {
   const formAnim = useSlideUp(80, 350);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Animated.View style={headerAnim}>
           <Text style={styles.title}>New Capsule</Text>
@@ -177,11 +194,17 @@ export default function CreateScreen() {
         </Animated.View>
 
         <Animated.View style={[{ gap: 24 }, formAnim]}>
-        {pendingMedia && (
+        {pendingCount > 0 && (
           <View style={[styles.pendingBanner, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
-            <Ionicons name={pendingMedia.mediaType === 'video' ? 'videocam' : 'image'} size={18} color={accentColor} />
+            <Ionicons
+              name={pendingHasVideo && !pendingHasPhoto ? 'videocam' : 'images'}
+              size={18}
+              color={accentColor}
+            />
             <Text style={[styles.pendingText, { color: accentColor }]}>
-              Your {pendingMedia.mediaType} will be added automatically
+              {pendingCount === 1
+                ? `Your ${pendingMedia![0].mediaType} will be added automatically`
+                : `${pendingCount} items will be added automatically`}
             </Text>
           </View>
         )}
@@ -233,6 +256,8 @@ export default function CreateScreen() {
         )}
         <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
 
+        <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
+
         <View style={styles.section}>
           <Text style={styles.label}>Invited people can</Text>
           <View style={styles.toggle}>
@@ -254,7 +279,7 @@ export default function CreateScreen() {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={[styles.createButton, { backgroundColor: accentColor }]} onPress={handleCreate} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : (
+          {loading ? <LoadingBrand size="small" color="#fff" /> : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <Text style={styles.createButtonText}>Lock Capsule</Text>
               <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
@@ -269,7 +294,7 @@ export default function CreateScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 120, gap: 24 },
+  scroll: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24, gap: 24 },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   subtitle: { fontSize: 15, color: '#888888', marginTop: 4 },
   section: { gap: 8 },

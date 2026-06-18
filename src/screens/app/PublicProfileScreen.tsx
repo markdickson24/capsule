@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
+import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, ActivityIndicator, Modal,
+  ScrollView, Modal, Pressable, Platform,
 } from 'react-native';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -13,6 +14,15 @@ import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonCircle } from '../../components/Skeleton';
 import SkeletonBox from '../../components/Skeleton';
+import ReportModal from '../../components/ReportModal';
+import ConfirmModal from '../../components/ConfirmModal';
+import { blockStore } from '../../lib/blocks';
+import { cache } from '../../lib/cache';
+import { useBlockedUsers } from '../../hooks/useBlockedUsers';
+import {
+  getFriendStatus, sendFriendRequest, acceptFriendRequest, removeFriendship,
+  type FriendStatus,
+} from '../../lib/friends';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'PublicProfile'>;
 
@@ -90,7 +100,7 @@ function InviteToCapsuleModal({
           <TouchableOpacity onPress={onClose}><Text style={[is.done, { color: accentColor }]}>Done</Text></TouchableOpacity>
         </View>
         {loading ? (
-          <ActivityIndicator color={accentColor} style={{ marginTop: 40 }} />
+          <LoadingBrand size="medium" color={accentColor} style={{ marginTop: 40 }} />
         ) : capsules.length === 0 ? (
           <Text style={is.empty}>No active capsules to invite them to.</Text>
         ) : (
@@ -130,7 +140,54 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
   const [mutualCapsules, setMutualCapsules] = useState<MutualCapsule[]>([]);
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [blocking, setBlocking] = useState(false);
   const [currentUserId, setCurrentUserId] = useState('');
+  const [friendStatus, setFriendStatus] = useState<FriendStatus>('none');
+  const [friendBusy, setFriendBusy] = useState(false);
+  const blockedIds = useBlockedUsers();
+  const isBlocked = blockedIds.has(userId);
+
+  useEffect(() => {
+    getFriendStatus(userId).then(setFriendStatus);
+  }, [userId]);
+
+  async function onAddFriend() {
+    setFriendBusy(true);
+    setFriendStatus('outgoing'); // optimistic
+    const { error } = await sendFriendRequest(userId);
+    if (error) setFriendStatus('none');
+    setFriendBusy(false);
+  }
+
+  async function onAcceptFriend() {
+    const wasFriends = friendStatus === 'friends';
+    setFriendBusy(true);
+    setFriendStatus('friends'); // optimistic
+    const { error } = await acceptFriendRequest(userId);
+    if (error) setFriendStatus('incoming');
+    else if (!wasFriends) cache.invalidate('profile');
+    setFriendBusy(false);
+  }
+
+  async function onRemoveFriend() {
+    const prev = friendStatus;
+    setFriendBusy(true);
+    setFriendStatus('none'); // optimistic — covers cancel / decline / unfriend
+    if (prev === 'friends') cache.invalidate('profile');
+    const { error } = await removeFriendship(userId);
+    if (error) setFriendStatus(prev);
+    setFriendBusy(false);
+  }
+
+  async function confirmBlock() {
+    setBlocking(true);
+    await blockStore.block(userId);
+    setBlocking(false);
+    setShowBlockConfirm(false);
+  }
 
   useEffect(() => { load().finally(() => setLoading(false)); }, [userId]);
 
@@ -188,6 +245,11 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={[styles.back, { color: accentColor }]}>← Back</Text>
         </TouchableOpacity>
+        {!isOwnProfile && (
+          <TouchableOpacity onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuBtn}>
+            <Ionicons name="ellipsis-horizontal" size={22} color="#FFFFFF" />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
@@ -195,11 +257,63 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
         <Text style={styles.name}>{profile?.display_name}</Text>
         {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
-        {!isOwnProfile && (
+        {!isOwnProfile && !isBlocked && (
+          <View style={styles.friendBtnWrap}>
+            {friendStatus === 'none' && (
+              <TouchableOpacity
+                style={[styles.friendBtn, { backgroundColor: accentColor }]}
+                onPress={onAddFriend}
+                disabled={friendBusy}
+              >
+                <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.friendBtnText}>Add Friend</Text>
+              </TouchableOpacity>
+            )}
+            {friendStatus === 'outgoing' && (
+              <TouchableOpacity style={styles.friendBtnGhost} onPress={onRemoveFriend} disabled={friendBusy}>
+                <Ionicons name="time-outline" size={18} color="#888888" />
+                <Text style={styles.friendBtnGhostText}>Requested</Text>
+              </TouchableOpacity>
+            )}
+            {friendStatus === 'incoming' && (
+              <View style={styles.friendIncomingRow}>
+                <TouchableOpacity
+                  style={[styles.friendBtn, { backgroundColor: accentColor, flex: 1 }]}
+                  onPress={onAcceptFriend}
+                  disabled={friendBusy}
+                >
+                  <Ionicons name="checkmark" size={18} color="#FFFFFF" />
+                  <Text style={styles.friendBtnText}>Accept Request</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.friendDecline} onPress={onRemoveFriend} disabled={friendBusy}>
+                  <Text style={styles.friendDeclineText}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {friendStatus === 'friends' && (
+              <View style={styles.friendBtnGhost}>
+                <Ionicons name="checkmark-circle" size={18} color="#30D158" />
+                <Text style={styles.friendBtnGhostText}>Friends</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {!isOwnProfile && !isBlocked && (
           <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: accentColor }]} onPress={() => setShowInvite(true)}>
             <Text style={styles.inviteBtnText}>Invite to Capsule</Text>
           </TouchableOpacity>
         )}
+
+        {!isOwnProfile && isBlocked && (
+          <View style={styles.blockedNotice}>
+            <Ionicons name="ban-outline" size={16} color="#888888" />
+            <Text style={styles.blockedNoticeText}>
+              You blocked this user. You won't see their photos or reactions.
+            </Text>
+          </View>
+        )}
+
 
         {mutualCapsules.length > 0 && (
           <View style={styles.section}>
@@ -225,19 +339,117 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
       {showInvite && (
         <InviteToCapsuleModal userId={userId} onClose={() => setShowInvite(false)} />
       )}
+
+      {/* Overflow menu — tap the ⋯ button to reveal Report / Block */}
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuOpen(false)}>
+          <View style={styles.menu}>
+            {friendStatus === 'friends' && (
+              <>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => { setMenuOpen(false); onRemoveFriend(); }}
+                >
+                  <Ionicons name="person-remove-outline" size={18} color="#888888" />
+                  <Text style={[styles.menuItemText, { color: '#FFFFFF' }]}>Unfriend</Text>
+                </TouchableOpacity>
+                <View style={styles.menuDivider} />
+              </>
+            )}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => { setMenuOpen(false); setShowReport(true); }}
+            >
+              <Ionicons name="flag-outline" size={18} color="#FF3B30" />
+              <Text style={styles.menuItemText}>Report</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            {isBlocked ? (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => { setMenuOpen(false); blockStore.unblock(userId); }}
+              >
+                <Ionicons name="person-add-outline" size={18} color="#888888" />
+                <Text style={[styles.menuItemText, { color: '#FFFFFF' }]}>Unblock</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => { setMenuOpen(false); setShowBlockConfirm(true); }}
+              >
+                <Ionicons name="ban-outline" size={18} color="#FF3B30" />
+                <Text style={styles.menuItemText}>Block</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
+
+      <ReportModal
+        visible={showReport}
+        targetType="user"
+        targetId={userId}
+        onClose={() => setShowReport(false)}
+      />
+
+      <ConfirmModal
+        visible={showBlockConfirm}
+        title="Block this user?"
+        message="They won't be able to appear in your invites, and you won't see their photos or reactions. They won't be notified."
+        confirmLabel="Block"
+        destructive
+        loading={blocking}
+        onConfirm={confirmBlock}
+        onCancel={() => setShowBlockConfirm(false)}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
-  navBar: { paddingHorizontal: 20, paddingVertical: 12 },
+  navBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 12 },
+  menuBtn: { padding: 4 },
   back: { color: '#FF6B35', fontSize: 16, fontWeight: '600' },
   body: { alignItems: 'center', paddingTop: 24, paddingBottom: 40, paddingHorizontal: 24, gap: 10 },
   name: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', marginTop: 8 },
   bio: { fontSize: 14, color: '#888888', textAlign: 'center' },
   inviteBtn: { marginTop: 8, width: '100%', backgroundColor: '#FF6B35', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   inviteBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  friendBtnWrap: { width: '100%', marginTop: 8 },
+  friendBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 12, paddingVertical: 14,
+  },
+  friendBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  friendBtnGhost: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    borderRadius: 12, paddingVertical: 14, borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  friendBtnGhostText: { color: '#888888', fontWeight: '700', fontSize: 16 },
+  friendIncomingRow: { flexDirection: 'row', gap: 10, alignItems: 'stretch' },
+  friendDecline: {
+    paddingHorizontal: 16, justifyContent: 'center', alignItems: 'center',
+    borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  friendDeclineText: { color: '#888888', fontWeight: '600', fontSize: 15 },
+  menuBackdrop: { flex: 1, paddingTop: 52, paddingRight: 16, alignItems: 'flex-end' },
+  menu: {
+    minWidth: 160, backgroundColor: '#1A1A1A', borderRadius: 14,
+    borderWidth: 1, borderColor: '#2A2A2A', paddingVertical: 4,
+    ...Platform.select({
+      default: { shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 6 } },
+      web: {},
+    }),
+  },
+  menuItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11, paddingHorizontal: 14 },
+  menuItemText: { color: '#FF3B30', fontWeight: '600', fontSize: 15 },
+  menuDivider: { height: 1, backgroundColor: '#2A2A2A', marginHorizontal: 8 },
+  blockedNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8,
+    backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, alignSelf: 'stretch',
+  },
+  blockedNoticeText: { color: '#888888', fontSize: 13, flex: 1 },
   section: { alignSelf: 'stretch', marginTop: 24 },
   sectionTitle: { fontSize: 13, color: '#888888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 },
   capsuleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1A1A1A' },
