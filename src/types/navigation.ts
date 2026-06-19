@@ -32,6 +32,7 @@ export type AppStackParamList = {
   Settings: undefined;
   Onboarding: undefined;
   Friends: undefined;
+  QRScanner: undefined;
 };
 
 export type RootStackParamList = {

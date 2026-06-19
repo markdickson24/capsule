@@ -25,6 +25,7 @@ import ManageMembersScreen from '../screens/app/ManageMembersScreen';
 import SettingsScreen from '../screens/app/SettingsScreen';
 import OnboardingScreen from '../screens/app/OnboardingScreen';
 import FriendsScreen from '../screens/app/FriendsScreen';
+import QRScannerScreen from '../screens/app/QRScannerScreen';
 
 const Tab = createBottomTabNavigator<AppTabParamList>();
 const Stack = createNativeStackNavigator<AppStackParamList>();
@@ -280,6 +281,7 @@ export default function AppNavigator() {
       <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="Friends" component={FriendsScreen} />
+      <Stack.Screen name="QRScanner" component={QRScannerScreen} options={{ animation: 'slide_from_bottom' }} />
     </Stack.Navigator>
   );
 }

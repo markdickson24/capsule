@@ -5,6 +5,8 @@ import {
   TouchableOpacity, Modal, TextInput,
   Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+import ViewShot from 'react-native-view-shot';
 import { Image } from 'expo-image';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -193,12 +195,14 @@ function InviteModal({
   capsuleId,
   capsuleTitle,
   existingMemberIds,
+  isOwner,
   onClose,
   onInvited,
 }: {
   capsuleId: string;
   capsuleTitle: string;
   existingMemberIds: string[];
+  isOwner: boolean;
   onClose: () => void;
   onInvited: () => void;
 }) {
@@ -210,8 +214,10 @@ function InviteModal({
   const [inviting, setInviting] = useState<string | null>(null);
   const [invitedIds, setInvitedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [showQR, setShowQR] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inviteTimestamps = useRef<number[]>([]);
+  const viewShotRef = useRef<any>(null);
 
   useEffect(() => {
     listFriends().then(fs =>
@@ -272,6 +278,17 @@ function InviteModal({
     await Share.share({
       message: `Join my Capsule "${capsuleTitle}"! Tap to join: capsule://join/${capsuleId}`,
     });
+  }
+
+  async function handleSaveQR() {
+    try {
+      const uri = await viewShotRef.current?.capture?.();
+      if (!uri) return;
+      await MediaLibrary.saveToLibraryAsync(uri);
+      setError('QR code saved to camera roll ✓');
+    } catch {
+      setError('Could not save QR code.');
+    }
   }
 
   return (
@@ -373,6 +390,47 @@ function InviteModal({
         <TouchableOpacity style={ms.shareBtn} onPress={shareLink}>
           <Text style={ms.shareBtnText}>Share Invite Link</Text>
         </TouchableOpacity>
+
+        {isOwner && (
+          <TouchableOpacity style={ms.qrToggleBtn} onPress={() => setShowQR(true)}>
+            <Ionicons name="qr-code-outline" size={16} color="#888888" />
+            <Text style={ms.qrToggleBtnText}>Show QR Code</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* QR Code overlay — shown when isOwner taps "Show QR Code" */}
+        {showQR && (
+          <View style={ms.qrOverlay}>
+            <TouchableOpacity style={ms.qrCloseBtn} onPress={() => { setShowQR(false); setError(''); }}>
+              <Ionicons name="chevron-down" size={24} color="#ffffff" />
+            </TouchableOpacity>
+            <Text style={ms.qrHeading}>Scan to join</Text>
+            <Text style={ms.qrSub}>{capsuleTitle}</Text>
+            <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1 }}>
+              <View style={ms.qrBox}>
+                <QRCode
+                  value={`capsule://join/${capsuleId}`}
+                  size={210}
+                  color="#FFFFFF"
+                  backgroundColor="#1A1A1A"
+                />
+              </View>
+            </ViewShot>
+            {error ? <Text style={ms.qrMsg}>{error}</Text> : null}
+            <View style={ms.qrActions}>
+              <TouchableOpacity style={ms.qrActionBtn} onPress={shareLink}>
+                <Ionicons name="share-outline" size={18} color="#ffffff" />
+                <Text style={ms.qrActionText}>Share Link</Text>
+              </TouchableOpacity>
+              {Platform.OS !== 'web' && (
+                <TouchableOpacity style={ms.qrActionBtn} onPress={handleSaveQR}>
+                  <Ionicons name="download-outline" size={18} color="#ffffff" />
+                  <Text style={ms.qrActionText}>Save QR</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        )}
       </SafeAreaView>
       </SafeAreaProvider>
     </Modal>
@@ -1502,6 +1560,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           capsuleId={capsuleId}
           capsuleTitle={capsule?.title ?? ''}
           existingMemberIds={existingMemberIds}
+          isOwner={isOwner}
           onClose={() => setShowInvite(false)}
           onInvited={load}
         />
@@ -1705,6 +1764,31 @@ const ms = StyleSheet.create({
     paddingVertical: 16, alignItems: 'center', borderWidth: 1, borderColor: '#2A2A2A',
   },
   shareBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  qrToggleBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, marginHorizontal: 24, marginTop: 12, paddingVertical: 12,
+  },
+  qrToggleBtnText: { color: '#888888', fontSize: 14, fontWeight: '500' },
+  qrOverlay: {
+    position: 'absolute', inset: 0, backgroundColor: '#0A0A0A',
+    alignItems: 'center', justifyContent: 'center', gap: 12,
+    borderTopLeftRadius: 10, borderTopRightRadius: 10,
+  },
+  qrCloseBtn: {
+    position: 'absolute', top: 20, left: 20,
+    width: 40, height: 40, alignItems: 'center', justifyContent: 'center',
+  },
+  qrHeading: { fontSize: 22, fontWeight: '700', color: '#FFFFFF' },
+  qrSub: { fontSize: 15, color: '#888888', marginBottom: 8 },
+  qrBox: { backgroundColor: '#1A1A1A', borderRadius: 20, padding: 20, borderWidth: 1, borderColor: '#2A2A2A' },
+  qrMsg: { fontSize: 13, color: '#30D158', fontWeight: '500' },
+  qrActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  qrActionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: '#1A1A1A', borderRadius: 12, paddingVertical: 12, paddingHorizontal: 18,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  qrActionText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
 });
 
 const gal = StyleSheet.create({
