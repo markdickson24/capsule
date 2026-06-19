@@ -159,27 +159,36 @@ export default function HomeScreen() {
       <Animated.View style={[styles.header, headerAnim]}>
         <Text style={styles.title}>My Capsules</Text>
         {capsules.length > 0 && <Text style={styles.count}>{capsules.length} total</Text>}
-        {capsules.length > 0 && (
-          <View style={styles.layoutToggle}>
-            {(['list', 'grid'] as const).map(opt => {
-              const active = homeLayout === opt;
-              return (
-                <TouchableOpacity
-                  key={opt}
-                  style={[styles.layoutBtn, active && { backgroundColor: `${accentColor}26` }]}
-                  onPress={() => { haptics.selection(); setHomeLayout(opt); }}
-                  hitSlop={6}
-                >
-                  <Ionicons
-                    name={opt === 'list' ? 'reorder-four-outline' : 'grid-outline'}
-                    size={18}
-                    color={active ? accentColor : '#666666'}
-                  />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
+        <View style={styles.headerRight}>
+          {capsules.length > 0 && (
+            <View style={styles.layoutToggle}>
+              {(['list', 'grid'] as const).map(opt => {
+                const active = homeLayout === opt;
+                return (
+                  <TouchableOpacity
+                    key={opt}
+                    style={[styles.layoutBtn, active && { backgroundColor: `${accentColor}26` }]}
+                    onPress={() => { haptics.selection(); setHomeLayout(opt); }}
+                    hitSlop={6}
+                  >
+                    <Ionicons
+                      name={opt === 'list' ? 'reorder-four-outline' : 'grid-outline'}
+                      size={18}
+                      color={active ? accentColor : '#666666'}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('QRScanner')}
+            hitSlop={8}
+            style={styles.scanBtn}
+          >
+            <Ionicons name="qr-code-outline" size={22} color="#666666" />
+          </TouchableOpacity>
+        </View>
       </Animated.View>
 
       {capsules.length === 0 && archivedCapsules.length === 0 ? (
@@ -250,9 +259,11 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   header: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
+  scanBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   count: { fontSize: 14, color: '#555555' },
-  layoutToggle: { flexDirection: 'row', gap: 2, marginLeft: 'auto', backgroundColor: '#1A1A1A', borderRadius: 10, padding: 3 },
+  layoutToggle: { flexDirection: 'row', gap: 2, backgroundColor: '#1A1A1A', borderRadius: 10, padding: 3 },
   layoutBtn: { padding: 6, borderRadius: 8 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
   emptyArt: { flexDirection: 'row', marginBottom: 8 },
