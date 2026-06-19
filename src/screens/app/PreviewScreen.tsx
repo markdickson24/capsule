@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  FlatList, Platform,
+  FlatList, Platform, TextInput, KeyboardAvoidingView,
   Animated, PanResponder, Modal, Pressable, Dimensions,
 } from 'react-native';
 import { Image } from 'expo-image';
@@ -66,6 +66,7 @@ async function uploadToSingle(
   uri: string,
   mediaType: 'photo' | 'video',
   altUri?: string,
+  caption?: string,
 ): Promise<void> {
   const session = sessionStore.get();
   if (!session) throw new Error('Not signed in');
@@ -94,6 +95,7 @@ async function uploadToSingle(
     alt_storage_key: altStorageKey,
     media_type: mediaType,
     size_bytes: sizeBytes,
+    caption: caption?.trim() || null,
   });
 
   if (dbErr) throw new Error(dbErr.message);
@@ -121,6 +123,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
   const [capsules, setCapsules] = useState<CapsuleOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Per-item captions keyed by index
+  const [captions, setCaptions] = useState<Record<number, string>>({});
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
   const [error, setError] = useState('');
@@ -186,8 +190,9 @@ export default function PreviewScreen({ route, navigation }: Props) {
     try {
       let done = 0;
       for (const id of ids) {
-        for (const item of items) {
-          await uploadToSingle(id, item.uri, item.mediaType, item.altUri);
+        for (let idx = 0; idx < items.length; idx++) {
+          const item = items[idx];
+          await uploadToSingle(id, item.uri, item.mediaType, item.altUri, captions[idx]);
           done += 1;
           setUploadProgress({ done, total });
         }
@@ -299,6 +304,18 @@ export default function PreviewScreen({ route, navigation }: Props) {
           <Text style={styles.panelTitle}>
             {itemCount > 1 ? `Add ${itemCount} items to capsule` : 'Add to capsule'}
           </Text>
+
+          <TextInput
+            style={styles.captionInput}
+            placeholder={itemCount > 1 ? `Caption for item ${currentIndex + 1}…` : 'Add a caption…'}
+            placeholderTextColor="#555555"
+            value={captions[currentIndex] ?? ''}
+            onChangeText={text => setCaptions(prev => ({ ...prev, [currentIndex]: text }))}
+            maxLength={150}
+            returnKeyType="done"
+            blurOnSubmit
+            multiline={false}
+          />
 
           {capsules.length === 0 ? (
             <View style={styles.emptyState}>
@@ -450,6 +467,16 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   panelTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  captionInput: {
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: '#FFFFFF',
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.12)',
+  },
   emptyState: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingVertical: 8,

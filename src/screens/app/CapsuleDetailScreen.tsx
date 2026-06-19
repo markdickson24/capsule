@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
-  TouchableOpacity, Modal, TextInput,
+  TouchableOpacity, Modal, TextInput, KeyboardAvoidingView,
   Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -58,6 +58,7 @@ type MediaItem = {
   thumbnailUri?: string;
   /** Dual (PiP) photos: signed URL of the swapped composite, for tap-to-swap in the viewer. */
   altSignedUrl?: string;
+  caption?: string | null;
 };
 
 const roleIonicon: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -535,20 +536,25 @@ function MediaViewerModal({
   items,
   startIndex,
   capsuleId,
+  currentUserId,
   onClose,
+  onCaptionSave,
 }: {
   items: MediaItem[];
   startIndex: number;
   capsuleId: string;
+  currentUserId: string;
   onClose: () => void;
+  onCaptionSave: (itemId: string, caption: string | null) => void;
 }) {
   const currentIndexRef = useRef(startIndex);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [reactions, setReactions] = useState<Reaction[]>([]);
-  const [currentUserId, setCurrentUserId] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
   const [showReport, setShowReport] = useState(false);
+  const [editingCaption, setEditingCaption] = useState(false);
+  const [captionDraft, setCaptionDraft] = useState('');
   // Dual (PiP) photos: per-item toggle for which lens is the main frame.
   const [swapped, setSwapped] = useState<Record<string, boolean>>({});
   const shownUrl = (item: MediaItem) =>
@@ -559,7 +565,6 @@ function MediaViewerModal({
   }, []);
 
   async function loadReactions() {
-    setCurrentUserId(sessionStore.get()?.user.id ?? '');
     const mediaIds = items.map(i => i.id);
     const { data } = await supabase
       .from('reactions')
@@ -635,7 +640,17 @@ function MediaViewerModal({
   // Track which axis this gesture is locked to so we don't move diagonally
   const axis = useRef<'none' | 'h' | 'v'>('none');
 
+  async function saveCaption() {
+    const item = items[currentIndex];
+    if (!item) return;
+    const trimmed = captionDraft.trim() || null;
+    await supabase.from('media').update({ caption: trimmed }).eq('id', item.id);
+    onCaptionSave(item.id, trimmed);
+    setEditingCaption(false);
+  }
+
   const goToIndex = (index: number) => {
+    setEditingCaption(false);
     currentIndexRef.current = index;
     setCurrentIndex(index);
     Animated.spring(translateX, { toValue: -index * SCREEN_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
@@ -710,6 +725,13 @@ function MediaViewerModal({
             )}
           </Animated.View>
 
+          {/* Caption display */}
+          {items[currentIndex]?.caption ? (
+            <View style={styles.captionBanner} pointerEvents="none">
+              <Text style={styles.captionBannerText}>{items[currentIndex].caption}</Text>
+            </View>
+          ) : null}
+
           {/* Reactions */}
           <ReactionsBar
             mediaId={items[currentIndex]?.id ?? ''}
@@ -728,10 +750,29 @@ function MediaViewerModal({
               <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
-              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
-                {currentIndex + 1} / {items.length}
-              </Text>
+              <View style={{ alignItems: 'center', gap: 2 }}>
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
+                  {currentIndex + 1} / {items.length}
+                </Text>
+                {items[currentIndex]?.uploaded_at ? (
+                  <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>
+                    {new Date(items[currentIndex].uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Text>
+                ) : null}
+              </View>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {/* Caption edit — uploader only */}
+                {items[currentIndex]?.uploader_id === currentUserId && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setCaptionDraft(items[currentIndex]?.caption ?? '');
+                      setEditingCaption(true);
+                    }}
+                    style={{ padding: 8 }}
+                  >
+                    <Ionicons name="pencil-outline" size={22} color="#fff" />
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }}>
                   <Ionicons name="flag-outline" size={22} color="#fff" />
                 </TouchableOpacity>
@@ -745,6 +786,39 @@ function MediaViewerModal({
               </View>
             </View>
           </LinearGradient>
+
+          {/* Caption edit overlay */}
+          {editingCaption && (
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+              style={styles.captionEditOverlay}
+            >
+              <View style={styles.captionEditBox}>
+                <Text style={styles.captionEditLabel}>Caption</Text>
+                <TextInput
+                  style={styles.captionEditInput}
+                  value={captionDraft}
+                  onChangeText={setCaptionDraft}
+                  maxLength={150}
+                  placeholder="Add a caption…"
+                  placeholderTextColor="#555"
+                  autoFocus
+                  multiline={false}
+                  returnKeyType="done"
+                  onSubmitEditing={saveCaption}
+                />
+                <Text style={styles.captionEditCount}>{captionDraft.length}/150</Text>
+                <View style={styles.captionEditBtns}>
+                  <TouchableOpacity style={styles.captionEditCancel} onPress={() => setEditingCaption(false)}>
+                    <Text style={styles.captionEditCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.captionEditSave} onPress={saveCaption}>
+                    <Text style={styles.captionEditSaveText}>Save</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          )}
 
           <ReportModal
             visible={showReport}
@@ -984,7 +1058,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     const { data: mediaData } = await supabase
       .from('media')
-      .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type')
+      .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type, caption')
       .eq('capsule_id', capsuleId)
       .order('uploaded_at', { ascending: false });
 
@@ -1019,6 +1093,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       mediaType: m.media_type,
       signedUrl: signedData?.[i]?.signedUrl ?? '',
       altSignedUrl: m.alt_storage_key ? altUrlByKey[m.alt_storage_key] : undefined,
+      caption: m.caption ?? null,
     }));
 
     setPhotos(items);
@@ -1551,7 +1626,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           items={photos}
           startIndex={activeMediaIndex}
           capsuleId={capsuleId}
+          currentUserId={currentUserId}
           onClose={() => setActiveMediaIndex(null)}
+          onCaptionSave={(itemId, caption) => {
+            setPhotos(prev => prev.map(p => p.id === itemId ? { ...p, caption } : p));
+          }}
         />
       )}
 
@@ -1717,6 +1796,34 @@ const styles = StyleSheet.create({
   },
   revealTitle: { fontSize: 32, fontWeight: '800', color: '#FFFFFF' },
   revealSub: { fontSize: 16, color: '#888888' },
+  captionBanner: {
+    position: 'absolute', bottom: 140, left: 0, right: 0,
+    paddingHorizontal: 24, paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  captionBannerText: { color: '#FFFFFF', fontSize: 15, lineHeight: 21, textAlign: 'center' },
+  captionEditOverlay: {
+    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20,
+  },
+  captionEditBox: {
+    backgroundColor: '#1A1A1A', padding: 20, borderTopLeftRadius: 16, borderTopRightRadius: 16,
+    borderTopWidth: 1, borderColor: '#2A2A2A', gap: 10,
+  },
+  captionEditLabel: { color: '#888888', fontSize: 13, fontWeight: '600' },
+  captionEditInput: {
+    backgroundColor: '#0A0A0A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
+    color: '#FFFFFF', fontSize: 15, borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  captionEditCount: { color: '#555', fontSize: 12, textAlign: 'right' },
+  captionEditBtns: { flexDirection: 'row', gap: 10 },
+  captionEditCancel: {
+    flex: 1, backgroundColor: '#2A2A2A', borderRadius: 12, paddingVertical: 12, alignItems: 'center',
+  },
+  captionEditCancelText: { color: '#888888', fontSize: 15, fontWeight: '600' },
+  captionEditSave: {
+    flex: 1, backgroundColor: '#FFFFFF', borderRadius: 12, paddingVertical: 12, alignItems: 'center',
+  },
+  captionEditSaveText: { color: '#0A0A0A', fontSize: 15, fontWeight: '700' },
 });
 
 const ms = StyleSheet.create({
