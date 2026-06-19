@@ -83,6 +83,7 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
     storage_key: storageKey,
     media_type: media.mediaType,
     size_bytes: sizeBytes,
+    caption: media.caption?.trim() || null,
   });
 }
 

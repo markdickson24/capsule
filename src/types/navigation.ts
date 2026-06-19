@@ -9,6 +9,7 @@ export type PendingMedia = {
   mediaType: 'photo' | 'video';
   /** PiP dual photos only: the swapped (front-main) composite, uploaded as alt_storage_key. */
   altUri?: string;
+  caption?: string;
 };
 
 export type AppTabParamList = {

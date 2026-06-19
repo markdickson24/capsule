@@ -286,6 +286,7 @@ export type Database = {
         Row: {
           alt_storage_key: string | null
           capsule_id: string
+          caption: string | null
           id: string
           is_flagged: boolean
           media_type: string
@@ -298,6 +299,7 @@ export type Database = {
         Insert: {
           alt_storage_key?: string | null
           capsule_id: string
+          caption?: string | null
           id?: string
           is_flagged?: boolean
           media_type: string
@@ -310,6 +312,7 @@ export type Database = {
         Update: {
           alt_storage_key?: string | null
           capsule_id?: string
+          caption?: string | null
           id?: string
           is_flagged?: boolean
           media_type?: string
