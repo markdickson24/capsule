@@ -750,9 +750,16 @@ function MediaViewerModal({
               <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
-              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
-                {currentIndex + 1} / {items.length}
-              </Text>
+              <View style={{ alignItems: 'center', gap: 2 }}>
+                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
+                  {currentIndex + 1} / {items.length}
+                </Text>
+                {items[currentIndex]?.uploaded_at ? (
+                  <Text style={{ color: 'rgba(255,255,255,0.55)', fontSize: 12 }}>
+                    {new Date(items[currentIndex].uploaded_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Text>
+                ) : null}
+              </View>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 {/* Caption edit — uploader only */}
                 {items[currentIndex]?.uploader_id === currentUserId && (
