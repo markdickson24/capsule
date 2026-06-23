@@ -138,6 +138,8 @@ Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }`
 
 The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also receives a `linking={{ prefixes: ['capsule://'] }}` prop. **Custom URL schemes only work in native builds, not Expo Go.**
 
+**QR scan-to-join** — owners show a QR encoding `capsule://join/<id>` (InviteModal in `CapsuleDetailScreen`); `QRScannerScreen` (Home → Scan QR) scans it. The pre-join preview (title/owner/member-count) **must** come from the `capsule_join_preview(p_capsule_id)` SECURITY DEFINER RPC, **not** a direct `capsules` select — the `capsules` SELECT policy is membership-gated, so a non-member (i.e. anyone scanning to join) can't read the row directly and the scanner would wrongly report "doesn't exist or expired." The RPC returns only minimal non-sensitive fields, gated by possession of the (unguessable) capsule UUID. The join INSERT itself is allowed for self-join (`can_insert_capsule_member` returns true when `p_user_id = auth.uid()`).
+
 ---
 
 ## Key RLS Constraints
