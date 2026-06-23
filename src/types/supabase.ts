@@ -688,6 +688,17 @@ export type Database = {
         Args: { p_capsule_id: string; p_user_id: string }
         Returns: boolean
       }
+      capsule_join_preview: {
+        Args: { p_capsule_id: string }
+        Returns: {
+          id: string
+          title: string
+          owner_name: string
+          owner_avatar: string
+          member_count: number
+          already_member: boolean
+        }[]
+      }
       capsule_media_count: {
         Args: { p_capsule_id: string }
         Returns: number

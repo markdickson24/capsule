@@ -54,39 +54,25 @@ export default function QRScannerScreen() {
 
     setLoading(true);
     try {
-      const [memberCheck, capsuleRes, countRes] = await Promise.all([
-        supabase
-          .from('capsule_members')
-          .select('id')
-          .eq('capsule_id', capsuleId)
-          .eq('user_id', session.user.id)
-          .maybeSingle(),
-        supabase
-          .from('capsules')
-          .select('id, title, owner_id, users!capsules_owner_id_fkey(display_name, avatar_url)')
-          .eq('id', capsuleId)
-          .single(),
-        supabase
-          .from('capsule_members')
-          .select('id', { count: 'exact', head: true })
-          .eq('capsule_id', capsuleId)
-          .not('joined_at', 'is', null),
-      ]);
+      // A user scanning to join is not yet a member, and the capsules SELECT
+      // policy is membership-gated — so read the preview via a SECURITY DEFINER
+      // RPC that returns only minimal, non-sensitive fields.
+      const { data, error } = await supabase.rpc('capsule_join_preview', { p_capsule_id: capsuleId });
+      const row = (data as any)?.[0];
 
-      if (!capsuleRes.data) {
+      if (error || !row) {
         setScanError("This capsule doesn't exist or the invite has expired.");
         setLoading(false);
         return;
       }
 
-      const owner = (capsuleRes.data as any).users;
       setPreview({
-        id: capsuleId,
-        title: capsuleRes.data.title,
-        ownerName: owner?.display_name ?? 'Unknown',
-        ownerAvatar: owner?.avatar_url ?? null,
-        memberCount: countRes.count ?? 0,
-        alreadyMember: !!memberCheck.data,
+        id: row.id,
+        title: row.title,
+        ownerName: row.owner_name ?? 'Unknown',
+        ownerAvatar: row.owner_avatar ?? null,
+        memberCount: Number(row.member_count) || 0,
+        alreadyMember: !!row.already_member,
       });
     } catch {
       setScanError('Something went wrong. Please try again.');
