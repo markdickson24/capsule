@@ -1068,31 +1068,35 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     const visibleMedia = mediaData.filter((m: any) => !blockStore.has(m.uploader_id));
     if (visibleMedia.length === 0) { setPhotos([]); return; }
 
-    const { data: signedData } = await supabase.storage
-      .from('capsule-media')
-      .createSignedUrls(visibleMedia.map((m: any) => m.storage_key), 3600);
+    // Reuse cached signed URLs (valid 1 hour; cache TTL 50 min).
+    // Batch main + alt keys in one call to halve round-trips.
+    const urlCacheKey = `signedUrls:${capsuleId}`;
+    const URL_TTL = 50 * 60 * 1000;
+    const mainKeys = visibleMedia.map((m: any) => m.storage_key as string);
+    const altKeys = visibleMedia.map((m: any) => m.alt_storage_key as string | null).filter(Boolean) as string[];
+    const allKeysToSign = [...mainKeys, ...altKeys];
 
-    // Sign the swap (alt) composites for dual photos, mapped back by key.
-    const altKeys = visibleMedia.map((m: any) => m.alt_storage_key).filter(Boolean) as string[];
-    const altUrlByKey: Record<string, string> = {};
-    if (altKeys.length) {
-      const { data: altSigned } = await supabase.storage
+    let signedUrlMap = cache.get<Record<string, string>>(urlCacheKey, URL_TTL);
+    if (!signedUrlMap || allKeysToSign.some(k => !signedUrlMap![k])) {
+      const { data: signedData } = await supabase.storage
         .from('capsule-media')
-        .createSignedUrls(altKeys, 3600);
-      altKeys.forEach((k, i) => {
-        const u = altSigned?.[i]?.signedUrl;
-        if (u) altUrlByKey[k] = u;
+        .createSignedUrls(allKeysToSign, 3600);
+      signedUrlMap = {};
+      allKeysToSign.forEach((k, i) => {
+        const u = signedData?.[i]?.signedUrl;
+        if (u) signedUrlMap![k] = u;
       });
+      cache.set(urlCacheKey, signedUrlMap);
     }
 
-    const items: MediaItem[] = visibleMedia.map((m: any, i: number) => ({
+    const items: MediaItem[] = visibleMedia.map((m: any) => ({
       id: m.id,
       storage_key: m.storage_key,
       uploader_id: m.uploader_id,
       uploaded_at: m.uploaded_at,
       mediaType: m.media_type,
-      signedUrl: signedData?.[i]?.signedUrl ?? '',
-      altSignedUrl: m.alt_storage_key ? altUrlByKey[m.alt_storage_key] : undefined,
+      signedUrl: signedUrlMap![m.storage_key] ?? '',
+      altSignedUrl: m.alt_storage_key ? signedUrlMap![m.alt_storage_key] : undefined,
       caption: m.caption ?? null,
     }));
 
@@ -1116,7 +1120,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     setCurrentUserId(sessionStore.get()?.user.id ?? '');
 
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('*').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, created_at, archived_at, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
         .select('user_id, role, joined_at, users(display_name, avatar_url)')
@@ -1163,6 +1167,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           setCapsule(updated);
           if (updated.status === 'unlocked') {
             triggerReveal();
+            cache.invalidate(`signedUrls:${capsuleId}`);
             fetchPhotos();
           }
         }
@@ -1242,6 +1247,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     setUploading(false);
     setShowPickerOptions(false);
+    cache.invalidate(`signedUrls:${capsuleId}`);
     await fetchPhotos();
   }
 

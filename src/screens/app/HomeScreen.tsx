@@ -115,7 +115,7 @@ export default function HomeScreen() {
 
       const { data, error } = await supabase
         .from('capsule_members')
-        .select('capsule_id, capsules(*)')
+        .select('capsule_id, capsules(id, owner_id, title, description, status, unlock_at, archived_at)')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null);
 

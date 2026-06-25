@@ -55,7 +55,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
       const { data, error: err } = await supabase
         .from('capsules')
-        .select('*')
+        .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, unlock_mode, superlative_voting_hours')
         .eq('id', capsuleId)
         .single();
 

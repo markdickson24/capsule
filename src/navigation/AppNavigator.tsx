@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -43,8 +43,12 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { accentColor } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
+  const lastBadgeFetch = useRef(0);
 
   useEffect(() => {
+    const now = Date.now();
+    if (now - lastBadgeFetch.current < 60_000) return;
+    lastBadgeFetch.current = now;
     async function fetchCount() {
       const session = sessionStore.get();
       if (!session) return;

@@ -199,7 +199,10 @@ export default function PreviewScreen({ route, navigation }: Props) {
       }
 
       cache.invalidate('capsules');
-      for (const id of ids) cache.invalidate(`capsule:${id}`);
+      for (const id of ids) {
+        cache.invalidate(`capsule:${id}`);
+        cache.invalidate(`signedUrls:${id}`);
+      }
 
       const n = items.length;
       const noun = n === 1 ? 'photo' : 'photos';
