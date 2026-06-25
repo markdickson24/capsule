@@ -21,8 +21,6 @@ import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
-type Permission = 'contributor' | 'viewer';
-
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
   { mode: 'proximity', label: 'Together' },
@@ -99,7 +97,6 @@ export default function CreateScreen() {
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
-  const [defaultRole, setDefaultRole] = useState<Permission>('contributor');
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
   const [hideFromMe, setHideFromMe] = useState(true);
@@ -279,24 +276,6 @@ export default function CreateScreen() {
               thumbColor="#FFFFFF"
               ios_backgroundColor="#2A2A2A"
             />
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Invited people can</Text>
-          <View style={styles.toggle}>
-            <TouchableOpacity
-              style={[styles.toggleOption, defaultRole === 'contributor' && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
-              onPress={() => setDefaultRole('contributor')}
-            >
-              <Text style={[styles.toggleText, defaultRole === 'contributor' && [styles.toggleTextActive, { color: accentColor }]]}>Add photos</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.toggleOption, defaultRole === 'viewer' && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
-              onPress={() => setDefaultRole('viewer')}
-            >
-              <Text style={[styles.toggleText, defaultRole === 'viewer' && [styles.toggleTextActive, { color: accentColor }]]}>View only</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
