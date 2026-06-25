@@ -14,7 +14,7 @@ export type PendingMedia = {
 
 export type AppTabParamList = {
   Home: undefined;
-  Create: { presetTitle?: string; presetDescription?: string; pendingMedia?: PendingMedia[] } | undefined;
+  Create: { presetTitle?: string; presetDescription?: string; pendingMedia?: PendingMedia[]; groupId?: string; groupUnlockHours?: number } | undefined;
   Camera: undefined;
   Notifications: undefined;
   Profile: undefined;
@@ -34,6 +34,8 @@ export type AppStackParamList = {
   Onboarding: undefined;
   Friends: undefined;
   QRScanner: undefined;
+  GroupDetail: { groupId: string };
+  CreateGroup: undefined;
 };
 
 export type RootStackParamList = {

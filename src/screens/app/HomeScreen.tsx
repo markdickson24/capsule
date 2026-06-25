@@ -10,12 +10,14 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme, type HomeLayout } from '../../context/ThemeContext';
 import { SkeletonCard } from '../../components/Skeleton';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
+import { listMyGroups, GroupRow, recurrenceLabel } from '../../lib/groups';
 
 type CapsuleWithCountdown = Capsule;
 
@@ -98,6 +100,21 @@ function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCou
   );
 }
 
+function GroupCard({ group, onPress }: { group: GroupRow & { memberCount: number }; onPress: () => void }) {
+  const { accentColor } = useTheme();
+  return (
+    <TouchableOpacity style={styles.groupCard} onPress={onPress}>
+      <Text style={styles.groupCardName} numberOfLines={1}>{group.name}</Text>
+      <View style={styles.groupCardMeta}>
+        <View style={[styles.groupCardBadge, { backgroundColor: `${accentColor}20` }]}>
+          <Text style={[styles.groupCardBadgeText, { color: accentColor }]}>{recurrenceLabel(group.recurrence_interval)}</Text>
+        </View>
+        <Text style={styles.groupCardCount}>{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
 export default function HomeScreen() {
   const { accentColor, homeLayout, setHomeLayout } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
@@ -106,6 +123,11 @@ export default function HomeScreen() {
   const headerAnim = useFadeIn(0, 250);
 
   const userId = sessionStore.get()?.user?.id ?? null;
+
+  const { data: groups, refresh: refreshGroups } = useCachedFetch<(GroupRow & { memberCount: number })[]>(
+    'groups',
+    listMyGroups,
+  );
 
   const { data: allCapsules, loading, refresh } = useCachedFetch<CapsuleWithCountdown[]>(
     'capsules',
@@ -130,7 +152,7 @@ export default function HomeScreen() {
 
   async function onRefresh() {
     setRefreshing(true);
-    await refresh();
+    await Promise.all([refresh(), refreshGroups()]);
     setRefreshing(false);
   }
 
@@ -231,6 +253,31 @@ export default function HomeScreen() {
           )}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
+          ListHeaderComponent={
+            (groups && groups.length > 0) ? (
+              <View style={styles.groupsSection}>
+                <View style={styles.groupsHeader}>
+                  <Text style={styles.groupsTitle}>Groups</Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('CreateGroup')} hitSlop={8}>
+                    <Ionicons name="add-circle-outline" size={22} color={accentColor} />
+                  </TouchableOpacity>
+                </View>
+                <FlatList
+                  horizontal
+                  data={groups}
+                  keyExtractor={g => g.id}
+                  renderItem={({ item }) => (
+                    <GroupCard
+                      group={item}
+                      onPress={() => navigation.navigate('GroupDetail', { groupId: item.id })}
+                    />
+                  )}
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.groupsList}
+                />
+              </View>
+            ) : null
+          }
           ListFooterComponent={
             archivedCapsules.length > 0 ? (
               <View style={styles.archivedSection}>
@@ -294,6 +341,23 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },
+  groupsSection: { marginBottom: 8 },
+  groupsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 4, marginBottom: 10,
+  },
+  groupsTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  groupsList: { gap: 10, paddingHorizontal: 0 },
+  groupCard: {
+    width: 140, backgroundColor: '#1A1A1A',
+    borderRadius: 14, padding: 14, gap: 8,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  groupCardName: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  groupCardMeta: { gap: 4 },
+  groupCardBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingVertical: 2, paddingHorizontal: 6 },
+  groupCardBadgeText: { fontSize: 11, fontWeight: '700' },
+  groupCardCount: { fontSize: 11, color: '#555555' },
   archivedSection: { marginTop: 8, marginHorizontal: 0 },
   archivedHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

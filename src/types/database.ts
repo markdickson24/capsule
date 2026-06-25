@@ -63,3 +63,8 @@ export type NotificationInsert = TablesInsert<'notifications'>;
 export type SuperlativeCategoryInsert = TablesInsert<'superlative_categories'>;
 export type SuperlativeUpvoteInsert = TablesInsert<'superlative_upvotes'>;
 export type SuperlativeVoteInsert = TablesInsert<'superlative_votes'>;
+
+export type Group = Tables<'groups'>;
+export type GroupMember = Tables<'group_members'>;
+export type GroupInsert = TablesInsert<'groups'>;
+export type GroupMemberInsert = TablesInsert<'group_members'>;

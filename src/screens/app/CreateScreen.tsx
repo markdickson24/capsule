@@ -20,6 +20,7 @@ import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
+import { getGroupMembers } from '../../lib/groups';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -93,9 +94,13 @@ export default function CreateScreen() {
   const pendingCount = pendingMedia?.length ?? 0;
   const pendingHasVideo = pendingMedia?.some(m => m.mediaType === 'video') ?? false;
   const pendingHasPhoto = pendingMedia?.some(m => m.mediaType === 'photo') ?? false;
+  const groupId = route.params?.groupId ?? null;
+  const groupUnlockHours = route.params?.groupUnlockHours ?? null;
   const [title, setTitle] = useState(route.params?.presetTitle ?? '');
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
-  const [unlockDate, setUnlockDate] = useState<Date | null>(defaultUnlockDate());
+  const [unlockDate, setUnlockDate] = useState<Date | null>(
+    groupUnlockHours ? new Date(Date.now() + groupUnlockHours * 3_600_000) : defaultUnlockDate()
+  );
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
@@ -165,6 +170,30 @@ export default function CreateScreen() {
       return;
     }
 
+    if (groupId) {
+      await supabase.from('capsules').update({ group_id: groupId }).eq('id', capsuleId);
+      const groupMembers = await getGroupMembers(groupId);
+      const otherMembers = groupMembers.filter(m => m.user_id !== user.id);
+      if (otherMembers.length > 0) {
+        await supabase.from('capsule_members').insert(
+          otherMembers.map(m => ({
+            capsule_id: capsuleId,
+            user_id: m.user_id,
+            role: 'contributor',
+            joined_at: null,
+          }))
+        );
+        for (const m of otherMembers) {
+          try {
+            await supabase.functions.invoke('send-invite-push', {
+              body: { capsuleId, inviteeId: m.user_id },
+            });
+          } catch { /* best-effort */ }
+        }
+      }
+      cache.invalidate('groups', `group:${groupId}`, `group-capsules:${groupId}`);
+    }
+
     if (pendingMedia && pendingMedia.length > 0) {
       for (const media of pendingMedia) {
         try {
@@ -194,6 +223,13 @@ export default function CreateScreen() {
         </Animated.View>
 
         <Animated.View style={[{ gap: 24 }, formAnim]}>
+        {groupId && (
+          <View style={[styles.pendingBanner, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+            <Ionicons name="people-outline" size={18} color={accentColor} />
+            <Text style={[styles.pendingText, { color: accentColor }]}>Creating capsule for group — all members will be added automatically</Text>
+          </View>
+        )}
+
         {pendingCount > 0 && (
           <View style={[styles.pendingBanner, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
             <Ionicons
