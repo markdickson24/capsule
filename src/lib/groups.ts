@@ -102,11 +102,20 @@ export async function createGroup(params: {
 
   if (error) return { error: 'Could not create group.' };
 
-  const members = [me, ...params.memberIds.filter(id => id !== me)].map(uid => ({
+  // Insert creator first so get_my_group_ids() returns this group for subsequent checks.
+  const { error: creatorErr } = await supabase.from('group_members').insert({
     group_id: groupId,
-    user_id: uid,
-  }));
-  await supabase.from('group_members').insert(members);
+    user_id: me,
+  });
+  if (creatorErr) return { error: 'Could not add you to the group.' };
+
+  // Insert other members — is_group_creator() can now resolve correctly.
+  const otherIds = params.memberIds.filter(id => id !== me);
+  if (otherIds.length > 0) {
+    await supabase.from('group_members').insert(
+      otherIds.map(uid => ({ group_id: groupId, user_id: uid }))
+    );
+  }
 
   return { groupId };
 }
