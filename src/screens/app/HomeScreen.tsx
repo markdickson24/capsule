@@ -100,7 +100,7 @@ function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCou
   );
 }
 
-function GroupCard({ group, onPress }: { group: GroupRow & { memberCount: number }; onPress: () => void }) {
+function GroupCard({ group, onPress }: { group: GroupRow; onPress: () => void }) {
   const { accentColor } = useTheme();
   return (
     <TouchableOpacity style={styles.groupCard} onPress={onPress}>
@@ -112,6 +112,44 @@ function GroupCard({ group, onPress }: { group: GroupRow & { memberCount: number
         <Text style={styles.groupCardCount}>{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</Text>
       </View>
     </TouchableOpacity>
+  );
+}
+
+function GroupsSection({ groups, onCreatePress, onGroupPress }: {
+  groups: GroupRow[] | null;
+  onCreatePress: () => void;
+  onGroupPress: (id: string) => void;
+}) {
+  const { accentColor } = useTheme();
+  const hasGroups = groups && groups.length > 0;
+  return (
+    <View style={styles.groupsSection}>
+      <View style={styles.groupsHeader}>
+        <Text style={styles.groupsTitle}>Groups</Text>
+        <TouchableOpacity onPress={onCreatePress} hitSlop={8} style={styles.groupsAddBtn}>
+          <Ionicons name="add" size={16} color={accentColor} />
+          <Text style={[styles.groupsAddText, { color: accentColor }]}>New</Text>
+        </TouchableOpacity>
+      </View>
+      {hasGroups ? (
+        <FlatList
+          horizontal
+          data={groups}
+          keyExtractor={g => g.id}
+          renderItem={({ item }) => (
+            <GroupCard group={item} onPress={() => onGroupPress(item.id)} />
+          )}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.groupsList}
+        />
+      ) : (
+        <TouchableOpacity style={styles.groupsEmptyPrompt} onPress={onCreatePress}>
+          <Ionicons name="people-outline" size={18} color="#444444" />
+          <Text style={styles.groupsEmptyText}>Create a group for recurring capsules</Text>
+          <Ionicons name="chevron-forward" size={14} color="#444444" />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
@@ -214,22 +252,29 @@ export default function HomeScreen() {
       </Animated.View>
 
       {capsules.length === 0 && archivedCapsules.length === 0 ? (
-        <View style={styles.empty}>
-          <View style={styles.emptyArt}>
-            <View style={styles.emptyArtBack}><Ionicons name="camera-outline" size={52} color="#FFFFFF" /></View>
-            <View style={styles.emptyArtMid}><Ionicons name="sparkles-outline" size={52} color="#FFFFFF" /></View>
-            <View style={styles.emptyArtFront}><Ionicons name="time-outline" size={64} color="#FFFFFF" /></View>
+        <View style={styles.emptyOuter}>
+          <GroupsSection
+            groups={groups ?? null}
+            onCreatePress={() => navigation.navigate('CreateGroup')}
+            onGroupPress={id => navigation.navigate('GroupDetail', { groupId: id })}
+          />
+          <View style={styles.empty}>
+            <View style={styles.emptyArt}>
+              <View style={styles.emptyArtBack}><Ionicons name="camera-outline" size={52} color="#FFFFFF" /></View>
+              <View style={styles.emptyArtMid}><Ionicons name="sparkles-outline" size={52} color="#FFFFFF" /></View>
+              <View style={styles.emptyArtFront}><Ionicons name="time-outline" size={64} color="#FFFFFF" /></View>
+            </View>
+            <Text style={styles.emptyText}>Create your first capsule</Text>
+            <Text style={styles.emptySubtext}>
+              Lock photos and videos in time.{'\n'}Open them together when the moment arrives.
+            </Text>
+            <TouchableOpacity
+              style={[styles.emptyBtn, { backgroundColor: accentColor }]}
+              onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
+            >
+              <Text style={styles.emptyBtnText}>Create a Capsule</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.emptyText}>Create your first capsule</Text>
-          <Text style={styles.emptySubtext}>
-            Lock photos and videos in time.{'\n'}Open them together when the moment arrives.
-          </Text>
-          <TouchableOpacity
-            style={[styles.emptyBtn, { backgroundColor: accentColor }]}
-            onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
-          >
-            <Text style={styles.emptyBtnText}>Create a Capsule</Text>
-          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -254,29 +299,11 @@ export default function HomeScreen() {
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
           ListHeaderComponent={
-            (groups && groups.length > 0) ? (
-              <View style={styles.groupsSection}>
-                <View style={styles.groupsHeader}>
-                  <Text style={styles.groupsTitle}>Groups</Text>
-                  <TouchableOpacity onPress={() => navigation.navigate('CreateGroup')} hitSlop={8}>
-                    <Ionicons name="add-circle-outline" size={22} color={accentColor} />
-                  </TouchableOpacity>
-                </View>
-                <FlatList
-                  horizontal
-                  data={groups}
-                  keyExtractor={g => g.id}
-                  renderItem={({ item }) => (
-                    <GroupCard
-                      group={item}
-                      onPress={() => navigation.navigate('GroupDetail', { groupId: item.id })}
-                    />
-                  )}
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.groupsList}
-                />
-              </View>
-            ) : null
+            <GroupsSection
+              groups={groups ?? null}
+              onCreatePress={() => navigation.navigate('CreateGroup')}
+              onGroupPress={id => navigation.navigate('GroupDetail', { groupId: id })}
+            />
           }
           ListFooterComponent={
             archivedCapsules.length > 0 ? (
@@ -341,13 +368,23 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },
-  groupsSection: { marginBottom: 8 },
+  emptyOuter: { flex: 1 },
+  groupsSection: { marginBottom: 8, paddingHorizontal: 0 },
   groupsHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 4, marginBottom: 10,
+    paddingHorizontal: 16, marginBottom: 10,
   },
   groupsTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  groupsList: { gap: 10, paddingHorizontal: 0 },
+  groupsAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  groupsAddText: { fontSize: 14, fontWeight: '600' },
+  groupsList: { gap: 10, paddingHorizontal: 16 },
+  groupsEmptyPrompt: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 16, paddingVertical: 14, paddingHorizontal: 16,
+    backgroundColor: '#111111', borderRadius: 12,
+    borderWidth: 1, borderColor: '#1E1E1E',
+  },
+  groupsEmptyText: { flex: 1, fontSize: 14, color: '#555555' },
   groupCard: {
     width: 140, backgroundColor: '#1A1A1A',
     borderRadius: 14, padding: 14, gap: 8,
