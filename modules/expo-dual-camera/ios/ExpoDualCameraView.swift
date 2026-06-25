@@ -57,6 +57,22 @@ class ExpoDualCameraView: ExpoView {
   private let captureLock = NSLock()
   private let ciContext = CIContext(options: nil)
 
+  // MARK: - Video Recording
+  private var assetWriter: AVAssetWriter?
+  private var videoWriterInput: AVAssetWriterInput?
+  private var pixelBufferAdaptor: AVAssetWriterInputPixelBufferAdaptor?
+  private var audioWriterInput: AVAssetWriterInput?
+  private let audioOutput = AVCaptureAudioDataOutput()
+  private var audioGrabber: AudioGrabber?
+  private var isRecording = false
+  private var recordingStartTime: CMTime = .zero
+  private var needsRecordingStartTime = false
+  private var recordingPromise: Promise?
+  private var latestBackBuffer: CMSampleBuffer?
+  private var latestFrontBuffer: CMSampleBuffer?
+  private var recordingMaxTimer: DispatchWorkItem?
+  private let recordingLock = NSLock()
+
   let onInitError = EventDispatcher()
 
   required init(appContext: AppContext? = nil) {
@@ -152,6 +168,19 @@ class ExpoDualCameraView: ExpoView {
           configureCamera(position: .front, previewLayer: frontPreviewLayer, videoOutput: frontVideoOutput, grabber: frontGrabber!, mirror: mirrorFront) else {
       session.commitConfiguration()
       return
+    }
+
+    // Audio input for video recording. Uses standard addInput (not addInputWithNoConnections)
+    // because audio has no position conflict in multi-cam sessions.
+    if let audioDevice = AVCaptureDevice.default(for: .audio),
+       let audioIn = try? AVCaptureDeviceInput(device: audioDevice),
+       session.canAddInput(audioIn) {
+      session.addInput(audioIn)
+      audioGrabber = AudioGrabber { [weak self] buf in self?.onAudioFrame(buf) }
+      audioOutput.setSampleBufferDelegate(audioGrabber!, queue: dataQueue)
+      if session.canAddOutput(audioOutput) {
+        session.addOutput(audioOutput)
+      }
     }
 
     session.commitConfiguration()
@@ -341,12 +370,14 @@ class ExpoDualCameraView: ExpoView {
     }
   }
 
-  /// Called for every delivered frame. Cheap no-op unless a capture is armed and this
-  /// lens hasn't been grabbed yet — then it converts and stores that one frame.
+  /// Called for every delivered frame. Drives video recording when active, then
+  /// the blurred backdrop (suppressed during recording to free CPU), then still capture.
   private func onFrame(_ sampleBuffer: CMSampleBuffer, isBack: Bool) {
-    // Drive the live blurred backdrop from the back lens (split layout only).
-    // The data output already runs continuously, so this adds no capture cost.
-    if isBack && layout == .sideBySide {
+    // Video recording path — composite frames in real-time.
+    handleRecordingFrame(sampleBuffer, isBack: isBack)
+
+    // Backdrop suppressed during recording to free CPU for compositing.
+    if isBack && layout == .sideBySide && !isRecording {
       updateBackdrop(sampleBuffer)
     }
 
@@ -543,6 +574,207 @@ class ExpoDualCameraView: ExpoView {
       path.stroke()
     }
   }
+
+  // MARK: - Recording implementation
+
+  private func handleRecordingFrame(_ sampleBuffer: CMSampleBuffer, isBack: Bool) {
+    recordingLock.lock()
+    guard isRecording else { recordingLock.unlock(); return }
+    if isBack { latestBackBuffer = sampleBuffer } else { latestFrontBuffer = sampleBuffer }
+    let shouldWrite = isBack && latestFrontBuffer != nil
+    let back = latestBackBuffer
+    let front = latestFrontBuffer
+    let needsStart = needsRecordingStartTime
+    recordingLock.unlock()
+
+    guard shouldWrite, let back = back, let front = front else { return }
+    let pts = CMSampleBufferGetPresentationTimeStamp(back)
+
+    if needsStart {
+      recordingLock.lock()
+      if needsRecordingStartTime {
+        needsRecordingStartTime = false
+        recordingStartTime = pts
+        assetWriter?.startSession(atSourceTime: pts)
+      }
+      recordingLock.unlock()
+    }
+
+    writeVideoFrame(back: back, front: front, pts: pts)
+  }
+
+  private func writeVideoFrame(back: CMSampleBuffer, front: CMSampleBuffer, pts: CMTime) {
+    recordingLock.lock()
+    guard let adaptor = pixelBufferAdaptor,
+          let videoIn = videoWriterInput,
+          !needsRecordingStartTime else { recordingLock.unlock(); return }
+    recordingLock.unlock()
+
+    guard videoIn.isReadyForMoreMediaData else { return }
+    guard let backImage = imageFromSampleBuffer(back),
+          let frontImage = imageFromSampleBuffer(front) else { return }
+
+    let composite: UIImage?
+    switch layout {
+    case .sideBySide: composite = ExpoDualCameraView.composeSideBySide(left: backImage, right: frontImage)
+    case .pip:        composite = ExpoDualCameraView.composePiP(base: backImage, inset: frontImage)
+    }
+    guard let img = composite, let pb = pixelBufferFromImage(img) else { return }
+
+    let relPTS = CMTimeSubtract(pts, recordingStartTime)
+    adaptor.append(pb, withPresentationTime: relPTS)
+  }
+
+  private func pixelBufferFromImage(_ image: UIImage) -> CVPixelBuffer? {
+    guard let cg = image.cgImage else { return nil }
+    recordingLock.lock()
+    let pool = pixelBufferAdaptor?.pixelBufferPool
+    recordingLock.unlock()
+
+    var pb: CVPixelBuffer?
+    if let pool = pool {
+      CVPixelBufferPoolCreatePixelBuffer(nil, pool, &pb)
+    }
+    if pb == nil {
+      let attrs: [String: Any] = [kCVPixelBufferCGImageCompatibilityKey as String: true,
+                                   kCVPixelBufferCGBitmapContextCompatibilityKey as String: true]
+      CVPixelBufferCreate(kCFAllocatorDefault, Int(image.size.width), Int(image.size.height),
+                          kCVPixelFormatType_32BGRA, attrs as CFDictionary, &pb)
+    }
+    guard let pb = pb else { return nil }
+    CVPixelBufferLockBaseAddress(pb, [])
+    defer { CVPixelBufferUnlockBaseAddress(pb, []) }
+    let w = CVPixelBufferGetWidth(pb)
+    let h = CVPixelBufferGetHeight(pb)
+    guard let ctx = CGContext(
+      data: CVPixelBufferGetBaseAddress(pb),
+      width: w, height: h, bitsPerComponent: 8,
+      bytesPerRow: CVPixelBufferGetBytesPerRow(pb),
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+    ) else { return nil }
+    ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+    return pb
+  }
+
+  private func onAudioFrame(_ sampleBuffer: CMSampleBuffer) {
+    recordingLock.lock()
+    let recording = isRecording
+    let needsStart = needsRecordingStartTime
+    let audioIn = audioWriterInput
+    recordingLock.unlock()
+    guard recording, !needsStart, let audioIn = audioIn,
+          audioIn.isReadyForMoreMediaData else { return }
+    audioIn.append(sampleBuffer)
+  }
+
+  func startRecordingWithPromise(options: [String: Any]?, promise: Promise) {
+    sessionQueue.async { [weak self] in
+      guard let self = self, self.configured else {
+        promise.reject("ERR_NOT_READY", "Dual camera session is not running")
+        return
+      }
+      self.recordingLock.lock()
+      guard !self.isRecording else {
+        self.recordingLock.unlock()
+        promise.reject("ERR_BUSY", "A recording is already in progress")
+        return
+      }
+      let maxDuration = (options?["maxDuration"] as? Double) ?? 30.0
+      let outputURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("dual-video-\(UUID().uuidString).mp4")
+      do {
+        let writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+        let videoSettings: [String: Any] = [
+          AVVideoCodecKey: AVVideoCodecType.h264,
+          AVVideoWidthKey: 720,
+          AVVideoHeightKey: 1280,
+          AVVideoCompressionPropertiesKey: [AVVideoAverageBitRateKey: 8_000_000],
+        ]
+        let videoIn = AVAssetWriterInput(mediaType: .video, outputSettings: videoSettings)
+        videoIn.expectsMediaDataInRealTime = true
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(
+          assetWriterInput: videoIn,
+          sourcePixelBufferAttributes: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String: 720,
+            kCVPixelBufferHeightKey as String: 1280,
+          ]
+        )
+        let audioSettings: [String: Any] = [
+          AVFormatIDKey: kAudioFormatMPEG4AAC,
+          AVSampleRateKey: 44100,
+          AVNumberOfChannelsKey: 1,
+          AVEncoderBitRateKey: 64000,
+        ]
+        let audioIn = AVAssetWriterInput(mediaType: .audio, outputSettings: audioSettings)
+        audioIn.expectsMediaDataInRealTime = true
+
+        guard writer.canAdd(videoIn), writer.canAdd(audioIn) else {
+          self.recordingLock.unlock()
+          promise.reject("ERR_SETUP", "Cannot configure video writer inputs")
+          return
+        }
+        writer.add(videoIn)
+        writer.add(audioIn)
+        writer.startWriting()
+
+        self.assetWriter = writer
+        self.videoWriterInput = videoIn
+        self.pixelBufferAdaptor = adaptor
+        self.audioWriterInput = audioIn
+        self.recordingPromise = promise
+        self.needsRecordingStartTime = true
+        self.isRecording = true
+        self.recordingLock.unlock()
+
+        let timer = DispatchWorkItem { [weak self] in self?.finalizeRecording() }
+        self.recordingMaxTimer = timer
+        self.sessionQueue.asyncAfter(deadline: .now() + maxDuration, execute: timer)
+      } catch {
+        self.recordingLock.unlock()
+        promise.reject("ERR_SETUP", "Failed to create video writer: \(error.localizedDescription)")
+      }
+    }
+  }
+
+  func stopRecordingSync() {
+    sessionQueue.async { [weak self] in self?.finalizeRecording() }
+  }
+
+  private func finalizeRecording() {
+    recordingLock.lock()
+    guard isRecording else { recordingLock.unlock(); return }
+    isRecording = false
+    recordingMaxTimer?.cancel()
+    recordingMaxTimer = nil
+
+    let writer = assetWriter
+    let videoIn = videoWriterInput
+    let audioIn = audioWriterInput
+    let promise = recordingPromise
+
+    assetWriter = nil
+    videoWriterInput = nil
+    pixelBufferAdaptor = nil
+    audioWriterInput = nil
+    recordingPromise = nil
+    latestBackBuffer = nil
+    latestFrontBuffer = nil
+    recordingLock.unlock()
+
+    videoIn?.markAsFinished()
+    audioIn?.markAsFinished()
+
+    writer?.finishWriting { [weak writer] in
+      if writer?.status == .completed, let url = writer?.outputURL {
+        promise?.resolve(["uri": url.absoluteString])
+      } else {
+        promise?.reject("ERR_RECORDING",
+          "Recording failed: \(writer?.error?.localizedDescription ?? "unknown")")
+      }
+    }
+  }
 }
 
 /// Forwards every delivered video frame to a closure. Held strongly by the view;
@@ -555,5 +787,17 @@ private class FrameGrabber: NSObject, AVCaptureVideoDataOutputSampleBufferDelega
                      didOutput sampleBuffer: CMSampleBuffer,
                      from connection: AVCaptureConnection) {
     onFrame(sampleBuffer)
+  }
+}
+
+/// Forwards audio sample buffers to a closure for AVAssetWriter during recording.
+private class AudioGrabber: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
+  private let onAudioFrame: (CMSampleBuffer) -> Void
+  init(onAudioFrame: @escaping (CMSampleBuffer) -> Void) { self.onAudioFrame = onAudioFrame }
+
+  func captureOutput(_ output: AVCaptureOutput,
+                     didOutput sampleBuffer: CMSampleBuffer,
+                     from connection: AVCaptureConnection) {
+    onAudioFrame(sampleBuffer)
   }
 }

@@ -144,8 +144,7 @@ export default function CameraScreen() {
     }
   }
 
-  // Dual mode: fire both lenses, get back the side-by-side composite, then reuse
-  // the normal resize/Preview path. Video isn't available in Dual yet (Phase 1).
+  // Dual mode tap: fire both lenses, composite into one JPEG, resize, then Preview.
   async function captureDualPhoto() {
     if (!dualRef.current || capturing) return;
     triggerCaptureFlash();
@@ -187,6 +186,31 @@ export default function CameraScreen() {
 
   function stopRecording() { cameraRef.current?.stopRecording(); }
 
+  async function startDualRecording() {
+    if (!dualRef.current || isRecordingRef.current) return;
+    if (!micPermission?.granted) {
+      const result = await requestMicPermission();
+      if (!result.granted) return;
+    }
+    isRecordingRef.current = true;
+    setIsRecording(true);
+    setRecordSeconds(0);
+    animateShutter(1);
+    recordInterval.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+    maxDurationTimer.current = setTimeout(stopDualRecording, MAX_RECORD_SECONDS * 1000);
+    try {
+      const video = await dualRef.current.recordAsync({ maxDuration: MAX_RECORD_SECONDS });
+      if (video?.uri) {
+        navigation.navigate('Preview', { uri: video.uri, mediaType: 'video' });
+      }
+    } catch (e: any) {
+      setDualError(e?.message ?? 'Recording failed. Try again.');
+    }
+    cleanupRecording();
+  }
+
+  function stopDualRecording() { dualRef.current?.stopRecording(); }
+
   function cleanupRecording() {
     isRecordingRef.current = false;
     setIsRecording(false);
@@ -197,22 +221,23 @@ export default function CameraScreen() {
   }
 
   function onPressIn() {
-    if (isDual) return; // No hold-to-record in Dual yet — tap-only photo composite.
     holdStarted.current = false;
     holdTimer.current = setTimeout(() => {
       holdStarted.current = true;
-      startRecording();
+      if (isDualRef.current) startDualRecording();
+      else startRecording();
     }, HOLD_THRESHOLD_MS);
   }
 
   async function onPressOut() {
-    if (isDual) { await captureDualPhoto(); return; }
     if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
-    if (holdStarted.current) {
-      stopRecording();
-    } else {
-      await takePhoto();
+    if (isDual) {
+      if (holdStarted.current) stopDualRecording();
+      else await captureDualPhoto();
+      return;
     }
+    if (holdStarted.current) stopRecording();
+    else await takePhoto();
   }
 
   function toggleDual() {
@@ -403,9 +428,10 @@ export default function CameraScreen() {
             </Animated.View>
           )}
 
-          {/* Live layout switcher (Dual mode only) — Split vs Picture-in-Picture */}
+          {/* Live layout switcher (Dual mode only) — disabled during recording */}
           {isDual && (
-            <View style={styles.layoutSwitch}>
+            <View style={[styles.layoutSwitch, isRecording && { opacity: 0.35 }]}
+                  pointerEvents={isRecording ? 'none' : 'auto'}>
               {DUAL_LAYOUTS.map(({ value, label, icon }) => {
                 const active = value === dualLayout;
                 return (
@@ -428,9 +454,7 @@ export default function CameraScreen() {
         <View style={[styles.bottomBar, Platform.OS === 'web' && styles.bottomBarWeb]}>
           {dualError && <Text style={styles.dualError}>{dualError}</Text>}
           <Text style={styles.hint}>
-            {isDual
-              ? 'Tap for a dual photo'
-              : isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
+            {isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
           </Text>
           <View {...shutterResponder.panHandlers}>
             <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>

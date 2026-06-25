@@ -11,6 +11,7 @@ export type {
   DualCameraViewProps,
   DualCameraViewRef,
   DualCaptureResult,
+  DualVideoResult,
   DualCameraLayout,
   DualCaptureResult as DualCameraCaptureResult,
 } from './src/DualCamera.types';
