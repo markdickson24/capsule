@@ -290,6 +290,7 @@ export default function AppNavigator() {
       <Stack.Screen name="QRScanner" component={QRScannerScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />
       <Stack.Screen name="CreateGroup" component={CreateGroupScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="CreateCapsule" component={CreateScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

@@ -239,9 +239,9 @@ export default function GroupDetailScreen() {
 
             <TouchableOpacity
               style={[styles.newCapsuleBtn, { backgroundColor: accentColor }]}
-              onPress={() => navigation.navigate('Tabs', {
-                screen: 'Create',
-                params: { groupId, groupUnlockHours: group.unlock_duration_hours },
+              onPress={() => navigation.navigate('CreateCapsule', {
+                groupId,
+                groupUnlockHours: group.unlock_duration_hours,
               })}
             >
               <Ionicons name="add" size={20} color="#FFFFFF" />

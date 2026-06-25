@@ -89,13 +89,16 @@ async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void
 export default function CreateScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
-  const route = useRoute<RouteProp<AppTabParamList, 'Create'>>();
-  const pendingMedia = route.params?.pendingMedia ?? null;
+  // Screen is reused for both the Create tab and the CreateCapsule stack route.
+  const route = useRoute<any>();
+  const params = (route.params ?? {}) as any;
+  const pendingMedia: PendingMedia[] | null = params.pendingMedia ?? null;
   const pendingCount = pendingMedia?.length ?? 0;
-  const pendingHasVideo = pendingMedia?.some(m => m.mediaType === 'video') ?? false;
-  const pendingHasPhoto = pendingMedia?.some(m => m.mediaType === 'photo') ?? false;
-  const groupId = route.params?.groupId ?? null;
-  const groupUnlockHours = route.params?.groupUnlockHours ?? null;
+  const pendingHasVideo = pendingMedia?.some((m: PendingMedia) => m.mediaType === 'video') ?? false;
+  const pendingHasPhoto = pendingMedia?.some((m: PendingMedia) => m.mediaType === 'photo') ?? false;
+  const groupId: string | null = params.groupId ?? null;
+  const groupUnlockHours: number | null = params.groupUnlockHours ?? null;
+  const isStackPush = route.name === 'CreateCapsule';
   const [title, setTitle] = useState(route.params?.presetTitle ?? '');
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(
@@ -216,6 +219,11 @@ export default function CreateScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      {isStackPush && (
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={8}>
+          <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+      )}
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Animated.View style={headerAnim}>
           <Text style={styles.title}>New Capsule</Text>
@@ -224,9 +232,9 @@ export default function CreateScreen() {
 
         <Animated.View style={[{ gap: 24 }, formAnim]}>
         {groupId && (
-          <View style={[styles.pendingBanner, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
-            <Ionicons name="people-outline" size={18} color={accentColor} />
-            <Text style={[styles.pendingText, { color: accentColor }]}>Creating capsule for group — all members will be added automatically</Text>
+          <View style={[styles.pendingBanner, styles.pendingBannerTop, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+            <Ionicons name="people-outline" size={18} color={accentColor} style={{ marginTop: 1 }} />
+            <Text style={[styles.pendingText, { color: accentColor, flex: 1 }]}>All group members will be added automatically</Text>
           </View>
         )}
 
@@ -379,6 +387,7 @@ const styles = StyleSheet.create({
     paddingVertical: 18, alignItems: 'center', marginTop: 8,
   },
   createButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  backBtn: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 4 },
   pendingBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -388,5 +397,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
+  pendingBannerTop: { alignItems: 'flex-start' },
   pendingText: { fontSize: 14, fontWeight: '600' },
 });

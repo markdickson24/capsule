@@ -36,6 +36,7 @@ export type AppStackParamList = {
   QRScanner: undefined;
   GroupDetail: { groupId: string };
   CreateGroup: undefined;
+  CreateCapsule: { groupId?: string; groupUnlockHours?: number; presetTitle?: string; presetDescription?: string; pendingMedia?: PendingMedia[] } | undefined;
 };
 
 export type RootStackParamList = {
