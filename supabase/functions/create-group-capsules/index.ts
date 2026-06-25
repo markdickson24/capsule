@@ -5,8 +5,6 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-const CRON_SECRET = Deno.env.get('CRON_SECRET');
-
 type GroupRecurrence = 'weekly' | 'monthly' | 'yearly' | 'manual';
 
 function calcNextAt(from: Date, interval: GroupRecurrence): Date {
@@ -19,6 +17,16 @@ function calcNextAt(from: Date, interval: GroupRecurrence): Date {
 
 function monthYear(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
+// Validates the Bearer token by calling a SECURITY DEFINER RPC that reads from
+// Vault — no CRON_SECRET env var required on the function itself.
+async function isAuthorized(req: Request): Promise<boolean> {
+  const auth = req.headers.get('Authorization') ?? '';
+  const token = auth.replace(/^Bearer /, '');
+  if (!token) return false;
+  const { data } = await supabase.rpc('check_cron_secret', { provided: token });
+  return data === true;
 }
 
 async function sendPushes(tokens: string[], groupName: string, capsuleId: string) {
@@ -42,7 +50,6 @@ async function processGroup(group: any) {
   const capsuleId = crypto.randomUUID();
   const unlockAt = new Date(now.getTime() + group.unlock_duration_hours * 3_600_000);
 
-  // Create the capsule
   const { error: capsuleErr } = await supabase.from('capsules').insert({
     id: capsuleId,
     owner_id: group.created_by,
@@ -59,7 +66,6 @@ async function processGroup(group: any) {
     return;
   }
 
-  // Fetch group members
   const { data: groupMembers } = await supabase
     .from('group_members')
     .select('user_id, users(push_token)')
@@ -67,7 +73,6 @@ async function processGroup(group: any) {
 
   if (!groupMembers || groupMembers.length === 0) return;
 
-  // Insert all members as capsule_members (creator = owner, others = contributor)
   const capsuleMembers = groupMembers.map((m: any) => ({
     capsule_id: capsuleId,
     user_id: m.user_id,
@@ -76,7 +81,6 @@ async function processGroup(group: any) {
   }));
   await supabase.from('capsule_members').insert(capsuleMembers);
 
-  // Insert invite notifications for non-owner members
   const nonOwnerMembers = groupMembers.filter((m: any) => m.user_id !== group.created_by);
   if (nonOwnerMembers.length > 0) {
     await supabase.from('notifications').insert(
@@ -90,7 +94,6 @@ async function processGroup(group: any) {
     );
   }
 
-  // Atomically advance next_capsule_at and stamp last_capsule_at
   const nextAt = calcNextAt(now, group.recurrence_interval as GroupRecurrence);
   await supabase
     .from('groups')
@@ -100,22 +103,17 @@ async function processGroup(group: any) {
     })
     .eq('id', group.id);
 
-  // Send push to all members
   const tokens: string[] = groupMembers.map((m: any) => m.users?.push_token).filter(Boolean);
   await sendPushes(tokens, group.name, capsuleId);
 }
 
 Deno.serve(async (req: Request) => {
-  const auth = req.headers.get('Authorization') ?? '';
-  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
+  if (!await isAuthorized(req)) {
     return new Response('Unauthorized', { status: 401 });
   }
 
   const now = new Date().toISOString();
 
-  // Claim groups due for a new capsule by advancing next_capsule_at atomically.
-  // We select first, then process each — not atomic across rows, but individual
-  // group processing is idempotent because we check next_capsule_at <= now().
   const { data: dueGroups, error } = await supabase
     .from('groups')
     .select('id, name, created_by, recurrence_interval, unlock_duration_hours')
