@@ -10,12 +10,16 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme, type HomeLayout } from '../../context/ThemeContext';
 import { SkeletonCard } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
+import { listMyGroups, GroupRow, recurrenceLabel } from '../../lib/groups';
 
 type CapsuleWithCountdown = Capsule;
 
@@ -98,6 +102,59 @@ function ArchivedCard({ capsule, onPress, onRestore }: { capsule: CapsuleWithCou
   );
 }
 
+function GroupCard({ group, onPress }: { group: GroupRow; onPress: () => void }) {
+  const { accentColor } = useTheme();
+  return (
+    <TouchableOpacity style={styles.groupCard} onPress={onPress}>
+      <Text style={styles.groupCardName} numberOfLines={1}>{group.name}</Text>
+      <View style={styles.groupCardMeta}>
+        <View style={[styles.groupCardBadge, { backgroundColor: `${accentColor}20` }]}>
+          <Text style={[styles.groupCardBadgeText, { color: accentColor }]}>{recurrenceLabel(group.recurrence_interval)}</Text>
+        </View>
+        <Text style={styles.groupCardCount}>{group.memberCount} member{group.memberCount !== 1 ? 's' : ''}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function GroupsSection({ groups, onCreatePress, onGroupPress }: {
+  groups: GroupRow[] | null;
+  onCreatePress: () => void;
+  onGroupPress: (id: string) => void;
+}) {
+  const { accentColor } = useTheme();
+  const hasGroups = groups && groups.length > 0;
+  return (
+    <View style={styles.groupsSection}>
+      <View style={styles.groupsHeader}>
+        <Text style={styles.groupsTitle}>Groups</Text>
+        <TouchableOpacity onPress={onCreatePress} hitSlop={8} style={styles.groupsAddBtn}>
+          <Ionicons name="add" size={16} color={accentColor} />
+          <Text style={[styles.groupsAddText, { color: accentColor }]}>New</Text>
+        </TouchableOpacity>
+      </View>
+      {hasGroups ? (
+        <FlatList
+          horizontal
+          data={groups}
+          keyExtractor={g => g.id}
+          renderItem={({ item }) => (
+            <GroupCard group={item} onPress={() => onGroupPress(item.id)} />
+          )}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.groupsList}
+        />
+      ) : (
+        <TouchableOpacity style={styles.groupsEmptyPrompt} onPress={onCreatePress}>
+          <Ionicons name="people-outline" size={18} color="#444444" />
+          <Text style={styles.groupsEmptyText}>Create a group for recurring capsules</Text>
+          <Ionicons name="chevron-forward" size={14} color="#444444" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
+
 export default function HomeScreen() {
   const { accentColor, homeLayout, setHomeLayout } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
@@ -107,6 +164,11 @@ export default function HomeScreen() {
 
   const userId = sessionStore.get()?.user?.id ?? null;
 
+  const { data: groups, refresh: refreshGroups } = useCachedFetch<(GroupRow & { memberCount: number })[]>(
+    'groups',
+    listMyGroups,
+  );
+
   const { data: allCapsules, loading, refresh } = useCachedFetch<CapsuleWithCountdown[]>(
     'capsules',
     async () => {
@@ -115,7 +177,7 @@ export default function HomeScreen() {
 
       const { data, error } = await supabase
         .from('capsule_members')
-        .select('capsule_id, capsules(*)')
+        .select('capsule_id, capsules(id, owner_id, title, description, status, unlock_at, archived_at)')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null);
 
@@ -126,20 +188,36 @@ export default function HomeScreen() {
   );
 
   const capsules = (allCapsules ?? []).filter(c => !c.archived_at);
-  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at && c.owner_id === userId);
+  // allCapsules is already scoped to joined membership (the query above
+  // filters on joined_at is not null), so any archived capsule here is one
+  // this user can see regardless of ownership — any joined member can
+  // archive/restore now, not just the owner.
+  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at);
+
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   async function onRefresh() {
     setRefreshing(true);
-    await refresh();
+    await Promise.all([refresh(), refreshGroups()]);
     setRefreshing(false);
   }
 
   async function restoreCapsule(capsuleId: string) {
-    await supabase.from('capsules').update({ archived_at: null }).eq('id', capsuleId);
+    // Any joined member can restore now, not just the owner — a direct
+    // .update() would be rejected by RLS for non-owners, so this goes
+    // through the same security-definer RPC CapsuleDetailScreen uses.
+    await supabase.rpc('set_capsule_archived', { p_capsule_id: capsuleId, p_archived: false });
     await refresh();
   }
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+          <RetryPrompt onRetry={() => { resetTimeout(); refresh(true); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
@@ -192,22 +270,29 @@ export default function HomeScreen() {
       </Animated.View>
 
       {capsules.length === 0 && archivedCapsules.length === 0 ? (
-        <View style={styles.empty}>
-          <View style={styles.emptyArt}>
-            <View style={styles.emptyArtBack}><Ionicons name="camera-outline" size={52} color="#FFFFFF" /></View>
-            <View style={styles.emptyArtMid}><Ionicons name="sparkles-outline" size={52} color="#FFFFFF" /></View>
-            <View style={styles.emptyArtFront}><Ionicons name="time-outline" size={64} color="#FFFFFF" /></View>
+        <View style={styles.emptyOuter}>
+          <GroupsSection
+            groups={groups ?? null}
+            onCreatePress={() => navigation.navigate('CreateGroup')}
+            onGroupPress={id => navigation.navigate('GroupDetail', { groupId: id })}
+          />
+          <View style={styles.empty}>
+            <View style={styles.emptyArt}>
+              <View style={styles.emptyArtBack}><Ionicons name="camera-outline" size={52} color="#FFFFFF" /></View>
+              <View style={styles.emptyArtMid}><Ionicons name="sparkles-outline" size={52} color="#FFFFFF" /></View>
+              <View style={styles.emptyArtFront}><Ionicons name="time-outline" size={64} color="#FFFFFF" /></View>
+            </View>
+            <Text style={styles.emptyText}>Create your first capsule</Text>
+            <Text style={styles.emptySubtext}>
+              Lock photos and videos in time.{'\n'}Open them together when the moment arrives.
+            </Text>
+            <TouchableOpacity
+              style={[styles.emptyBtn, { backgroundColor: accentColor }]}
+              onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
+            >
+              <Text style={styles.emptyBtnText}>Create a Capsule</Text>
+            </TouchableOpacity>
           </View>
-          <Text style={styles.emptyText}>Create your first capsule</Text>
-          <Text style={styles.emptySubtext}>
-            Lock photos and videos in time.{'\n'}Open them together when the moment arrives.
-          </Text>
-          <TouchableOpacity
-            style={[styles.emptyBtn, { backgroundColor: accentColor }]}
-            onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
-          >
-            <Text style={styles.emptyBtnText}>Create a Capsule</Text>
-          </TouchableOpacity>
         </View>
       ) : (
         <FlatList
@@ -231,6 +316,13 @@ export default function HomeScreen() {
           )}
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
+          ListHeaderComponent={
+            <GroupsSection
+              groups={groups ?? null}
+              onCreatePress={() => navigation.navigate('CreateGroup')}
+              onGroupPress={id => navigation.navigate('GroupDetail', { groupId: id })}
+            />
+          }
           ListFooterComponent={
             archivedCapsules.length > 0 ? (
               <View style={styles.archivedSection}>
@@ -294,6 +386,33 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },
+  emptyOuter: { flex: 1 },
+  groupsSection: { marginBottom: 8, paddingHorizontal: 0 },
+  groupsHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, marginBottom: 10,
+  },
+  groupsTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
+  groupsAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  groupsAddText: { fontSize: 14, fontWeight: '600' },
+  groupsList: { gap: 10, paddingHorizontal: 16 },
+  groupsEmptyPrompt: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 16, paddingVertical: 14, paddingHorizontal: 16,
+    backgroundColor: '#111111', borderRadius: 12,
+    borderWidth: 1, borderColor: '#1E1E1E',
+  },
+  groupsEmptyText: { flex: 1, fontSize: 14, color: '#555555' },
+  groupCard: {
+    width: 140, backgroundColor: '#1A1A1A',
+    borderRadius: 14, padding: 14, gap: 8,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  groupCardName: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  groupCardMeta: { gap: 4 },
+  groupCardBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingVertical: 2, paddingHorizontal: 6 },
+  groupCardBadgeText: { fontSize: 11, fontWeight: '700' },
+  groupCardCount: { fontSize: 11, color: '#555555' },
   archivedSection: { marginTop: 8, marginHorizontal: 0 },
   archivedHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

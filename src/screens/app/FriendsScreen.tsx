@@ -8,6 +8,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Avatar } from './ProfileScreen';
 import LoadingBrand from '../../components/LoadingBrand';
+import RetryPrompt from '../../components/RetryPrompt';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { cache } from '../../lib/cache';
@@ -25,6 +27,7 @@ export default function FriendsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   const load = useCallback(async () => {
     const [inc, fr] = await Promise.all([listIncomingRequests(), listFriends()]);
@@ -71,7 +74,11 @@ export default function FriendsScreen({ navigation }: Props) {
       </View>
 
       {loading ? (
-        <LoadingBrand size="medium" color={accentColor} style={{ marginTop: 48 }} />
+        timedOut ? (
+          <RetryPrompt onRetry={() => { resetTimeout(); load(); }} />
+        ) : (
+          <LoadingBrand size="medium" color={accentColor} style={{ marginTop: 48 }} />
+        )
       ) : (
         <ScrollView
           contentContainerStyle={styles.body}

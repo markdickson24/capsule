@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": {
+    "modules": ["ExpoVideoStitcherModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.videostitcher.ExpoVideoStitcherModule"]
+  }
+}

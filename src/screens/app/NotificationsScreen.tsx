@@ -12,7 +12,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonNotificationRow } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { acceptFriendRequest, removeFriendship } from '../../lib/friends';
 import { haptics } from '../../lib/haptics';
@@ -110,7 +112,7 @@ export default function NotificationsScreen() {
   const [accepting, setAccepting] = useState<string | null>(null);
   const headerAnim = useFadeIn(0, 250);
 
-  const { loading } = useCachedFetch<NotifData>(
+  const { loading, refresh } = useCachedFetch<NotifData>(
     'notifications',
     async () => {
       const session = sessionStore.get();
@@ -143,6 +145,8 @@ export default function NotificationsScreen() {
       return { notifications: notifs, pendingMap: map };
     },
   );
+
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   function dismiss(item: DisplayNotification) {
     // Optimistic remove
@@ -237,6 +241,13 @@ export default function NotificationsScreen() {
   const pendingCount = Object.keys(pendingMap).length;
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <RetryPrompt onRetry={() => { resetTimeout(); refresh(true); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>

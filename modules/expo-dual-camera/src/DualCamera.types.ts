@@ -33,8 +33,21 @@ export type DualCameraViewProps = ViewProps & {
   onInitError?: (event: { nativeEvent: DualCameraInitError }) => void;
 };
 
+/** Result of a dual-camera video recording. */
+export type DualVideoResult = {
+  /** file:// URI of the composited MP4 (both lenses merged, layout at time of recording). */
+  uri: string;
+};
+
 /** Imperative handle exposed by <DualCameraView ref={...} />. */
 export type DualCameraViewRef = {
   /** Capture both lenses and composite into a single JPEG. Rejects if the session isn't ready. */
   capturePhoto: () => Promise<DualCaptureResult>;
+  /**
+   * Start dual-camera video recording. Resolves when recording ends (via stopRecording or
+   * maxDuration). Rejects if the session isn't ready or a recording is already in progress.
+   */
+  recordAsync: (options?: { maxDuration?: number }) => Promise<DualVideoResult>;
+  /** Stop an in-progress recording. The recordAsync promise resolves with the output URI. */
+  stopRecording: () => void;
 };

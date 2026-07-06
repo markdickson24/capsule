@@ -24,6 +24,7 @@ export type NotificationType =
   | 'superlative_won';
 export type SuperlativeStatus = 'pending' | 'live' | 'archived';
 export type SuperlativeTargetType = 'person' | 'media';
+export type CapsuleOccasion = 'wedding' | 'vacation' | 'party' | 'baby' | 'milestone' | 'general';
 
 // ---------- Row shapes (generated) — narrowed to the literal-union aliases ----------
 
@@ -32,6 +33,7 @@ export type Capsule = Tables<'capsules'> & {
   status: CapsuleStatus;
   visibility: CapsuleVisibility;
   unlock_mode: UnlockMode;
+  occasion: CapsuleOccasion;
 };
 export type CapsuleMember = Tables<'capsule_members'> & { role: MemberRole };
 export type Media = Tables<'media'> & { media_type: MediaType };
@@ -63,3 +65,8 @@ export type NotificationInsert = TablesInsert<'notifications'>;
 export type SuperlativeCategoryInsert = TablesInsert<'superlative_categories'>;
 export type SuperlativeUpvoteInsert = TablesInsert<'superlative_upvotes'>;
 export type SuperlativeVoteInsert = TablesInsert<'superlative_votes'>;
+
+export type Group = Tables<'groups'>;
+export type GroupMember = Tables<'group_members'>;
+export type GroupInsert = TablesInsert<'groups'>;
+export type GroupMemberInsert = TablesInsert<'group_members'>;

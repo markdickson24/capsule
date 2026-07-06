@@ -107,7 +107,9 @@ export type Database = {
           contribution_lock_at: string | null
           created_at: string
           description: string | null
+          group_id: string | null
           id: string
+          occasion: string
           owner_id: string
           owner_preview_locked: boolean
           proximity_radius_m: number
@@ -119,6 +121,9 @@ export type Database = {
           title: string
           unlock_at: string
           unlock_mode: string
+          unlock_reminder_10m_sent_at: string | null
+          unlock_reminder_1d_sent_at: string | null
+          unlock_reminder_1h_sent_at: string | null
           unlocked_at: string | null
           visibility: string
         }
@@ -127,7 +132,9 @@ export type Database = {
           contribution_lock_at?: string | null
           created_at?: string
           description?: string | null
+          group_id?: string | null
           id?: string
+          occasion?: string
           owner_id: string
           owner_preview_locked?: boolean
           proximity_radius_m?: number
@@ -139,6 +146,9 @@ export type Database = {
           title: string
           unlock_at: string
           unlock_mode?: string
+          unlock_reminder_10m_sent_at?: string | null
+          unlock_reminder_1d_sent_at?: string | null
+          unlock_reminder_1h_sent_at?: string | null
           unlocked_at?: string | null
           visibility?: string
         }
@@ -147,7 +157,9 @@ export type Database = {
           contribution_lock_at?: string | null
           created_at?: string
           description?: string | null
+          group_id?: string | null
           id?: string
+          occasion?: string
           owner_id?: string
           owner_preview_locked?: boolean
           proximity_radius_m?: number
@@ -159,10 +171,20 @@ export type Database = {
           title?: string
           unlock_at?: string
           unlock_mode?: string
+          unlock_reminder_10m_sent_at?: string | null
+          unlock_reminder_1d_sent_at?: string | null
+          unlock_reminder_1h_sent_at?: string | null
           unlocked_at?: string | null
           visibility?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "capsules_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "capsules_owner_id_fkey"
             columns: ["owner_id"]
@@ -276,6 +298,83 @@ export type Database = {
           {
             foreignKeyName: "friendships_requester_id_fkey"
             columns: ["requester_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      group_members: {
+        Row: {
+          group_id: string
+          id: string
+          joined_at: string
+          user_id: string
+        }
+        Insert: {
+          group_id: string
+          id?: string
+          joined_at?: string
+          user_id: string
+        }
+        Update: {
+          group_id?: string
+          id?: string
+          joined_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_members_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      groups: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          last_capsule_at: string | null
+          name: string
+          next_capsule_at: string | null
+          recurrence_interval: string
+          unlock_duration_hours: number
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          last_capsule_at?: string | null
+          name: string
+          next_capsule_at?: string | null
+          recurrence_interval?: string
+          unlock_duration_hours?: number
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          last_capsule_at?: string | null
+          name?: string
+          next_capsule_at?: string | null
+          recurrence_interval?: string
+          unlock_duration_hours?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "groups_created_by_fkey"
+            columns: ["created_by"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -438,6 +537,7 @@ export type Database = {
           capsule_id: string
           created_at: string
           id: string
+          is_default: boolean
           label: string
           promoted_at: string | null
           status: string
@@ -448,6 +548,7 @@ export type Database = {
           capsule_id: string
           created_at?: string
           id?: string
+          is_default?: boolean
           label: string
           promoted_at?: string | null
           status?: string
@@ -458,6 +559,7 @@ export type Database = {
           capsule_id?: string
           created_at?: string
           id?: string
+          is_default?: boolean
           label?: string
           promoted_at?: string | null
           status?: string
@@ -688,10 +790,19 @@ export type Database = {
         Args: { p_capsule_id: string; p_user_id: string }
         Returns: boolean
       }
-      capsule_media_count: {
+      capsule_join_preview: {
         Args: { p_capsule_id: string }
-        Returns: number
+        Returns: {
+          already_member: boolean
+          id: string
+          member_count: number
+          owner_avatar: string
+          owner_name: string
+          title: string
+        }[]
       }
+      capsule_media_count: { Args: { p_capsule_id: string }; Returns: number }
+      check_cron_secret: { Args: { provided: string }; Returns: boolean }
       check_in: {
         Args: { p_capsule_id: string; p_lat: number; p_lng: number }
         Returns: Json
@@ -707,6 +818,16 @@ export type Database = {
         Returns: undefined
       }
       get_my_capsule_ids: { Args: never; Returns: string[] }
+      get_my_group_ids: { Args: never; Returns: string[] }
+      is_group_creator: { Args: { p_group_id: string }; Returns: boolean }
+      set_capsule_archived: {
+        Args: { p_archived: boolean; p_capsule_id: string }
+        Returns: undefined
+      }
+      set_default_superlatives: {
+        Args: { p_awards: Json; p_capsule_id: string }
+        Returns: undefined
+      }
       tally_superlatives: {
         Args: { p_capsule_id: string }
         Returns: {
@@ -728,7 +849,7 @@ export type Database = {
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DefaultSchema = DatabaseWithoutInternals["public"]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends

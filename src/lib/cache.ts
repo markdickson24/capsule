@@ -8,7 +8,7 @@ type Listener = () => void;
 const store = new Map<string, CacheEntry>();
 const listeners = new Map<string, Set<Listener>>();
 
-const DEFAULT_TTL = 5 * 60 * 1000;
+const DEFAULT_TTL = 15 * 60 * 1000;
 
 function get<T>(key: string, ttl = DEFAULT_TTL): T | null {
   const entry = store.get(key);

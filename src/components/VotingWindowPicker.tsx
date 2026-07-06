@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, TextInput } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import InfoTooltip from './InfoTooltip';
 
 type Preset = { hours: number; label: string };
 
@@ -60,7 +61,13 @@ export default function VotingWindowPicker({ value, onChange }: Props) {
 
   return (
     <View style={styles.section}>
-      <Text style={styles.label}>Awards Voting Window</Text>
+      <View style={styles.labelRow}>
+        <Text style={styles.label}>Awards Voting Window</Text>
+        <InfoTooltip
+          title="Awards"
+          body={"After the capsule unlocks, members vote on fun yearbook-style awards — like 'Best Smile' or 'Most Likely to Oversleep'.\n\nAnyone can suggest a category. Once enough members upvote it, voting opens automatically. Winners are revealed when the voting window closes."}
+        />
+      </View>
 
       <View style={styles.row}>
         {PRESETS.map(p => {
@@ -113,6 +120,7 @@ export default function VotingWindowPicker({ value, onChange }: Props) {
 
 const styles = StyleSheet.create({
   section: { gap: 10 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 14, fontWeight: '600', color: '#AAAAAA', textTransform: 'uppercase', letterSpacing: 0.5 },
   row: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
   chip: {

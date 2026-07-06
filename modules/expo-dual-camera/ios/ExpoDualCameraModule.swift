@@ -25,6 +25,14 @@ public class ExpoDualCameraModule: Module {
       AsyncFunction("capturePhoto") { (view: ExpoDualCameraView, promise: Promise) in
         view.capturePhoto(promise)
       }
+
+      AsyncFunction("recordAsync") { (view: ExpoDualCameraView, options: [String: Any]?, promise: Promise) in
+        view.startRecordingWithPromise(options: options, promise: promise)
+      }
+
+      AsyncFunction("stopRecording") { (view: ExpoDualCameraView) in
+        view.stopRecordingSync()
+      }
     }
   }
 }

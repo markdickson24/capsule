@@ -20,6 +20,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase, getFreshAccessToken } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
+import { transformMediaUrl } from '../../lib/mediaUrl';
 import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
@@ -28,11 +29,16 @@ import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import ReportModal from '../../components/ReportModal';
 import AwardsSection from '../../components/AwardsSection';
+import DefaultAwardsCard from '../../components/DefaultAwardsCard';
+import InfoTooltip from '../../components/InfoTooltip';
 import { blockStore } from '../../lib/blocks';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
+import { fetchAwardsData } from '../../lib/awardsData';
 import { toast } from '../../lib/toast';
 import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
@@ -55,6 +61,8 @@ type MediaItem = {
   uploaded_at: string;
   mediaType: 'photo' | 'video';
   signedUrl: string;
+  /** Resized signed URL for grid/preview thumbnails — full-res signedUrl is for the viewer only. */
+  thumbSignedUrl?: string;
   thumbnailUri?: string;
   /** Dual (PiP) photos: signed URL of the swapped composite, for tap-to-swap in the viewer. */
   altSignedUrl?: string;
@@ -440,6 +448,11 @@ function InviteModal({
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+// Both the gallery grid (3 columns) and the 3-up detail-screen preview render
+// roughly screen-width/3 tiles — one shared thumbnail size covers both so
+// fetchPhotos only needs to derive one resized URL per photo.
+const GRID_THUMB_PX = Math.ceil(SCREEN_WIDTH / 3);
 
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '🔥', '😢', '👏', '🤯'];
 
@@ -869,7 +882,7 @@ function MediaGalleryModal({
             >
               {(item.mediaType === 'photo' || item.thumbnailUri) && (
                 <Image
-                  source={item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl}
+                  source={item.mediaType === 'video' ? item.thumbnailUri : (item.thumbSignedUrl ?? item.signedUrl)}
                   style={StyleSheet.absoluteFill}
                   contentFit="cover"
                   transition={150}
@@ -932,7 +945,15 @@ function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
   return (
     <View style={chk.card}>
       <Ionicons name="location-outline" size={30} color={accentColor} />
-      <Text style={chk.title}>Unlocks when everyone's together</Text>
+      <View style={chk.titleRow}>
+        <Text style={chk.title}>Unlocks when everyone's together</Text>
+        <InfoTooltip
+          title="Proximity Unlock"
+          body={"Everyone needs to tap 'Check In' while within about 100 meters of each other.\n\nCheck-ins expire after 10 minutes, so make sure everyone taps around the same time.\n\nThe capsule opens automatically once all joined members have checked in and are in range."}
+          size={17}
+          color="#555555"
+        />
+      </View>
       <Text style={chk.sub}>
         {progress
           ? `${progress.checkedIn} of ${progress.total} ${progress.total === 1 ? 'member' : 'members'} here`
@@ -966,6 +987,7 @@ const chk = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 17, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
   sub: { fontSize: 14, color: '#888888', textAlign: 'center' },
   hint: { fontSize: 13, color: '#888888', textAlign: 'center' },
@@ -991,15 +1013,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [showGallery, setShowGallery] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   async function onRefresh() {
     setRefreshing(true);
-    await Promise.all([load(), fetchPhotos()]);
+    // force=true — pull-to-refresh must see other members' uploads too,
+    // which our own cache.invalidate calls wouldn't know about.
+    await Promise.all([load(), fetchPhotos(true)]);
     setRefreshing(false);
   }
   const [error, setError] = useState('');
   const [currentUserId, setCurrentUserId] = useState('');
   const [showInvite, setShowInvite] = useState(false);
+  const [showMembersSheet, setShowMembersSheet] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
   const [showPickerOptions, setShowPickerOptions] = useState(false);
@@ -1049,18 +1075,30 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     });
   }
 
-  async function fetchPhotos() {
+  async function fetchPhotos(force = false) {
     // True count even when RLS hides the rows (surprise-mode capsules
     // lock the owner out of reading media until unlock).
     supabase
       .rpc('capsule_media_count', { p_capsule_id: capsuleId })
       .then(({ data }) => { if (typeof data === 'number') setMediaCount(data); });
 
-    const { data: mediaData } = await supabase
-      .from('media')
-      .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type, caption')
-      .eq('capsule_id', capsuleId)
-      .order('uploaded_at', { ascending: false });
+    // Cache the media row list itself (not just the signed URLs derived from
+    // it) so a cache hit skips the DB read entirely. Short TTL since new
+    // uploads should show up reasonably fast; force=true (pull-to-refresh)
+    // always bypasses it, since another member's upload wouldn't trigger our
+    // local cache.invalidate.
+    const mediaCacheKey = `media:${capsuleId}`;
+    const MEDIA_TTL = 3 * 60 * 1000;
+    let mediaData = force ? null : cache.get<any[]>(mediaCacheKey, MEDIA_TTL);
+    if (!mediaData) {
+      const { data } = await supabase
+        .from('media')
+        .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type, caption')
+        .eq('capsule_id', capsuleId)
+        .order('uploaded_at', { ascending: false });
+      mediaData = data ?? [];
+      cache.set(mediaCacheKey, mediaData);
+    }
 
     if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }
 
@@ -1068,42 +1106,63 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     const visibleMedia = mediaData.filter((m: any) => !blockStore.has(m.uploader_id));
     if (visibleMedia.length === 0) { setPhotos([]); return; }
 
-    const { data: signedData } = await supabase.storage
-      .from('capsule-media')
-      .createSignedUrls(visibleMedia.map((m: any) => m.storage_key), 3600);
+    // Reuse cached signed URLs (valid 1 hour; cache TTL 50 min).
+    // Batch main + alt keys in one call to halve round-trips.
+    const urlCacheKey = `signedUrls:${capsuleId}`;
+    const URL_TTL = 50 * 60 * 1000;
+    const mainKeys = visibleMedia.map((m: any) => m.storage_key as string);
+    const altKeys = visibleMedia.map((m: any) => m.alt_storage_key as string | null).filter(Boolean) as string[];
+    const allKeysToSign = [...mainKeys, ...altKeys];
 
-    // Sign the swap (alt) composites for dual photos, mapped back by key.
-    const altKeys = visibleMedia.map((m: any) => m.alt_storage_key).filter(Boolean) as string[];
-    const altUrlByKey: Record<string, string> = {};
-    if (altKeys.length) {
-      const { data: altSigned } = await supabase.storage
+    let signedUrlMap = cache.get<Record<string, string>>(urlCacheKey, URL_TTL);
+    if (!signedUrlMap || allKeysToSign.some(k => !signedUrlMap![k])) {
+      const { data: signedData } = await supabase.storage
         .from('capsule-media')
-        .createSignedUrls(altKeys, 3600);
-      altKeys.forEach((k, i) => {
-        const u = altSigned?.[i]?.signedUrl;
-        if (u) altUrlByKey[k] = u;
+        .createSignedUrls(allKeysToSign, 3600);
+      signedUrlMap = {};
+      allKeysToSign.forEach((k, i) => {
+        const u = signedData?.[i]?.signedUrl;
+        if (u) signedUrlMap![k] = u;
       });
+      cache.set(urlCacheKey, signedUrlMap);
     }
 
-    const items: MediaItem[] = visibleMedia.map((m: any, i: number) => ({
-      id: m.id,
-      storage_key: m.storage_key,
-      uploader_id: m.uploader_id,
-      uploaded_at: m.uploaded_at,
-      mediaType: m.media_type,
-      signedUrl: signedData?.[i]?.signedUrl ?? '',
-      altSignedUrl: m.alt_storage_key ? altUrlByKey[m.alt_storage_key] : undefined,
-      caption: m.caption ?? null,
-    }));
+    const items: MediaItem[] = visibleMedia.map((m: any) => {
+      const signedUrl = signedUrlMap![m.storage_key] ?? '';
+      return {
+        id: m.id,
+        storage_key: m.storage_key,
+        uploader_id: m.uploader_id,
+        uploaded_at: m.uploaded_at,
+        mediaType: m.media_type,
+        signedUrl,
+        // Derived from the already-signed URL — no extra signing round-trip.
+        thumbSignedUrl: m.media_type === 'photo' ? (transformMediaUrl(signedUrl, GRID_THUMB_PX) ?? undefined) : undefined,
+        altSignedUrl: m.alt_storage_key ? signedUrlMap![m.alt_storage_key] : undefined,
+        caption: m.caption ?? null,
+      };
+    });
 
     setPhotos(items);
 
-    // Generate thumbnails for videos in background
+    // Generate thumbnails for videos in background — memoized per media id so
+    // re-entering the screen within the same app session doesn't re-decode
+    // every video to grab a frame again.
     if (Platform.OS !== 'web') {
       for (const item of items) {
         if (item.mediaType === 'video' && item.signedUrl) {
+          const thumbCacheKey = `videoThumb:${item.id}`;
+          // Longer TTL than the default 15min — the generated frame is a
+          // local file with no server-side expiry, only OS temp-dir cleanup
+          // risk over a long session.
+          const cachedThumb = cache.get<string>(thumbCacheKey, 6 * 60 * 60 * 1000);
+          if (cachedThumb) {
+            setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, thumbnailUri: cachedThumb } : p));
+            continue;
+          }
           VideoThumbnails.getThumbnailAsync(item.signedUrl, { time: 0 })
             .then(({ uri }) => {
+              cache.set(thumbCacheKey, uri);
               setPhotos(prev => prev.map(p => p.id === item.id ? { ...p, thumbnailUri: uri } : p));
             })
             .catch(() => {});
@@ -1115,12 +1174,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   async function load() {
     setCurrentUserId(sessionStore.get()?.user.id ?? '');
 
+    // fetchPhotos() only needs capsuleId — it has no dependency on the
+    // capsule/members result, so run it in the same wave instead of
+    // awaiting it afterward.
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('*').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, created_at, archived_at, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
         .select('user_id, role, joined_at, users(display_name, avatar_url)')
         .eq('capsule_id', capsuleId),
+      fetchPhotos(),
     ]);
 
     if (capsuleRes.error) {
@@ -1131,8 +1194,6 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
 
-    await fetchPhotos();
-
     cache.set(`capsule:${capsuleId}`, {
       capsule: capsuleRes.data,
       members: membersRes.data,
@@ -1141,14 +1202,28 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     setCurrentUserId(sessionStore.get()?.user.id ?? '');
+    const userId = sessionStore.get()?.user.id;
     const cached = cache.get<{ capsule: any; members: any }>(`capsule:${capsuleId}`);
     if (cached) {
       if (cached.capsule) setCapsule(cached.capsule);
       if (cached.members) setMembers(cached.members as MemberRow[]);
       setLoading(false);
       load();
+      // Warm cache: lock status is known synchronously — skip the prefetch
+      // entirely if Awards won't even render for this capsule.
+      if (cached.capsule?.status === 'unlocked') {
+        fetchAwardsData(capsuleId, userId).catch(() => {});
+      }
     } else {
       load().finally(() => setLoading(false));
+      // Cold cache: fire Awards' own fetch at t0, in parallel with load(),
+      // instead of letting AwardsSection only start it once it finally
+      // mounts behind the loading gate above — that stacking is why Awards
+      // always took much longer than everything else. Lock status isn't
+      // knowable yet here, so this fires speculatively; the underlying
+      // queries are cheap (~2ms) and harmless if the capsule turns out
+      // locked. Not awaited — must not extend how long the skeleton shows.
+      fetchAwardsData(capsuleId, userId).catch(() => {});
     }
   }, [capsuleId]);
 
@@ -1163,6 +1238,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           setCapsule(updated);
           if (updated.status === 'unlocked') {
             triggerReveal();
+            // Pre-unlock, surprise-mode owners couldn't read media rows at
+            // all (RLS), so a cached "empty" media list must not survive
+            // past unlock.
+            cache.invalidate(`signedUrls:${capsuleId}`, `media:${capsuleId}`);
             fetchPhotos();
           }
         }
@@ -1242,6 +1321,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     setUploading(false);
     setShowPickerOptions(false);
+    cache.invalidate(`signedUrls:${capsuleId}`, `media:${capsuleId}`);
     await fetchPhotos();
   }
 
@@ -1273,6 +1353,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <TouchableOpacity style={styles.topBar} onPress={() => navigation.goBack()}>
+            <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
+          </TouchableOpacity>
+          <RetryPrompt onRetry={() => { resetTimeout(); load().finally(() => setLoading(false)); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.topBar}>
@@ -1328,7 +1418,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   });
 
   const isOwner = capsule.owner_id === currentUserId;
-  const myRole = members.find(m => m.user_id === currentUserId)?.role ?? null;
+  const myMember = members.find(m => m.user_id === currentUserId);
+  const myRole = myMember?.role ?? null;
+  // Any joined member can archive/restore (not just the owner) — pending
+  // invitees (joined_at null) can't, matching set_capsule_archived's own check.
+  const canArchive = isOwner || myMember?.joined_at != null;
   // Surprise mode: even the owner is locked out of previewing until unlock.
   const canSeePhotos = !isLocked || (isOwner && !capsule.owner_preview_locked);
   const contributionLocked = capsule.contribution_lock_at
@@ -1406,6 +1500,18 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           </View>
         )}
 
+        {/* Pre-unlock default-awards management. AwardsSection itself only
+            renders post-unlock (defaults become ordinary live categories
+            there), so this is the owner's one chance to review/regenerate
+            them — the RPC refuses changes once status flips to 'unlocked'. */}
+        {isOwner && isLocked && (
+          <DefaultAwardsCard
+            mode="manage"
+            capsuleId={capsule.id}
+            occasion={capsule.occasion}
+          />
+        )}
+
         {/* Members */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Members</Text>
@@ -1424,29 +1530,39 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           )}
         </View>
 
-        <View style={styles.membersList}>
-          {members.map((m, i) => (
-            <TouchableOpacity
-              key={i}
-              style={styles.memberRow}
-              onPress={() => navigation.navigate('PublicProfile', { userId: m.user_id })}
-            >
-              <Avatar
-                url={m.users?.avatar_url ?? null}
-                name={m.users?.display_name ?? '?'}
-                size={36}
-              />
-              <View style={styles.memberInfo}>
-                <Text style={styles.memberName}>{m.users?.display_name ?? 'Member'}</Text>
-                {m.joined_at === null && <Text style={styles.pendingLabel}>pending</Text>}
+        {/* Compact avatar cluster — tap to see full list */}
+        <TouchableOpacity
+          style={styles.memberCluster}
+          activeOpacity={0.7}
+          onPress={() => setShowMembersSheet(true)}
+        >
+          <View style={styles.memberAvatarRow}>
+            {members.slice(0, 5).map((m, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.memberBubbleWrap,
+                  { zIndex: 5 - i },
+                  m.joined_at === null && styles.memberBubblePending,
+                ]}
+              >
+                <Avatar
+                  url={m.users?.avatar_url ?? null}
+                  name={m.users?.display_name ?? '?'}
+                  size={34}
+                />
               </View>
-              <View style={styles.roleBadge}>
-                <Ionicons name={roleIonicon[m.role] ?? 'person-outline'} size={11} color="#888888" />
-                <Text style={styles.roleText}>{roleLabel[m.role]}</Text>
+            ))}
+            {members.length > 5 && (
+              <View style={[styles.memberBubbleWrap, styles.memberOverflow]}>
+                <Text style={styles.memberOverflowText}>+{members.length - 5}</Text>
               </View>
-            </TouchableOpacity>
-          ))}
-        </View>
+            )}
+          </View>
+          <Text style={styles.memberCountLabel}>
+            {members.length} {members.length === 1 ? 'member' : 'members'}
+          </Text>
+        </TouchableOpacity>
 
         {/* Media */}
         <View style={styles.sectionRow}>
@@ -1471,7 +1587,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                     >
                       {(p.mediaType === 'photo' || p.thumbnailUri) && (
                         <Image
-                          source={p.mediaType === 'video' ? p.thumbnailUri : p.signedUrl}
+                          source={p.mediaType === 'video' ? p.thumbnailUri : (p.thumbSignedUrl ?? p.signedUrl)}
                           style={StyleSheet.absoluteFill}
                           contentFit="cover"
                           transition={200}
@@ -1576,6 +1692,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               id: p.id,
               mediaType: p.mediaType,
               signedUrl: p.signedUrl,
+              thumbSignedUrl: p.thumbSignedUrl,
               thumbnailUri: p.thumbnailUri,
             }))}
             votingClosesAt={(capsule as any).superlative_voting_closes_at ?? null}
@@ -1583,18 +1700,18 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           />
         )}
 
-        {isOwner && (
+        {canArchive && (
           <View style={styles.dangerZone}>
             <Text style={styles.dangerLabel}>Danger Zone</Text>
             <TouchableOpacity
               style={styles.archiveBtn}
               onPress={async () => {
                 const isArchived = !!(capsule as any).archived_at;
-                if (isArchived) {
-                  await supabase.from('capsules').update({ archived_at: null }).eq('id', capsuleId);
-                } else {
-                  await supabase.from('capsules').update({ archived_at: new Date().toISOString() }).eq('id', capsuleId);
-                }
+                await supabase.rpc('set_capsule_archived', {
+                  p_capsule_id: capsuleId,
+                  p_archived: !isArchived,
+                });
+                cache.invalidate('capsules', 'profile');
                 navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
               }}
             >
@@ -1603,13 +1720,15 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 {(capsule as any).archived_at ? 'Restore Capsule' : 'Archive Capsule'}
               </Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.deleteBtn}
-              onPress={() => setShowDeleteConfirm(true)}
-            >
-              <Ionicons name="trash-outline" size={18} color="#FF3B30" />
-              <Text style={styles.deleteBtnText}>Delete Capsule</Text>
-            </TouchableOpacity>
+            {isOwner && (
+              <TouchableOpacity
+                style={styles.deleteBtn}
+                onPress={() => setShowDeleteConfirm(true)}
+              >
+                <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+                <Text style={styles.deleteBtnText}>Delete Capsule</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </ScrollView>
@@ -1633,6 +1752,61 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           }}
         />
       )}
+
+      {/* Members bottom sheet */}
+      <Modal
+        visible={showMembersSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMembersSheet(false)}
+      >
+        <SafeAreaProvider>
+          <TouchableOpacity
+            style={styles.sheetBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowMembersSheet(false)}
+          />
+          <SafeAreaView style={styles.sheetContainer} edges={['bottom']}>
+            <View style={styles.sheetCard}>
+              <View style={styles.sheetHandle} />
+              <View style={styles.sheetHeader}>
+                <Text style={styles.sheetTitle}>Members</Text>
+                <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8}>
+                  <Ionicons name="close" size={22} color="#888888" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {members.map((m, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={styles.sheetMemberRow}
+                    onPress={() => {
+                      setShowMembersSheet(false);
+                      navigation.navigate('PublicProfile', { userId: m.user_id });
+                    }}
+                  >
+                    <View style={m.joined_at === null ? styles.sheetAvatarPending : undefined}>
+                      <Avatar
+                        url={m.users?.avatar_url ?? null}
+                        name={m.users?.display_name ?? '?'}
+                        size={40}
+                      />
+                    </View>
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName}>{m.users?.display_name ?? 'Member'}</Text>
+                      {m.joined_at === null && <Text style={styles.pendingLabel}>pending invite</Text>}
+                    </View>
+                    <View style={styles.roleBadge}>
+                      <Ionicons name={roleIonicon[m.role] ?? 'person-outline'} size={11} color="#888888" />
+                      <Text style={styles.roleText}>{roleLabel[m.role]}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </SafeAreaView>
+        </SafeAreaProvider>
+      </Modal>
 
       {showInvite && (
         <InviteModal
@@ -1727,11 +1901,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6,
   },
   inviteBtnText: { color: '#FF6B35', fontWeight: '700', fontSize: 14 },
-  membersList: { gap: 8 },
-  memberRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: '#1A1A1A', borderRadius: 12, padding: 14, gap: 12,
+  // Compact avatar cluster
+  memberCluster: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  memberAvatarRow: { flexDirection: 'row', alignItems: 'center' },
+  memberBubbleWrap: {
+    marginRight: -10,
+    borderRadius: 19,
+    borderWidth: 2,
+    borderColor: '#0A0A0A',
   },
+  memberBubblePending: {
+    opacity: 0.45,
+    borderColor: '#555555',
+    borderStyle: 'dashed',
+  },
+  memberOverflow: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: '#2A2A2A',
+    alignItems: 'center', justifyContent: 'center',
+    borderColor: '#0A0A0A',
+  },
+  memberOverflowText: { fontSize: 11, fontWeight: '700', color: '#888888' },
+  memberCountLabel: { fontSize: 14, color: '#666666', marginLeft: 18 },
+  // Members bottom sheet
+  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
+  sheetContainer: { backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  sheetCard: { paddingHorizontal: 20, paddingBottom: 24, maxHeight: 480 },
+  sheetHandle: { width: 36, height: 4, backgroundColor: '#3A3A3A', borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
+  sheetTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  sheetMemberRow: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingVertical: 12, gap: 12,
+    borderBottomWidth: 1, borderBottomColor: '#2A2A2A',
+  },
+  sheetAvatarPending: { opacity: 0.45 },
+  // Kept for use in sheet
   memberInfo: { flex: 1 },
   memberName: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   pendingLabel: { fontSize: 11, color: '#888888', marginTop: 2 },
