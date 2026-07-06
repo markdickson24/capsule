@@ -6,7 +6,7 @@ public class ExpoVideoStitcherModule: Module {
     Name("ExpoVideoStitcher")
 
     // Concatenates an ordered array of video URIs into one MP4.
-    // Uses AVMutableComposition + AVAssetExportSession.
+    // Uses AVMutableComposition + AVMutableVideoComposition + AVAssetExportSession.
     AsyncFunction("stitchVideos") { (uris: [String], promise: Promise) in
       Task {
         do {
@@ -40,6 +40,17 @@ public class ExpoVideoStitcherModule: Module {
       )
     }
 
+    // A plain AVMutableComposition has exactly one preferredTransform for its
+    // whole video track's timeline — it can't represent different segments
+    // having different orientations. Front and back camera segments (this
+    // stitcher's main use case, the mid-recording camera flip) commonly DO
+    // have different AVAssetTrack.preferredTransforms, so we build an explicit
+    // AVMutableVideoComposition with one instruction per segment, each
+    // supplying that segment's own corrected transform.
+    var instructions: [AVMutableVideoCompositionInstruction] = []
+    var targetSize: CGSize?
+    var maxFrameRate: Float = 30
+
     var cursor = CMTime.zero
 
     for uriString in uris {
@@ -61,6 +72,37 @@ public class ExpoVideoStitcherModule: Module {
 
       if let src = videoTracks.first {
         try videoTrack.insertTimeRange(range, of: src, at: cursor)
+
+        let srcTransform = try await src.load(.preferredTransform)
+        let srcNaturalSize = try await src.load(.naturalSize)
+        let srcFrameRate = try await src.load(.nominalFrameRate)
+        if srcFrameRate > maxFrameRate { maxFrameRate = srcFrameRate }
+
+        // CGRect.applying already returns the correctly-normalized (positive
+        // width/height, properly positioned) bounding box of the transformed
+        // rect — no need to hand-roll corner math.
+        let displayedRect = CGRect(origin: .zero, size: srcNaturalSize).applying(srcTransform)
+
+        // First segment's displayed size becomes the shared render canvas —
+        // avoids rescaling it, and keeps behavior identical to today for the
+        // (still common) case where every segment shares the same
+        // orientation/size. Later segments are fit into this canvas.
+        let canvas = targetSize ?? displayedRect.size
+        if targetSize == nil { targetSize = canvas }
+
+        let instruction = AVMutableVideoCompositionInstruction()
+        instruction.timeRange = CMTimeRange(start: cursor, duration: duration)
+        let layerInstruction = AVMutableVideoCompositionLayerInstruction(assetTrack: videoTrack)
+        layerInstruction.setTransform(
+          ExpoVideoStitcherModule.correctedTransform(
+            preferredTransform: srcTransform,
+            displayedRect: displayedRect,
+            canvas: canvas
+          ),
+          at: cursor
+        )
+        instruction.layerInstructions = [layerInstruction]
+        instructions.append(instruction)
       }
       if let src = audioTracks.first {
         try audioTrack.insertTimeRange(range, of: src, at: cursor)
@@ -68,6 +110,11 @@ public class ExpoVideoStitcherModule: Module {
 
       cursor = CMTimeAdd(cursor, duration)
     }
+
+    let videoComposition = AVMutableVideoComposition()
+    videoComposition.instructions = instructions
+    videoComposition.renderSize = targetSize ?? CGSize(width: 1080, height: 1920)
+    videoComposition.frameDuration = CMTime(value: 1, timescale: CMTimeScale(maxFrameRate.rounded()))
 
     // Export to a temp MP4 in the app's caches directory.
     let tmpDir = FileManager.default.temporaryDirectory
@@ -86,6 +133,7 @@ public class ExpoVideoStitcherModule: Module {
 
     session.outputURL = outputURL
     session.outputFileType = .mp4
+    session.videoComposition = videoComposition
 
     await session.export()
 
@@ -99,5 +147,35 @@ public class ExpoVideoStitcherModule: Module {
     }
 
     return outputURL.absoluteString
+  }
+
+  // MARK: — Transform helpers
+
+  // Maps a segment from raw sensor/buffer space into its correct place on
+  // the shared render canvas: apply the segment's own preferredTransform
+  // (fixes rotation/mirroring — the actual bug), re-anchor at (0,0) in case
+  // that left a non-zero origin (mirrored transforms can), then uniformly
+  // scale+center to fit the canvas — this also protects against front/back
+  // cameras recording at slightly different native resolutions, not just
+  // different rotations.
+  private static func correctedTransform(
+    preferredTransform: CGAffineTransform,
+    displayedRect: CGRect,
+    canvas: CGSize
+  ) -> CGAffineTransform {
+    guard displayedRect.width > 0, displayedRect.height > 0 else { return preferredTransform }
+
+    let anchor = CGAffineTransform(translationX: -displayedRect.origin.x, y: -displayedRect.origin.y)
+    let scale = min(canvas.width / displayedRect.width, canvas.height / displayedRect.height)
+    let scaledSize = CGSize(width: displayedRect.width * scale, height: displayedRect.height * scale)
+    let center = CGAffineTransform(
+      translationX: (canvas.width - scaledSize.width) / 2,
+      y: (canvas.height - scaledSize.height) / 2
+    )
+
+    return preferredTransform
+      .concatenating(anchor)
+      .concatenating(CGAffineTransform(scaleX: scale, y: scale))
+      .concatenating(center)
   }
 }
