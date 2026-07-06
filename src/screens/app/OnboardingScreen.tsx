@@ -140,6 +140,8 @@ export default function OnboardingScreen({ navigation }: Props) {
       return;
     }
 
+    sessionStore.markOnboarded(userId);
+
     // Persist accent color in theme context too
     if (pendingColor !== accentColor) {
       await setAccentColor(pendingColor);

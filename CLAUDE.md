@@ -29,12 +29,18 @@ No test suite or linter configured yet.
 ### Project Structure
 
 ```
+modules/
+  expo-dual-camera/        # Simultaneous front+back capture (see "Dual Camera" section)
+  expo-video-stitcher/     # Concatenates video segments into one MP4 (iOS: AVMutableComposition;
+                           # Android: MediaExtractor+MediaMuxer). Used by CameraScreen's
+                           # mid-recording flip feature. JS entry: modules/expo-video-stitcher/index.ts
 src/
   components/
     AwardsSection.tsx        # Superlatives UI inside CapsuleDetail — voting open / tallying / finalized cards
     ColorPicker.tsx          # HSV picker (SV panel + hue slider + hex input), controlled, reusable
     ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
     DatePicker.tsx           # Shared date/time picker — custom calendar grid, month/year picker, quick presets, haptics
+    RetryPrompt.tsx          # Inline "taking longer than expected" + Retry button, shown after useLoadingTimeout fires
     Skeleton.tsx             # Shimmer skeleton loaders (SkeletonBox, SkeletonCard, SkeletonProfileCard, etc.)
     SuggestCategoryModal.tsx # Bottom sheet for proposing a superlative category (label + target type)
     VoteSheet.tsx            # Bottom sheet for casting / changing a vote (person picker or media grid)
@@ -44,6 +50,7 @@ src/
   hooks/
     useAuth.ts              # Session listener, returns { session, loading }
     useCachedFetch.ts       # Cache-aware data fetching hook — show cached, refresh in background
+    useLoadingTimeout.ts    # { timedOut, reset } after Nms of loading — powers the retry-button pattern
     useDeepLinks.ts         # Handles capsule://join/<id> and capsule://reset-password
     usePushNotifications.native.ts  # Token registration + tap routing (iOS/Android only)
     usePushNotifications.web.ts     # No-op stub for web
@@ -54,8 +61,11 @@ src/
   lib/
     animations.ts           # Reusable animation hooks (useFadeIn, useSlideUp, useListItemEntrance)
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
+    avatarUrl.ts             # transformAvatarUrl() — resized avatars via the public-bucket render API
+    mediaUrl.ts              # transformMediaUrl() — resized capsule media via the signed/private-bucket render API
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
-    sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load)
+    sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load); also the
+                             # per-user onboarded-flag + session-expired AsyncStorage flags
     shareIntentStash.ts     # In-memory stash for media shared while signed out — drained after login
     ShareIntentProvider.{native,web,tsx}  # Platform-split provider wrapper (real on native, passthrough on web)
     uuid.ts                 # randomUUID() helper
@@ -152,7 +162,7 @@ The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also 
 
 **Never query `capsule_members` inside a `capsule_members` policy.** Always go through a security definer function or use the `capsules` table directly.
 
-All RLS policies use `(select auth.uid())` not `auth.uid()` directly — avoids query planner issues.
+All RLS policies use `(select auth.uid())` not `auth.uid()` directly — avoids query planner issues. `get_my_capsule_ids()`, `can_insert_capsule_member()`, and the `capsules`/`capsule_members` policies above were live on production for an unknown period without ever being committed to a migration — another out-of-band dashboard/MCP change, like the missing `home_layout` grant below but for an entire policy redesign rather than one grant. Captured in `20260515232500_capture_capsule_rls_and_helpers.sql`. If you find another RLS policy or function that doesn't match what `mcp__supabase__execute_sql` shows is actually live, assume the live DB is correct and the migration is the one that's stale — verify with `pg_policies`/`pg_get_functiondef` before changing behavior.
 
 **Contribution lock is enforced at TWO layers** (both must allow):
 1. `media` table INSERT policy checks `c.contribution_lock_at IS NULL OR now() < c.contribution_lock_at` (joins `capsule_members` for membership + role).
@@ -184,6 +194,16 @@ The JS client adds both automatically. `FileSystem.uploadAsync` does not — add
 
 ---
 
+## Image Transforms (avoid full-res images in small UI)
+
+Both helpers use Supabase Storage's image-render API to serve a resized image instead of the full upload — saves bandwidth and avoids the device decoding a huge JPEG just to show a small thumbnail. **The mechanism differs by bucket visibility:**
+
+**`transformAvatarUrl(url, displayPx)`** (`src/lib/avatarUrl.ts`) — for the **public** `avatars` bucket. Rewrites `/storage/v1/object/public/` → `/storage/v1/render/image/public/` and appends `?width=&height=&resize=cover&quality=75` (2× density, capped at 400px — the avatar upload ceiling). **Must pass both `width` AND `height`** — passing only `width` leaves height at the source image's size and returns a squashed, non-square image (this caused a real bug: avatars rendered badly cropped/zoomed because only `width` was set). `resize=cover` center-crops to the requested box. Used everywhere avatars render below full size: `Avatar` component (`ProfileScreen.tsx`), `GroupDetailScreen`, `CreateGroupScreen`, `VoteSheet`, `AwardsSection`, `QRScannerScreen`.
+
+**`transformMediaUrl(signedUrl, displayPx)`** (`src/lib/mediaUrl.ts`) — for the **private** `capsule-media` bucket. A signed URL already looks like `.../storage/v1/object/sign/capsule-media/<key>?token=<jwt>`; this rewrites the path segment to `/storage/v1/render/image/sign/` and appends the same `width/height/resize/quality` params, **preserving the existing `?token=` param** (the same signing token is valid on the render path — confirmed via `@supabase/storage-js`'s own `getPublicUrl()`/`download()` implementations, which do this identical path-swap-plus-query-params pattern internally). This derives a thumbnail from an *already-signed* URL with **no second signing round-trip** — preferred over `createSignedUrl(..., { transform })`, which bakes one fixed size into the token and would need a second signing call to also get the full-res viewer URL. Used for `CapsuleDetailScreen`'s media grid/3-up preview (`MediaItem.thumbSignedUrl`) and `VoteSheet`'s media-voting grid — both fall back to the full-res `signedUrl` if `thumbSignedUrl` is unset (e.g. videos, which use `thumbnailUri` instead).
+
+---
+
 ## Database Schema
 
 Defined in `supabase-schema.sql`.
@@ -191,12 +211,12 @@ Defined in `supabase-schema.sql`.
 | Table | Key columns |
 |---|---|
 | `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), home_layout (list/grid, default 'list'), onboarded_at (null = needs wizard), created_at |
-| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at, owner_preview_locked (default true — surprise mode) |
+| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at, owner_preview_locked (default true — surprise mode), occasion (wedding/vacation/party/baby/milestone/general, default 'general' — drives the default-awards theme) |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), checkin_lat, checkin_lng, checkin_at |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
 | `notifications` | id, user_id, capsule_id (**nullable** — null for friend events), actor_id (nullable — the other user, for friend events), type (invite/unlock/reaction/contribution_nudge/milestone/superlative_suggested/superlative_closing_soon/superlative_won/friend_request/friend_accept), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
-| `superlative_categories` | id, capsule_id, suggested_by, label (3–80 chars), target_type (person/media), status (pending/live/archived), promoted_at, created_at |
+| `superlative_categories` | id, capsule_id, suggested_by, label (3–80 chars), target_type (person/media), status (pending/live/archived), promoted_at, created_at, is_default (bool, default false — marks an auto-seeded award, see "Default Awards" below) |
 | `superlative_upvotes` | category_id + user_id (composite PK), created_at — drives auto-promote trigger |
 | `superlative_votes` | category_id + voter_id (composite PK), target_user_id XOR target_media_id, created_at, updated_at — anonymous; clients only read own row |
 | `superlative_winners` | id, category_id, target_user_id XOR target_media_id, vote_count, determined_at — one row per (category, tied target); written only by finalize RPC |
@@ -233,6 +253,9 @@ Defined in `supabase-schema.sql`.
 - Double-tap (within 300ms) switches front/back camera
 - Pinch gesture (PanResponder): zoom 0–1, displayed as 1×–5× badge, fades after 800ms
 - Max video recording: 30 seconds
+- **Hands-free lock:** while holding to record, slide the shutter finger **right ≥ 90px** — the lock pill (right of shutter) highlights accent-colored and pulses (`lockAnim`). Release to lock: recording continues hands-free, the shutter becomes a red stop square. Tap the stop square to end. Works for both single and dual recording. State: `locked` (React state), `lockedRef` (ref for PanResponder), `willLockRef` + `hasFiredLockHapticRef` (transient arm state). All reset in `cleanupRecording`.
+- **Zoom deadzone:** horizontal movement ≥ 20px (`LOCK_DEADZONE_X`) suppresses vertical zoom to prevent accidental zooming while starting a rightward lock-swipe.
+- **Flip camera mid-recording (single-camera only):** tap the reverse button (top-right) or double-tap the viewfinder while recording to switch front↔back. Implemented as a **multi-segment recording loop** in `startRecording`: each call to `recordAsync` is one segment; `flipCameraDuringRecording()` sets `pendingFlipRef`, stops the current segment, calls `setCameraMode`, and a `useEffect([facing])` resolves the loop's await once the `CameraView` re-renders. After all segments are collected, they are stitched into one MP4 via `stitchVideos()` from `modules/expo-video-stitcher` before navigating to Preview. The 30s cap is shared across all segments (`recordSecondsRef`). Dual-camera mode is excluded (both lenses already active).
 - Photos: resized to 1920px wide via `expo-image-manipulator`, compress 0.82, quality 0.88
 - Front camera photos: flipped horizontally via `FlipType.Horizontal`
 - Use `useIsFocused()` to stop camera rendering when tab is not active
@@ -331,16 +354,23 @@ Large file (~1400 lines). Key sub-components and patterns:
 
 **`MediaViewerModal`** — full-screen swipe carousel. Gesture axis is locked on first movement (prevents diagonal). Vertical swipe > 120px or velocity > 1.5 closes modal. Header controls (close, page counter, download) sit inside a `LinearGradient` overlay (top 120px, `rgba(0,0,0,0.6)` → transparent) so buttons don't get lost against light images. Download button uses `expo-media-library` on native (saves to camera roll) and anchor-element download on web.
 
-**Real-time:** `supabase.channel('capsule-${capsuleId}')` listens for `UPDATE` on `capsules` table. On status → 'unlocked': triggers reveal animation + refetches media.
+**Real-time:** `supabase.channel('capsule-${capsuleId}')` listens for `UPDATE` on `capsules` table. On status → 'unlocked': triggers reveal animation, invalidates `signedUrls:${capsuleId}` **and** `media:${capsuleId}` (a surprise-mode owner's pre-unlock cache may have cached an RLS-empty media list), then refetches media.
 
 **Upload flow:**
 - Web: `fetch(uri) → arrayBuffer → supabase.storage.upload()`
 - Native: `FileSystem.uploadAsync` with `Authorization` + `apikey` headers
-- After all uploads: refetches media via `fetchPhotos()`
+- After all uploads: invalidates `signedUrls:${capsuleId}` and `media:${capsuleId}`, then refetches media via `fetchPhotos()`
 
 **Reactions:** `addReaction()` generates the reaction ID client-side via `randomUUID()` — never chain `.select()` after `.insert()` on the `reactions` table (the SELECT RLS policy may fail even though the insert succeeded, causing the optimistic reaction to disappear). If the user already has a reaction on the media, the existing row is updated (emoji swap) instead of inserting a duplicate — respects the `unique(media_id, user_id)` constraint.
 
-**Cache integration:** on mount, checks `cache.get('capsule:${capsuleId}')` — if cached, renders instantly and fetches fresh in background. `load()` calls `cache.set()` after fetching. Invalidation: `cache.invalidate('capsules', 'profile')` on delete.
+**Cache integration:** on mount, checks `cache.get('capsule:${capsuleId}')` — if cached, renders instantly and fetches fresh in background. `load()` calls `cache.set()` after fetching, and runs `fetchPhotos()` in the same parallel wave (it has no dependency on the capsule/members result). Invalidation: `cache.invalidate('capsules', 'profile')` on delete.
+
+**`fetchPhotos(force?)`** caches three things, each independently:
+- `media:${capsuleId}` (3min TTL) — the raw `media` row list itself, so a cache hit skips the DB read entirely, not just the signing step. `force=true` (used by pull-to-refresh) always bypasses it, since another member's upload wouldn't trigger this client's own `cache.invalidate`.
+- `signedUrls:${capsuleId}` (50min TTL, under the 1hr signed-URL validity) — batches main + alt keys into one `createSignedUrls()` call.
+- `videoThumb:${mediaId}` (6hr TTL) — the locally-generated `expo-video-thumbnails` frame URI, so re-entering the screen doesn't re-decode every video.
+
+**Grid/preview thumbnails use `transformMediaUrl()`** (`src/lib/mediaUrl.ts`), not the full-res `signedUrl` — `MediaItem.thumbSignedUrl` is derived from the already-signed URL with no extra signing round-trip (see "Media URL Transforms" below). The full-screen viewer and `VoteSheet`'s media-voting grid both still fall back to `signedUrl` for anything without a `thumbSignedUrl` (videos use `thumbnailUri` instead).
 
 ---
 
@@ -404,18 +434,20 @@ Tab bar height: 60px, background `#111111`, top border `#1E1E1E`.
 
 ## Owner-Only Capsule Actions
 
-All of the following are owner-only and silently no-op / navigate away if not owner:
+All of the following are owner-only and silently no-op / navigate away if not owner — **except Archive**, which any joined member can do (see below):
 
 - **Edit capsule** (`EditCapsuleScreen`) — title, description, unlock date, contribution lock date. Accessible via "Edit" button in CapsuleDetail header and long-press on a card in HomeScreen. Blocked if capsule is already unlocked.
-- **Archive capsule** — sets `archived_at`. Hides from main feed; appears in collapsible "Archived" section on Home with a Restore button. Available from EditCapsule and CapsuleDetail danger zones.
-- **Delete capsule** — clears storage files from `capsule-media` bucket first, then deletes the capsule row (cascades to members, media, reactions, notifications). Confirmation required via `<ConfirmModal>` (not `Alert.alert` — that no-ops on web). Available from EditCapsule and CapsuleDetail danger zones.
+- **Archive / restore capsule** — sets/clears `archived_at`. Hides from main feed; appears in collapsible "Archived" section on Home with a Restore button. **Any joined member can archive or restore, not just the owner** — `CapsuleDetailScreen`'s danger zone gates the button on `canArchive = isOwner || myMember?.joined_at != null` (a pending, not-yet-accepted invitee cannot). Because the blanket `capsules` UPDATE RLS policy is owner-only and covers every column (no column-level exception), this goes through a dedicated `security definer` RPC, **`set_capsule_archived(p_capsule_id, p_archived)`** (`20260706120000_member_archive_capsule.sql`), rather than a direct `.update()` — it authorizes inline (owner OR a `capsule_members` row with `joined_at is not null`) and only ever touches `archived_at`. Both `CapsuleDetailScreen`'s toggle and `HomeScreen.restoreCapsule` call this RPC. `HomeScreen`'s `archivedCapsules` list is derived from `allCapsules`, which is already scoped to joined membership (the underlying query filters `joined_at is not null`) — so no extra owner filter is needed there; any archived capsule a member can see is one they're allowed to restore. **Delete remains owner-only** and still lives in the same danger-zone container, just gated separately (`isOwner`) from the archive button now that the container itself is gated on `canArchive`. `EditCapsuleScreen`'s own Archive button (that screen is still owner-only end-to-end, gated by its `loadCapsule` early-return) was left as a direct `.update()` — unreachable by non-owners anyway since the whole screen bounces them.
+- **Delete capsule** — clears storage files from `capsule-media` bucket first, then deletes the capsule row (cascades to members, media, reactions, notifications). Confirmation required via `<ConfirmModal>` (not `Alert.alert` — that no-ops on web). Available from EditCapsule and CapsuleDetail danger zones. Owner-only.
 - **Manage members** (`ManageMembersScreen`) — lists all members (joined + pending). Trash icon removes a member after confirmation. Accessible via "Manage" button in CapsuleDetail members section.
 
 ## Onboarding (`OnboardingScreen`)
 
 A 4-step wizard that runs after new sign-ups. Gated by `users.onboarded_at`:
-- AppNavigator on mount queries `users.onboarded_at`. If null → `initialRouteName = 'Onboarding'`. Otherwise → `'Tabs'`. On query error, falls through to Tabs (don't strand the user).
-- The wizard writes `display_name`, optionally `avatar_url` / `bio` / `accent_color`, and sets `onboarded_at = now()` in a single update on completion.
+- AppNavigator first checks a **local flag** (`sessionStore.wasOnboarded(userId)`, an `AsyncStorage` boolean keyed per user — see `markOnboarded`/`wasOnboarded` in `src/lib/sessionStore.ts`). If set, routes straight to `'Tabs'` with **no network round-trip** — this used to block first paint on every launch behind a `users.onboarded_at` query (up to a 5s timeout). The flag is written the moment a `users.onboarded_at` query confirms `true`, and again when the wizard itself completes.
+- If the local flag isn't set (first launch, fresh install, or genuinely not yet onboarded), falls back to the original behavior: queries `users.onboarded_at`. If null → `initialRouteName = 'Onboarding'`. Otherwise → `'Tabs'` (and the local flag gets written for next launch). On query error or 5s timeout, falls through to Tabs (don't strand the user).
+- `users.onboarded_at` remains the server source of truth — the local flag only exists to skip the round-trip for returning users; nothing in the app currently un-sets `onboarded_at`, so a stale-true local flag isn't a real-world risk.
+- The wizard writes `display_name`, optionally `avatar_url` / `bio` / `accent_color`, and sets `onboarded_at = now()` in a single update on completion, then calls `sessionStore.markOnboarded(userId)`.
 - Final step uses `navigation.replace('Tabs', { screen: 'Home' })` (no back stack to the wizard).
 
 Steps:
@@ -530,6 +562,22 @@ The HTTP call uses the same Vault secret (`cron_unlock_capsules_secret`) as the 
 - When tying capsules' realtime to the section, the parent's `capsule` state must be passed as props (`votingClosesAt`, `votingFinalizedAt`) — the section can't subscribe to capsule changes itself because that's the parent's responsibility.
 - The auto-promote trigger checks `status = 'pending'` before flipping, so concurrent upvotes can't promote twice.
 
+### Default Awards
+
+A second, parallel path to `live` alongside the suggest→upvote flow above: every capsule can have up to **4 predetermined ("default") awards**, themed by the capsule's `occasion`, inserted already `status = 'live'` — no suggest/upvote gauntlet. Member suggestions still work exactly as described above and coexist with the defaults.
+
+- **`capsules.occasion`** (`wedding` / `vacation` / `party` / `baby` / `milestone` / `general`, default `'general'`) — picked via a chip row on `CreateScreen` (no equivalent in `EditCapsuleScreen` — occasion is creation-only, like `owner_preview_locked`). Chosen purely to select which themed pool `src/lib/awardPool.ts` draws from; carries no other behavior.
+- **`src/lib/awardPool.ts`** — pure client-side module (no network calls, since the Create-screen preview happens before the capsule exists): `AWARD_POOL: Record<OccasionKey, PresetAward[]>` (~10 awards per occasion, mixed person/media, themed — sentimental for wedding/baby, playful for vacation/party, reflective for milestone), `pickDefaults(occasion, count=4, exclude=[])` (shuffles + samples, tops up with repeats only if the pool minus exclusions is too small), `pickReplacement(occasion, currentLabels)` (single-slot swap, excludes the other current labels).
+- **`set_default_superlatives(p_capsule_id, p_awards jsonb)` RPC** (`security definer`) — the only way a default award reaches `status = 'live'` (the suggest-INSERT RLS policy still forces `status = 'pending'` for client inserts, so this can't be done through a plain `.insert()`). Authorizes inline: caller must be `capsules.owner_id` (checked with `is distinct from`, not `<>` — a null `auth.uid()` must not silently bypass the check) and the capsule must not be `status = 'unlocked'`. **Full-replace, not incremental**: every call deletes the capsule's existing `is_default` rows and re-inserts the given array — safe pre-unlock since no votes can exist yet. Caps the array at 4, re-validates label length (3–80) and `target_type` server-side even though the client already validates.
+- **`notify_on_superlative_suggested`** early-returns when `NEW.is_default` — seeding/reshuffling defaults never fans out `superlative_suggested` notifications the way a real member suggestion does.
+- **`src/components/DefaultAwardsCard.tsx`** — one presentational component, two modes, discriminated by a `mode` prop:
+  - `mode="preview"` (`CreateScreen`) — fully controlled; the parent owns the `awards` array (seeded via `pickDefaults(occasion)`, re-seeded whenever the occasion chip changes) and passes `onChange`. Nothing is persisted until the capsule itself is created.
+  - `mode="manage"` (`CapsuleDetailScreen`, pre-unlock only) — owns its own state: fetches the capsule's current `is_default` rows on mount, and every shuffle/swap/remove calls `set_default_superlatives` directly (optimistic update, rolls back on error).
+  - Both modes render the same 4 award chips with per-slot swap (↻) and remove (×) controls plus a "Shuffle all" button.
+- **`CreateScreen.handleCreate`** calls the RPC once, right after the owner `capsule_members` insert succeeds (non-fatal on error — the capsule is already usable, and the owner can still seed defaults from the capsule page).
+- **`CapsuleDetailScreen`** renders `<DefaultAwardsCard mode="manage">` only when `isOwner && isLocked` — this is the owner's only chance to review/regenerate the defaults, since `<AwardsSection>` itself is unlocked-only and the RPC refuses changes post-unlock. Once unlocked, default awards are indistinguishable from member-suggested ones in `AwardsSection` — they're just ordinary `live` categories that happen to have `is_default = true`.
+- **`fetchAwardsData`** (`src/lib/awardsData.ts`) selects `is_default` alongside the other category columns so it's available to any future UI that wants to badge defaults differently, though `AwardsSection` doesn't currently render on it.
+
 ---
 
 ## Content Moderation (Report + Block)
@@ -573,23 +621,44 @@ Explicit friend requests (`friendships` table). Previously "friends" was *derive
 
 ## Cache System (`src/lib/cache.ts`)
 
-In-memory cache with TTL, key-based invalidation, and pub/sub listeners. Reduces loading times by showing cached data instantly while fetching fresh data in the background.
+In-memory cache (lost on cold start — no persistence) with TTL, key-based invalidation, and pub/sub listeners. Reduces loading times by showing cached data instantly while fetching fresh data in the background.
 
-- `cache.get<T>(key, ttl?)` — returns cached data or null if expired (default 5 min TTL)
+- `cache.get<T>(key, ttl?)` — returns cached data or null if expired (default 15 min TTL)
 - `cache.set<T>(key, data)` — stores data with timestamp
 - `cache.invalidate(...keys)` — deletes entries and notifies all subscribers for those keys
 - `cache.subscribe(key, fn)` — returns unsubscribe function; used by `useCachedFetch` for cross-screen reactivity
 - `cache.clear()` — wipes entire cache (called on sign out via `useAuth`)
 
-**`useCachedFetch<T>(key, fetcher, deps)`** (`src/hooks/useCachedFetch.ts`) — returns `{ data, loading, refresh }`. On screen focus: if cached data exists, renders instantly and fetches fresh in background; otherwise shows loading state. Subscribes to cache invalidation: when another screen invalidates the key, re-fetches immediately.
+**`useCachedFetch<T>(key, fetcher, deps)`** (`src/hooks/useCachedFetch.ts`) — returns `{ data, loading, refresh }`. On screen focus: if `cache.get(key)` is still fresh (within TTL), renders instantly **and skips the network call entirely** — the TTL governs every focus, not just the first render. On a miss/expiry, fetches and shows a loading state. `refresh()` always force-fetches regardless of TTL. Subscribes to cache invalidation: when another screen invalidates the key, **keeps showing current data** (no blank-then-reload flash) while refetching in the background. Concurrent fetches for the same key are deduped via a module-level in-flight registry — e.g. if `cache.invalidate('capsules')` fires while three components are subscribed to that key, only one network call goes out, not three.
+
+Not every cache consumer uses this hook — `CapsuleDetailScreen` and `AwardsSection` hand-roll the same "check `cache.get` for instant render, then fetch in the background" pattern directly, because both have local optimistic-update state (reactions, upvotes) that the hook's read-only `data` can't accommodate.
 
 **Cache keys in use:**
 - `capsules` — HomeScreen capsule list
-- `capsule:${id}` — per-capsule detail data
+- `capsule:${id}` — per-capsule detail data (capsule row + members)
+- `media:${id}` — per-capsule raw `media` row list (3min TTL; separate from the signed-URL cache below so a cache hit skips the DB read, not just the signing step)
+- `signedUrls:${id}` — per-capsule signed URLs, batched (50min TTL, under the 1hr signed-URL validity)
+- `videoThumb:${id}` — per-media locally-generated video thumbnail frame (6hr TTL — a local file URI, not server-expiring)
+- `awards:${id}` — per-capsule superlatives categories + winners (AwardsSection, hand-rolled, not via the hook)
 - `profile` — ProfileScreen hero card data
 - `notifications` — NotificationsScreen
+- `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section
 
-**Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed).
+**Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed). Uploading/deleting media or a capsule unlocking invalidates both `signedUrls:${id}` and `media:${id}` together — invalidating only the signed-URL cache while `media:${id}` is one mutation site is not enough.
+
+## Retry on slow loads (`useLoadingTimeout` + `RetryPrompt`)
+
+Every screen that fetches data on mount/focus shows a retry affordance if loading
+takes longer than 8 seconds, instead of an indefinite spinner/skeleton (RN's
+`fetch()` has no default timeout — a dead connection can hang 30s-2min).
+
+- **`src/hooks/useLoadingTimeout.ts`** — `useLoadingTimeout(loading, timeoutMs = 8000)` returns `{ timedOut, reset }`. Arms an 8s timer whenever `loading` is `true`; clears it and resets `timedOut` to `false` the moment `loading` goes `false`. Exposes `reset()` because a retry tap doesn't produce a `loading: false→true` edge (the fetch just restarts under the same `true`) — **every `onRetry` handler must call `reset()` before kicking off the new fetch**, or the timeout will never re-arm on a second hang. This is the one detail to double-check when wiring a new screen.
+- **`src/components/RetryPrompt.tsx`** — `{ onRetry, message?, compact? }`. Renders inline (not a modal/popup) — a message + a "Retry" button styled with dark-theme tokens and `accentColor` from `useTheme()`. `compact` shrinks padding/text for small inline contexts (`AwardsSection`'s `loadingBox`, `PublicProfileScreen`'s `InviteToCapsuleModal`); the default (non-compact) fills the screen like the skeleton it replaces.
+- **Wiring pattern:** `if (loading) { if (timedOut) return <RetryPrompt onRetry={...} />; return <...skeleton...>; }` — the retry prompt **replaces** the skeleton/spinner rather than showing alongside it.
+- **`useCachedFetch`'s `refresh` takes an optional `force` param** (`refresh(force?: boolean)`) specifically for this: the hook dedupes concurrent fetches per key via a module-level in-flight registry, so calling `refresh()` on a genuinely hung fetch would just re-await the same stuck promise. `refresh(true)` discards the stale in-flight entry first so a real new request fires. Every retry handler on a `useCachedFetch` screen calls `refresh(true)`, never bare `refresh()`.
+- **Hand-rolled (non-hook) screens** just call their own fetch function again on retry, but **must replicate however that function currently clears its `loading` state** — some fetch functions clear it internally (`AwardsSection.fetchCategories`, `FriendsScreen.load`), others rely on the caller chaining `.finally(() => setLoading(false))` (`ManageMembersScreen.fetchMembers`, `PublicProfileScreen.load`, `EditCapsuleScreen.loadCapsule`). Check before assuming.
+- **Applied to:** HomeScreen, NotificationsScreen, ProfileScreen, GroupDetailScreen (primary `groupLoading` gate only — the secondary `capsulesLoading` `ListEmptyComponent` spinner is non-blocking and deliberately left out), CapsuleDetailScreen (cold-load skeleton only — the warm-cache path already shows content instantly and refreshes silently in the background, so there's no visible loading UI to attach a retry button to), AwardsSection, FriendsScreen, EditCapsuleScreen, ManageMembersScreen, PublicProfileScreen + its nested `InviteToCapsuleModal`.
+- **Not touched:** `LoadingBrandScreen`'s use in `AppNavigator.tsx`'s onboarding/route-resolution gate — that's a different kind of "loading" (route resolution, not a data-fetch-on-mount screen) and already has its own 5s timeout fallback to `Tabs`.
 
 ## DatePicker (`src/components/DatePicker.tsx`)
 
@@ -616,7 +685,7 @@ Reusable entrance animation hooks using the built-in `Animated` API (no `react-n
 - `useSlideUp(delay?, duration?)` — opacity 0→1 + translateY 20→0
 - `useListItemEntrance(index, baseDelay?)` — staggered fade+slide for list items (60ms per item, caps at index 8)
 
-All three hooks use `useIsFocused()` from React Navigation — animations reset and replay every time the screen gains focus (not just on initial mount). This is important for tab screens which stay mounted.
+All three hooks use `useIsFocused()` from React Navigation, but only play the entrance animation **once per screen instance** (a `hasAnimatedRef` guard) — on the first focus after mount. On every subsequent re-focus (e.g. switching tabs back to an already-mounted screen), values snap directly to their final state instead of resetting and replaying; data from `useCachedFetch` is typically already instant on a re-focus, so replaying a ~300–780ms entrance animation on top of it just made already-fast navigation look slow. A genuine unmount+remount (e.g. pushing a new stack screen) still gets the full entrance animation, since `hasAnimatedRef` lives with the component instance.
 
 **Rules of Hooks:** these hooks must be called before any early returns (e.g. `if (loading) return <Skeleton />`). Moving them after an early return causes "Rendered more hooks than during the previous render" errors.
 

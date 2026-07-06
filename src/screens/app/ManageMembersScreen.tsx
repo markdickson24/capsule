@@ -14,6 +14,8 @@ import { AppStackParamList } from '../../types/navigation';
 import { Avatar } from './ProfileScreen';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonMemberRow } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import ConfirmModal from '../../components/ConfirmModal';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'ManageMembers'>;
@@ -39,6 +41,7 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<{ userId: string; displayName: string } | null>(null);
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   async function fetchMembers() {
     const session = sessionStore.get();
@@ -78,6 +81,16 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   }
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
+          </TouchableOpacity>
+          <RetryPrompt onRetry={() => { resetTimeout(); fetchMembers().finally(() => setLoading(false)); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.backBtn}>

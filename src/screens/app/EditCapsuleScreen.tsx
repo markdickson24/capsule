@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput,
@@ -17,6 +17,8 @@ import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import ConfirmModal from '../../components/ConfirmModal';
 import SkeletonBox, { SkeletonFormField } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'EditCapsule'>;
 
@@ -48,33 +50,36 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [error, setError] = useState('');
 
+  const loadCapsule = useCallback(async () => {
+    const session = sessionStore.get();
+    if (!session) { navigation.goBack(); return; }
+
+    const { data, error: err } = await supabase
+      .from('capsules')
+      .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, unlock_mode, superlative_voting_hours')
+      .eq('id', capsuleId)
+      .single();
+
+    if (err || !data) { navigation.goBack(); return; }
+    if ((data as any).owner_id !== session.user.id) { navigation.goBack(); return; }
+    if ((data as any).status === 'unlocked') { navigation.goBack(); return; }
+
+    setTitle((data as any).title);
+    setDescription((data as any).description ?? '');
+    setUnlockDate(new Date((data as any).unlock_at));
+    setContribLockDate(
+      (data as any).contribution_lock_at ? new Date((data as any).contribution_lock_at) : null
+    );
+    setUnlockMode((data as any).unlock_mode ?? 'time');
+    setVotingHours((data as any).superlative_voting_hours ?? 48);
+    setFetching(false);
+  }, [capsuleId, navigation]);
+
   useEffect(() => {
-    async function load() {
-      const session = sessionStore.get();
-      if (!session) { navigation.goBack(); return; }
+    loadCapsule().catch(() => navigation.goBack());
+  }, [loadCapsule]);
 
-      const { data, error: err } = await supabase
-        .from('capsules')
-        .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, unlock_mode, superlative_voting_hours')
-        .eq('id', capsuleId)
-        .single();
-
-      if (err || !data) { navigation.goBack(); return; }
-      if ((data as any).owner_id !== session.user.id) { navigation.goBack(); return; }
-      if ((data as any).status === 'unlocked') { navigation.goBack(); return; }
-
-      setTitle((data as any).title);
-      setDescription((data as any).description ?? '');
-      setUnlockDate(new Date((data as any).unlock_at));
-      setContribLockDate(
-        (data as any).contribution_lock_at ? new Date((data as any).contribution_lock_at) : null
-      );
-      setUnlockMode((data as any).unlock_mode ?? 'time');
-      setVotingHours((data as any).superlative_voting_hours ?? 48);
-      setFetching(false);
-    }
-    load().catch(() => navigation.goBack());
-  }, [capsuleId]);
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(fetching);
 
   async function handleSave() {
     setError('');
@@ -139,6 +144,16 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   }
 
   if (fetching) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <Text style={[styles.backText, { color: accentColor }]}>← Back</Text>
+          </TouchableOpacity>
+          <RetryPrompt onRetry={() => { resetTimeout(); loadCapsule().catch(() => navigation.goBack()); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.backBtn}>

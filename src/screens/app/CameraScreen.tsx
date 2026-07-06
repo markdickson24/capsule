@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, PanResponder,
   TouchableOpacity, Animated, Dimensions, Platform, ActivityIndicator,
@@ -12,6 +12,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import InfoTooltip from '../../components/InfoTooltip';
+import { stitchVideos } from '../../../modules/expo-video-stitcher';
 import {
   DualCameraView,
   isDualCameraSupported,
@@ -33,6 +35,11 @@ const DOUBLE_TAP_MS = 300;
 // Snapchat-style drag-to-zoom: dragging up ~75% of the screen height covers the
 // full 1×–5× zoom range while recording.
 const ZOOM_DRAG_FACTOR = 0.75;
+// Slide the shutter right by this many px while recording to arm the hands-free lock.
+const LOCK_DRAG_X = 90;
+// Horizontal movement beyond this suppresses vertical zoom to prevent accidental zooming
+// while the finger starts a rightward lock-swipe.
+const LOCK_DEADZONE_X = 20;
 
 // Height of the custom tab bar on web (no safe area inset on web)
 const WEB_TAB_BAR_HEIGHT = 60;
@@ -61,6 +68,10 @@ export default function CameraScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordSeconds, setRecordSeconds] = useState(0);
   const [zoom, setZoom] = useState(0);
+  // Hands-free lock: true once the user slides right and releases while recording.
+  const [locked, setLocked] = useState(false);
+  // lockArmed: finger has slid past LOCK_DRAG_X but hasn't released yet (shows affordance highlight).
+  const [lockArmed, setLockArmed] = useState(false);
 
   // The single-camera CameraView only knows front/back; Dual swaps in DualCameraView.
   const facing: 'front' | 'back' = cameraMode === 'front' ? 'front' : 'back';
@@ -77,6 +88,29 @@ export default function CameraScreen() {
   // Mirror of `isDual` readable inside the single-creation PanResponder closure.
   const isDualRef = useRef(false);
   isDualRef.current = isDual;
+  // Refs for lock state — readable inside single-creation PanResponder closures.
+  const lockedRef = useRef(false);
+  const willLockRef = useRef(false);
+  const hasFiredLockHapticRef = useRef(false);
+
+  // Multi-segment recording (flip during recording).
+  const segmentsRef = useRef<string[]>([]);
+  // Mirrors recordSeconds for reads inside callbacks without stale closure risk.
+  const recordSecondsRef = useRef(0);
+  // Set by flipCameraDuringRecording before stopRecording so the segment loop
+  // knows to continue rather than finalize.
+  const pendingFlipRef = useRef(false);
+  // Pre-created by flipCameraDuringRecording so useEffect([facing]) can resolve it
+  // regardless of whether the render fires before or after recordAsync resolves.
+  const flipPromiseRef = useRef<Promise<void> | null>(null);
+  // The resolve callback for flipPromiseRef; null when not waiting for a flip.
+  const flipReadyRef = useRef<(() => void) | null>(null);
+
+  // Mirrors `facing` for use inside the single-creation viewfinderResponder.
+  const facingRef = useRef<'front' | 'back'>('back');
+  facingRef.current = facing;
+  // Latest-handler ref so viewfinderResponder can call the current flipCamera closure.
+  const flipCameraRef = useRef<() => void>(() => {});
 
   // Zoom refs — used inside PanResponder closure (no re-render needed for raw tracking)
   const zoomRef = useRef(0);
@@ -89,6 +123,20 @@ export default function CameraScreen() {
   const flashOpacity = useRef(new Animated.Value(0)).current;
   const zoomOpacity = useRef(new Animated.Value(0)).current;
   const zoomFadeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Drives the lock-pill scale (0 = idle, 1 = armed/locked). Uses native driver.
+  const lockAnim = useRef(new Animated.Value(0)).current;
+
+  // After facing changes (triggered by flipCameraDuringRecording), signal the
+  // segment loop that the CameraView has re-rendered with the new camera.
+  // The promise is pre-created in flipCameraDuringRecording so flipReadyRef is
+  // always set by the time this effect fires — no race condition.
+  useEffect(() => {
+    if (!pendingFlipRef.current || !flipReadyRef.current) return;
+    const resolve = flipReadyRef.current;
+    flipReadyRef.current = null;
+    // 400ms for native camera hardware to complete the lens switch after React re-render.
+    setTimeout(resolve, 400);
+  }, [facing]);
 
   function animateShutter(toValue: number) {
     Animated.timing(shutterAnim, { toValue, duration: 150, useNativeDriver: false }).start();
@@ -170,21 +218,92 @@ export default function CameraScreen() {
       if (!result.granted) return;
     }
     isRecordingRef.current = true;
+    segmentsRef.current = [];
+    recordSecondsRef.current = 0;
     setIsRecording(true);
     setRecordSeconds(0);
     animateShutter(1);
-    recordInterval.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
+    recordInterval.current = setInterval(() => {
+      setRecordSeconds(s => {
+        const next = s + 1;
+        recordSecondsRef.current = next;
+        return next;
+      });
+    }, 1000);
     maxDurationTimer.current = setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
-    try {
-      const video = await cameraRef.current.recordAsync({ maxDuration: MAX_RECORD_SECONDS });
-      if (video?.uri) {
-        navigation.navigate('Preview', { uri: video.uri, mediaType: 'video', facing });
+
+    // Segment loop: keeps recording across camera flips until the user stops or
+    // the 30s total cap is reached.
+    while (isRecordingRef.current) {
+      const remaining = MAX_RECORD_SECONDS - recordSecondsRef.current;
+      if (remaining <= 0) break;
+      try {
+        const video = await cameraRef.current!.recordAsync({ maxDuration: remaining });
+        if (video?.uri) segmentsRef.current.push(video.uri);
+      } catch {
+        break;
       }
-    } catch {}
+
+      if (pendingFlipRef.current) {
+        // Await the pre-created promise; useEffect resolves it 400ms after the
+        // CameraView re-renders with the new facing. Safety timeout at 1.5s.
+        if (flipPromiseRef.current) {
+          await Promise.race([
+            flipPromiseRef.current,
+            new Promise<void>(r => setTimeout(r, 1500)),
+          ]);
+          flipPromiseRef.current = null;
+        }
+        pendingFlipRef.current = false;
+        // Loop continues → starts next segment on the new camera.
+      } else {
+        break; // User stopped or max-duration hit — done.
+      }
+    }
+
+    const segments = segmentsRef.current;
+    if (segments.length > 0) {
+      if (segments.length === 1) {
+        navigation.navigate('Preview', { uri: segments[0], mediaType: 'video', facing: facingRef.current });
+      } else {
+        let stitchedUri: string | null = null;
+        try {
+          const result = await stitchVideos(segments);
+          stitchedUri = result.uri;
+        } catch { /* native module not yet built, or stitching failed */ }
+
+        if (stitchedUri) {
+          navigation.navigate('Preview', { uri: stitchedUri, mediaType: 'video', facing: facingRef.current });
+        } else {
+          // Fallback: show all clips as a multi-item Preview so no segment is lost.
+          navigation.navigate('Preview', {
+            media: segments.map(uri => ({ uri, mediaType: 'video' as const })),
+            source: 'camera',
+          });
+        }
+      }
+    }
     cleanupRecording();
   }
 
-  function stopRecording() { cameraRef.current?.stopRecording(); }
+  function stopRecording() {
+    cameraRef.current?.stopRecording();
+  }
+
+  // Flip front ↔ back mid-recording. Stops the current segment, switches the camera,
+  // and lets the segment loop start a new recordAsync on the new facing.
+  function flipCameraDuringRecording() {
+    if (!isRecordingRef.current || isDualRef.current) return;
+    pendingFlipRef.current = true;
+    // Pre-create the promise so useEffect([facing]) can resolve it regardless of
+    // whether the render fires before or after recordAsync resolves.
+    flipPromiseRef.current = new Promise<void>(resolve => {
+      flipReadyRef.current = resolve;
+    });
+    cameraRef.current?.stopRecording(); // current recordAsync resolves → segment saved
+    setCameraMode(m => (m === 'back' ? 'front' : 'back'));
+    haptics.light();
+  }
 
   async function startDualRecording() {
     if (!dualRef.current || isRecordingRef.current) return;
@@ -211,11 +330,33 @@ export default function CameraScreen() {
 
   function stopDualRecording() { dualRef.current?.stopRecording(); }
 
+  // Called when the user taps the shutter while recording is locked hands-free.
+  function handleLockedStop() {
+    if (isDual) stopDualRecording();
+    else stopRecording();
+  }
+
   function cleanupRecording() {
     isRecordingRef.current = false;
+    lockedRef.current = false;
+    willLockRef.current = false;
+    hasFiredLockHapticRef.current = false;
+    pendingFlipRef.current = false;
+    flipPromiseRef.current = null;
+    // Unblock any pending flip-wait so the segment loop can exit cleanly.
+    if (flipReadyRef.current) {
+      const resolve = flipReadyRef.current;
+      flipReadyRef.current = null;
+      resolve();
+    }
+    segmentsRef.current = [];
+    recordSecondsRef.current = 0;
     setIsRecording(false);
+    setLocked(false);
+    setLockArmed(false);
     setRecordSeconds(0);
     animateShutter(0);
+    Animated.timing(lockAnim, { toValue: 0, duration: 200, useNativeDriver: true }).start();
     if (recordInterval.current) { clearInterval(recordInterval.current); recordInterval.current = null; }
     if (maxDurationTimer.current) { clearTimeout(maxDurationTimer.current); maxDurationTimer.current = null; }
   }
@@ -284,6 +425,9 @@ export default function CameraScreen() {
           if (isDualRef.current) {
             // In dual, double-tap flips the view format (split <-> picture-in-picture).
             setDualLayout(l => (l === 'sideBySide' ? 'pip' : 'sideBySide'));
+          } else if (isRecordingRef.current) {
+            // During recording, double-tap flips the camera mid-segment.
+            flipCameraRef.current();
           } else {
             setCameraMode(m => (m === 'back' ? 'front' : 'back'));
           }
@@ -295,29 +439,67 @@ export default function CameraScreen() {
     },
   })).current;
 
-  // Latest-handler refs so the single-creation shutter PanResponder always invokes
-  // the current onPressIn/onPressOut closures (which read live state like `facing`
-  // and `isDual`), avoiding stale-closure bugs.
+  // Latest-handler refs so the single-creation PanResponders always invoke the
+  // current closures, avoiding stale-closure bugs.
   const onPressInRef = useRef(onPressIn);
   const onPressOutRef = useRef(onPressOut);
   onPressInRef.current = onPressIn;
   onPressOutRef.current = onPressOut;
+  flipCameraRef.current = flipCameraDuringRecording;
 
   // Shutter gesture: press/hold drives photo vs. video (via onPressIn/onPressOut),
-  // and — Snapchat-style — dragging up/down while recording zooms in/out. The zoom
-  // is relative to the press point: full 1×–5× over a 75%-of-screen drag.
+  // dragging up/down while recording zooms in/out (Snapchat-style, 1×–5× over 75% screen),
+  // and dragging right ≥ LOCK_DRAG_X arms the hands-free lock — releasing while armed
+  // locks recording instead of stopping it.
   const shutterResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: () => true,
     onPanResponderGrant: () => {
       dragStartZoom.current = zoomRef.current;
+      willLockRef.current = false;
+      hasFiredLockHapticRef.current = false;
       onPressInRef.current();
     },
     onPanResponderMove: (_e, gesture) => {
-      if (!isRecordingRef.current) return; // zoom only once recording has started
-      bumpZoom(dragStartZoom.current - gesture.dy / (SCREEN_H * ZOOM_DRAG_FACTOR));
+      if (!isRecordingRef.current) return;
+      // Horizontal right: arm / disarm the lock affordance.
+      if (gesture.dx >= LOCK_DRAG_X) {
+        if (!willLockRef.current) {
+          willLockRef.current = true;
+          setLockArmed(true);
+          if (!hasFiredLockHapticRef.current) {
+            hasFiredLockHapticRef.current = true;
+            haptics.selection();
+          }
+          Animated.timing(lockAnim, { toValue: 1, duration: 150, useNativeDriver: true }).start();
+        }
+      } else {
+        if (willLockRef.current) {
+          willLockRef.current = false;
+          setLockArmed(false);
+          Animated.timing(lockAnim, { toValue: 0, duration: 150, useNativeDriver: true }).start();
+        }
+        // Vertical drag = zoom, but only when the finger hasn't moved noticeably
+        // rightward — prevents accidental zoom while starting a lock swipe.
+        if (gesture.dx < LOCK_DEADZONE_X) {
+          bumpZoom(dragStartZoom.current - gesture.dy / (SCREEN_H * ZOOM_DRAG_FACTOR));
+        }
+      }
     },
-    onPanResponderRelease: () => { onPressOutRef.current(); },
+    onPanResponderRelease: () => {
+      if (isRecordingRef.current && willLockRef.current) {
+        // Commit the lock: keep recording, switch to hands-free mode.
+        lockedRef.current = true;
+        setLocked(true);
+        willLockRef.current = false;
+        setLockArmed(false);
+        hasFiredLockHapticRef.current = false;
+        haptics.success();
+        // lockAnim stays at 1 (locked indicator remains highlighted).
+      } else {
+        onPressOutRef.current();
+      }
+    },
     onPanResponderTerminate: () => { onPressOutRef.current(); },
   })).current;
 
@@ -400,7 +582,13 @@ export default function CameraScreen() {
           {isDual ? (
             <View style={styles.iconBtn} />
           ) : (
-            <TouchableOpacity style={styles.iconBtn} onPress={() => setCameraMode(m => (m === 'back' ? 'front' : 'back'))}>
+            <TouchableOpacity
+              style={styles.iconBtn}
+              onPress={() => {
+                if (isRecording) flipCameraDuringRecording();
+                else setCameraMode(m => (m === 'back' ? 'front' : 'back'));
+              }}
+            >
               <Ionicons name="camera-reverse-outline" size={26} color="#FFFFFF" />
             </TouchableOpacity>
           )}
@@ -417,6 +605,12 @@ export default function CameraScreen() {
               <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
               <Text style={styles.modeChipLabel}>{isDual ? 'Dual on' : 'Dual'}</Text>
             </TouchableOpacity>
+            <InfoTooltip
+              title="Dual Camera"
+              body={"Captures front and back cameras at the same time — like BeReal or Snapchat's dual-lens mode.\n\nSide-by-side shows both feeds next to each other. PiP (picture-in-picture) puts the front camera in a small bubble over the back camera.\n\nIn PiP mode, tap the swap icon in preview to flip which camera is the main view."}
+              size={16}
+              color="rgba(255,255,255,0.5)"
+            />
           </View>
         )}
 
@@ -454,17 +648,56 @@ export default function CameraScreen() {
         <View style={[styles.bottomBar, Platform.OS === 'web' && styles.bottomBarWeb]}>
           {dualError && <Text style={styles.dualError}>{dualError}</Text>}
           <Text style={styles.hint}>
-            {isRecording ? 'Release to stop' : 'Tap for photo · Hold for video'}
+            {isRecording
+              ? (locked ? 'Tap to stop · Locked' : 'Release to stop · Slide ▶ to lock')
+              : 'Tap for photo · Hold for video'}
           </Text>
-          <View {...shutterResponder.panHandlers}>
-            <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>
+
+          {/* Shutter row: spacer | shutter | lock pill (spacer keeps shutter centred) */}
+          <View style={styles.shutterRow}>
+            {/* Left spacer mirrors lock pill width to keep shutter centred */}
+            <View style={styles.lockPillSpace} />
+
+            {locked ? (
+              /* Locked: tap the red stop button to end recording */
+              <TouchableOpacity onPress={handleLockedStop} activeOpacity={0.8}>
+                <View style={[styles.shutterOuter, { borderColor: '#FF3B30' }]}>
+                  <View style={styles.stopSquare} />
+                </View>
+              </TouchableOpacity>
+            ) : (
+              <View {...shutterResponder.panHandlers}>
+                <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>
+                  <Animated.View
+                    style={[styles.shutterInner, {
+                      width: innerSize, height: innerSize,
+                      borderRadius: innerRadius, backgroundColor: innerColor,
+                    }]}
+                  />
+                </Animated.View>
+              </View>
+            )}
+
+            {/* Right: lock pill — shown while recording (armed highlight or locked state) */}
+            {isRecording ? (
               <Animated.View
-                style={[styles.shutterInner, {
-                  width: innerSize, height: innerSize,
-                  borderRadius: innerRadius, backgroundColor: innerColor,
-                }]}
-              />
-            </Animated.View>
+                style={[
+                  styles.lockPill,
+                  {
+                    backgroundColor: locked || lockArmed ? accentColor : 'rgba(255,255,255,0.15)',
+                    transform: [{ scale: lockAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) }],
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={locked || lockArmed ? 'lock-closed' : 'lock-open-outline'}
+                  size={20}
+                  color="#FFFFFF"
+                />
+              </Animated.View>
+            ) : (
+              <View style={styles.lockPillSpace} />
+            )}
           </View>
         </View>
       </SafeAreaView>
@@ -501,7 +734,7 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 10 },
   doubleTapHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
-  modeDropdown: { position: 'absolute', top: 56, left: 16, zIndex: 20 },
+  modeDropdown: { position: 'absolute', top: 56, left: 16, zIndex: 20, flexDirection: 'row', alignItems: 'center', gap: 8 },
   modeChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10,
@@ -544,9 +777,19 @@ const styles = StyleSheet.create({
   bottomBar: { alignItems: 'center', gap: 16, paddingVertical: 16 },
   bottomBarWeb: { paddingBottom: 16 + WEB_TAB_BAR_HEIGHT },
   hint: { color: 'rgba(255,255,255,0.65)', fontSize: 13 },
+  shutterRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+  },
   shutterOuter: {
     width: 84, height: 84, borderRadius: 42,
     borderWidth: 4, justifyContent: 'center', alignItems: 'center',
   },
   shutterInner: { backgroundColor: '#FFFFFF' },
+  stopSquare: { width: 28, height: 28, borderRadius: 6, backgroundColor: '#FF3B30' },
+  lockPill: {
+    width: 48, height: 48, borderRadius: 24,
+    marginLeft: 18,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  lockPillSpace: { width: 48 + 18, height: 48 }, // matches lockPill + marginLeft
 });

@@ -7,6 +7,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import InfoTooltip from './InfoTooltip';
 
 function haptic(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
   if (Platform.OS === 'web') return;
@@ -351,12 +352,13 @@ const cs = StyleSheet.create({
 
 // --- DatePickerField ---
 
-export default function DatePickerField({ label, optional, value, onChange, contextLabel }: {
+export default function DatePickerField({ label, optional, value, onChange, contextLabel, tooltip }: {
   label: string;
   optional?: boolean;
   value: Date | null;
   onChange: (date: Date | null) => void;
   contextLabel?: string;
+  tooltip?: { title: string; body: string };
 }) {
   const { accentColor } = useTheme();
   const fallback = defaultDate();
@@ -425,7 +427,10 @@ export default function DatePickerField({ label, optional, value, onChange, cont
     <View style={s.container}>
       {/* Header */}
       <View style={s.header}>
-        <Text style={s.label}>{label}</Text>
+        <View style={s.labelRow}>
+          <Text style={s.label}>{label}</Text>
+          {tooltip && <InfoTooltip title={tooltip.title} body={tooltip.body} />}
+        </View>
         {optional && (
           <Switch
             value={isEnabled}
@@ -548,6 +553,11 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   label: {
     fontSize: 14,

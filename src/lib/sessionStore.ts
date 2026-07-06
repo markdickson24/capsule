@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const EXPIRED_KEY = 'cap_session_expired_v1';
+const ONBOARDED_KEY_PREFIX = 'cap_onboarded_v1:';
 let _intentional = false;
 
 // On web, Supabase persists the session in localStorage under
@@ -59,5 +60,16 @@ export const sessionStore = {
     } catch {
       return false;
     }
+  },
+
+  // Persisted per-user flag set once the server confirms onboarded_at is set.
+  // Lets AppNavigator skip the network round-trip that otherwise blocks first
+  // paint on every launch for returning users — onboarded_at never un-sets in
+  // practice, so a stale-true local flag is not a real-world risk.
+  markOnboarded: async (userId: string) => {
+    try { await AsyncStorage.setItem(`${ONBOARDED_KEY_PREFIX}${userId}`, '1'); } catch {}
+  },
+  wasOnboarded: async (userId: string): Promise<boolean> => {
+    try { return (await AsyncStorage.getItem(`${ONBOARDED_KEY_PREFIX}${userId}`)) === '1'; } catch { return false; }
   },
 };

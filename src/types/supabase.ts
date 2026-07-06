@@ -109,6 +109,7 @@ export type Database = {
           description: string | null
           group_id: string | null
           id: string
+          occasion: string
           owner_id: string
           owner_preview_locked: boolean
           proximity_radius_m: number
@@ -133,6 +134,7 @@ export type Database = {
           description?: string | null
           group_id?: string | null
           id?: string
+          occasion?: string
           owner_id: string
           owner_preview_locked?: boolean
           proximity_radius_m?: number
@@ -157,6 +159,7 @@ export type Database = {
           description?: string | null
           group_id?: string | null
           id?: string
+          occasion?: string
           owner_id?: string
           owner_preview_locked?: boolean
           proximity_radius_m?: number
@@ -534,6 +537,7 @@ export type Database = {
           capsule_id: string
           created_at: string
           id: string
+          is_default: boolean
           label: string
           promoted_at: string | null
           status: string
@@ -544,6 +548,7 @@ export type Database = {
           capsule_id: string
           created_at?: string
           id?: string
+          is_default?: boolean
           label: string
           promoted_at?: string | null
           status?: string
@@ -554,6 +559,7 @@ export type Database = {
           capsule_id?: string
           created_at?: string
           id?: string
+          is_default?: boolean
           label?: string
           promoted_at?: string | null
           status?: string
@@ -796,6 +802,7 @@ export type Database = {
         }[]
       }
       capsule_media_count: { Args: { p_capsule_id: string }; Returns: number }
+      check_cron_secret: { Args: { provided: string }; Returns: boolean }
       check_in: {
         Args: { p_capsule_id: string; p_lat: number; p_lng: number }
         Returns: Json
@@ -812,6 +819,15 @@ export type Database = {
       }
       get_my_capsule_ids: { Args: never; Returns: string[] }
       get_my_group_ids: { Args: never; Returns: string[] }
+      is_group_creator: { Args: { p_group_id: string }; Returns: boolean }
+      set_capsule_archived: {
+        Args: { p_archived: boolean; p_capsule_id: string }
+        Returns: undefined
+      }
+      set_default_superlatives: {
+        Args: { p_awards: Json; p_capsule_id: string }
+        Returns: undefined
+      }
       tally_superlatives: {
         Args: { p_capsule_id: string }
         Returns: {
@@ -833,7 +849,7 @@ export type Database = {
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+type DefaultSchema = DatabaseWithoutInternals["public"]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends

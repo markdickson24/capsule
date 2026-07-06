@@ -1,14 +1,20 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import InfoTooltip from './InfoTooltip';
 import LoadingBrand from './LoadingBrand';
+import RetryPrompt from './RetryPrompt';
+import { useLoadingTimeout } from '../hooks/useLoadingTimeout';
+import { transformAvatarUrl } from '../lib/avatarUrl';
 import { Animated, View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
+import { cache } from '../lib/cache';
 import { useTheme } from '../context/ThemeContext';
-import { SuperlativeStatus, SuperlativeTargetType } from '../types/database';
+import { SuperlativeTargetType } from '../types/database';
 import { useListItemEntrance } from '../lib/animations';
+import { fetchAwardsData, CategoryUI, WinnerRow } from '../lib/awardsData';
 import SuggestCategoryModal from './SuggestCategoryModal';
 import VoteSheet, { VoteSheetMedia, VoteSheetMember, CurrentVote } from './VoteSheet';
 
@@ -32,27 +38,6 @@ type Props = {
   votingFinalizedAt: string | null;
 };
 
-type WinnerRow = {
-  category_id: string;
-  target_user_id: string | null;
-  target_media_id: string | null;
-  vote_count: number;
-};
-
-type CategoryRow = {
-  id: string;
-  label: string;
-  target_type: SuperlativeTargetType;
-  status: SuperlativeStatus;
-  created_at: string;
-};
-
-type CategoryUI = CategoryRow & {
-  upvote_count: number;
-  i_upvoted: boolean;
-  my_vote: CurrentVote | null;
-};
-
 export default function AwardsSection({
   capsuleId, joinedMemberCount, members, media,
   votingClosesAt, votingFinalizedAt,
@@ -62,8 +47,16 @@ export default function AwardsSection({
   const userId = session?.user.id;
 
   const [categories, setCategories] = useState<CategoryUI[]>([]);
+  // Mirrors `categories` for synchronous reads inside the realtime callback
+  // below, without making the channel-setup effect depend on `categories`
+  // (which would tear down and resubscribe the channel on every update).
+  const categoryIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    categoryIdsRef.current = new Set(categories.map(c => c.id));
+  }, [categories]);
   const [winners, setWinners] = useState<WinnerRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
   const [showSuggest, setShowSuggest] = useState(false);
   const [voteFor, setVoteFor] = useState<CategoryUI | null>(null);
   const [busyIds, setBusyIds] = useState<Set<string>>(new Set());
@@ -72,79 +65,31 @@ export default function AwardsSection({
   const isFinalized = !!votingFinalizedAt;
   const isClosed = !!votingClosesAt && new Date(votingClosesAt).getTime() <= Date.now();
 
+  // Thin wrapper — the actual fetch/shape/cache-write logic lives in
+  // fetchAwardsData (src/lib/awardsData.ts) so CapsuleDetailScreen can also
+  // fire it as a prefetch at mount time, in parallel with its own load(),
+  // instead of Awards only starting its fetch once it finally mounts behind
+  // the parent's loading gate (see the "Awards always takes longer" fix).
   const fetchCategories = useCallback(async () => {
-    const { data: cats, error: catErr } = await supabase
-      .from('superlative_categories')
-      .select('id, label, target_type, status, created_at')
-      .eq('capsule_id', capsuleId)
-      .neq('status', 'archived')
-      .order('created_at', { ascending: false });
-
-    if (catErr) {
-      setLoading(false);
-      return;
+    const result = await fetchAwardsData(capsuleId, userId);
+    if (result) {
+      setCategories(result.categories);
+      setWinners(result.winners);
     }
-
-    const rows = (cats ?? []) as CategoryRow[];
-    const catIds = rows.map(c => c.id);
-
-    let upvotes: { category_id: string; user_id: string }[] = [];
-    let myVotes: { category_id: string; target_user_id: string | null; target_media_id: string | null }[] = [];
-    if (catIds.length > 0) {
-      const [{ data: upData }, { data: voteData }] = await Promise.all([
-        supabase
-          .from('superlative_upvotes')
-          .select('category_id, user_id')
-          .in('category_id', catIds),
-        userId
-          ? supabase
-              .from('superlative_votes')
-              .select('category_id, target_user_id, target_media_id')
-              .eq('voter_id', userId)
-              .in('category_id', catIds)
-          : Promise.resolve({ data: [] as any[] }),
-      ]);
-      upvotes = (upData ?? []) as typeof upvotes;
-      myVotes = (voteData ?? []) as typeof myVotes;
-    }
-
-    const upvoteById = new Map<string, { count: number; mine: boolean }>();
-    for (const u of upvotes) {
-      const cur = upvoteById.get(u.category_id) ?? { count: 0, mine: false };
-      cur.count += 1;
-      if (u.user_id === userId) cur.mine = true;
-      upvoteById.set(u.category_id, cur);
-    }
-
-    const voteById = new Map<string, CurrentVote>();
-    for (const v of myVotes) {
-      voteById.set(v.category_id, {
-        target_user_id: v.target_user_id,
-        target_media_id: v.target_media_id,
-      });
-    }
-
-    setCategories(rows.map(r => ({
-      ...r,
-      upvote_count: upvoteById.get(r.id)?.count ?? 0,
-      i_upvoted: upvoteById.get(r.id)?.mine ?? false,
-      my_vote: voteById.get(r.id) ?? null,
-    })));
-
-    if (catIds.length > 0) {
-      const { data: winnerRows } = await supabase
-        .from('superlative_winners')
-        .select('category_id, target_user_id, target_media_id, vote_count')
-        .in('category_id', catIds);
-      setWinners((winnerRows ?? []) as WinnerRow[]);
-    } else {
-      setWinners([]);
-    }
-
     setLoading(false);
   }, [capsuleId, userId]);
 
   useEffect(() => {
+    // Instant-render path: seed from cache (if present) so this section
+    // doesn't always show a fresh loading spinner on mount, then refresh in
+    // the background regardless — mirrors CapsuleDetailScreen's own
+    // cache.get-then-load() pattern.
+    const cached = cache.get<{ categories: CategoryUI[]; winners: WinnerRow[] }>(`awards:${capsuleId}`);
+    if (cached) {
+      setCategories(cached.categories);
+      setWinners(cached.winners);
+      setLoading(false);
+    }
     fetchCategories();
     const channel = supabase
       .channel(`awards-${capsuleId}`)
@@ -156,10 +101,17 @@ export default function AwardsSection({
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'superlative_winners' },
-        () => fetchCategories(),
+        payload => {
+          // superlative_winners has no capsule_id column to filter on
+          // server-side, so gate in JS against this section's own category
+          // IDs — otherwise any capsule's winner insert refetches every
+          // mounted AwardsSection instance.
+          const newCategoryId = (payload.new as { category_id?: string })?.category_id;
+          if (newCategoryId && categoryIdsRef.current.has(newCategoryId)) fetchCategories();
+        },
       )
       .subscribe();
-    return () => { channel.unsubscribe(); };
+    return () => { supabase.removeChannel(channel); };
   }, [capsuleId, fetchCategories]);
 
   // Re-fetch when finalization arrives via the parent's capsule subscription.
@@ -244,7 +196,15 @@ export default function AwardsSection({
   return (
     <View style={styles.wrap}>
       <View style={styles.header}>
-        <Text style={styles.title}>Awards</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Awards</Text>
+          <InfoTooltip
+            title="Awards"
+            body={"Yearbook-style awards for your capsule.\n\nTap 'Suggest' to propose a category (e.g. 'Best Photo', 'Most Likely To…'). Once enough members upvote a suggestion, voting opens.\n\nVoting is anonymous — you can only see your own picks until the window closes. Winners are revealed when the voting period ends."}
+            size={18}
+            color="#555555"
+          />
+        </View>
         {!isClosed && (
           <TouchableOpacity
             style={[styles.suggestBtn, { backgroundColor: `${accentColor}20` }]}
@@ -258,7 +218,11 @@ export default function AwardsSection({
 
       {loading ? (
         <View style={styles.loadingBox}>
-          <LoadingBrand size="medium" color={accentColor} />
+          {timedOut ? (
+            <RetryPrompt compact onRetry={() => { resetTimeout(); fetchCategories(); }} />
+          ) : (
+            <LoadingBrand size="medium" color={accentColor} />
+          )}
         </View>
       ) : isFinalized ? (
         live.length === 0 ? (
@@ -460,7 +424,7 @@ function LiveCard({
             <View style={styles.votedPerson}>
               <View style={[styles.votedAvatar, { backgroundColor: `${accentColor}30` }]}>
                 {votedPerson.avatar_url ? (
-                  <Image source={votedPerson.avatar_url} style={styles.votedAvatarImg} contentFit="cover" />
+                  <Image source={transformAvatarUrl(votedPerson.avatar_url, 22)} style={styles.votedAvatarImg} contentFit="cover" />
                 ) : (
                   <Text style={[styles.votedAvatarLetter, { color: accentColor }]}>
                     {(votedPerson.display_name || '?').slice(0, 1).toUpperCase()}
@@ -565,7 +529,7 @@ function WinnerEntry({
       <View style={styles.winnerEntry}>
         <View style={[styles.winnerAvatar, { backgroundColor: `${accentColor}30`, borderColor: accentColor }]}>
           {m?.avatar_url ? (
-            <Image source={m.avatar_url} style={styles.winnerAvatarImg} contentFit="cover" />
+            <Image source={transformAvatarUrl(m.avatar_url, 36)} style={styles.winnerAvatarImg} contentFit="cover" />
           ) : (
             <Text style={[styles.winnerAvatarLetter, { color: accentColor }]}>
               {(m?.display_name || '?').slice(0, 1).toUpperCase()}
@@ -604,6 +568,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     marginBottom: 4,
   },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
   suggestBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,

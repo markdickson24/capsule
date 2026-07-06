@@ -14,6 +14,8 @@ import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { SkeletonCircle } from '../../components/Skeleton';
 import SkeletonBox from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import ReportModal from '../../components/ReportModal';
 import ConfirmModal from '../../components/ConfirmModal';
 import { blockStore } from '../../lib/blocks';
@@ -43,6 +45,7 @@ function InviteToCapsuleModal({
   const [inviting, setInviting] = useState<string | null>(null);
   const [invitedIds, setInvitedIds] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   useEffect(() => { loadCapsules(); }, []);
 
@@ -100,7 +103,11 @@ function InviteToCapsuleModal({
           <TouchableOpacity onPress={onClose}><Text style={[is.done, { color: accentColor }]}>Done</Text></TouchableOpacity>
         </View>
         {loading ? (
-          <LoadingBrand size="medium" color={accentColor} style={{ marginTop: 40 }} />
+          timedOut ? (
+            <RetryPrompt compact onRetry={() => { resetTimeout(); loadCapsules(); }} />
+          ) : (
+            <LoadingBrand size="medium" color={accentColor} style={{ marginTop: 40 }} />
+          )
         ) : capsules.length === 0 ? (
           <Text style={is.empty}>No active capsules to invite them to.</Text>
         ) : (
@@ -149,6 +156,7 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
   const [friendBusy, setFriendBusy] = useState(false);
   const blockedIds = useBlockedUsers();
   const isBlocked = blockedIds.has(userId);
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   useEffect(() => {
     getFriendStatus(userId).then(setFriendStatus);
@@ -217,6 +225,18 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
   }
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <View style={styles.navBar}>
+            <TouchableOpacity onPress={() => navigation.goBack()}>
+              <Text style={[styles.back, { color: accentColor }]}>← Back</Text>
+            </TouchableOpacity>
+          </View>
+          <RetryPrompt onRetry={() => { resetTimeout(); load().finally(() => setLoading(false)); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.navBar}>

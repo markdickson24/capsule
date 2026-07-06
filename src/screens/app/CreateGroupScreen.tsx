@@ -9,6 +9,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { supabase } from '../../lib/supabase';
+import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
@@ -163,7 +164,7 @@ export default function CreateGroupScreen() {
                   onPress={() => addMember(user)}
                 >
                   {user.avatar_url ? (
-                    <Image source={`${user.avatar_url}?t=1`} style={styles.resultAvatar} contentFit="cover" />
+                    <Image source={transformAvatarUrl(user.avatar_url, 36)} style={styles.resultAvatar} contentFit="cover" />
                   ) : (
                     <View style={styles.resultAvatarFallback}>
                       <Text style={styles.resultAvatarInitial}>
@@ -183,7 +184,7 @@ export default function CreateGroupScreen() {
               {selectedMembers.map(m => (
                 <View key={m.id} style={styles.chip}>
                   {m.avatar_url ? (
-                    <Image source={`${m.avatar_url}?t=1`} style={styles.chipAvatar} contentFit="cover" />
+                    <Image source={transformAvatarUrl(m.avatar_url, 22)} style={styles.chipAvatar} contentFit="cover" />
                   ) : (
                     <View style={styles.chipAvatarFallback}>
                       <Text style={styles.chipAvatarInitial}>

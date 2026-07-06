@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
+import { transformAvatarUrl } from '../lib/avatarUrl';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
 import { SuperlativeTargetType } from '../types/database';
@@ -32,6 +33,7 @@ export type VoteSheetMedia = {
   id: string;
   mediaType: 'photo' | 'video';
   signedUrl: string;
+  thumbSignedUrl?: string;
   thumbnailUri?: string;
 };
 
@@ -236,7 +238,7 @@ function PersonList({
           >
             <View style={[styles.avatarShell, { backgroundColor: `${accentColor}30` }]}>
               {m.avatar_url ? (
-                <Image source={m.avatar_url} style={styles.avatarImg} contentFit="cover" />
+                <Image source={transformAvatarUrl(m.avatar_url, 36)} style={styles.avatarImg} contentFit="cover" />
               ) : (
                 <Text style={[styles.avatarFallback, { color: accentColor }]}>
                   {(m.display_name || '?').slice(0, 1).toUpperCase()}
@@ -280,7 +282,7 @@ function MediaGrid({
       ItemSeparatorComponent={() => <View style={{ height: 4 }} />}
       renderItem={({ item }) => {
         const isSel = item.id === selected;
-        const src = item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl;
+        const src = item.mediaType === 'video' ? item.thumbnailUri : (item.thumbSignedUrl ?? item.signedUrl);
         return (
           <TouchableOpacity
             style={[styles.tile, isSel && { borderColor: accentColor, borderWidth: 3 }]}

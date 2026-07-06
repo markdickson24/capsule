@@ -13,11 +13,14 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, getFreshSession } from '../../lib/supabase';
+import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import { SkeletonProfileCard } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { countFriends } from '../../lib/friends';
 import { useSlideUp } from '../../lib/animations';
@@ -40,9 +43,10 @@ export function Avatar({ url, name, size, accent }: { url: string | null; name: 
   const { accentColor } = useTheme();
   const bg = accent ?? accentColor;
   if (url) {
+    const src = transformAvatarUrl(url, size);
     return (
       <Image
-        source={url}
+        source={src}
         style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: '#1A1A1A' }}
         transition={200}
       />
@@ -276,14 +280,16 @@ export default function ProfileScreen() {
   const [showEdit, setShowEdit] = useState(false);
   const [confirming, setConfirming] = useState(false);
 
-  const { loading } = useCachedFetch<ProfileData>(
+  const { loading, refresh } = useCachedFetch<ProfileData>(
     'profile',
     async () => {
       const session = sessionStore.get();
       if (!session) throw new Error('No session');
       const userId = session.user.id;
 
-      const [profileRes, capsulesRes, friendCount] = await Promise.all([
+      // count-only ('exact', head: true) instead of fetching every joined
+      // capsule row just to count them — no row payload transferred.
+      const [profileRes, capsuleCountRes, unlockedCountRes, friendCount] = await Promise.all([
         supabase
           .from('users')
           .select('id, display_name, bio, avatar_url, created_at')
@@ -291,17 +297,22 @@ export default function ProfileScreen() {
           .single(),
         supabase
           .from('capsule_members')
-          .select('capsule_id, capsules(status)')
+          .select('id', { count: 'exact', head: true })
           .eq('user_id', userId)
           .not('joined_at', 'is', null),
+        supabase
+          .from('capsule_members')
+          .select('id, capsules!inner(status)', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .not('joined_at', 'is', null)
+          .eq('capsules.status', 'unlocked'),
         countFriends(),
       ]);
 
       const prof = profileRes.data as Profile;
-      const capsules = (capsulesRes.data ?? []) as any[];
       const s: Stats = {
-        capsuleCount: capsules.length,
-        unlockedCount: capsules.filter(c => c.capsules?.status === 'unlocked').length,
+        capsuleCount: capsuleCountRes.count ?? 0,
+        unlockedCount: unlockedCountRes.count ?? 0,
         friendCount,
       };
 
@@ -311,11 +322,20 @@ export default function ProfileScreen() {
     },
   );
 
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
+
   const heroAnim = useSlideUp(0, 400);
   const actionsAnim = useSlideUp(120, 350);
   const signOutAnim = useSlideUp(200, 300);
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container}>
+          <RetryPrompt onRetry={() => { resetTimeout(); refresh(true); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container}>
         <SkeletonProfileCard />

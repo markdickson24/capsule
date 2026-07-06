@@ -9,11 +9,14 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { supabase } from '../../lib/supabase';
+import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
+import RetryPrompt from '../../components/RetryPrompt';
 import {
   getGroup, getGroupMembers, deleteGroup, removeGroupMember,
   GroupRow, GroupMemberProfile, recurrenceLabel,
@@ -59,7 +62,7 @@ function MemberBubble({ avatarUrl, displayName }: { avatarUrl: string | null; di
   return (
     <View style={styles.memberBubble}>
       {avatarUrl ? (
-        <Image source={`${avatarUrl}?t=1`} style={styles.memberAvatar} contentFit="cover" />
+        <Image source={transformAvatarUrl(avatarUrl, 32)} style={styles.memberAvatar} contentFit="cover" />
       ) : (
         <View style={styles.memberAvatarFallback}>
           <Text style={styles.memberAvatarInitial}>
@@ -99,18 +102,18 @@ export default function GroupDetailScreen() {
     async () => {
       const session = sessionStore.get();
       if (!session) return [];
+      // Filtered server-side by group_id (rather than fetching every capsule
+      // the user belongs to and filtering client-side) — capsules RLS still
+      // independently restricts to the user's own capsules; the inner join
+      // here additionally excludes pending (not yet joined) invites.
       const { data } = await supabase
-        .from('capsule_members')
-        .select('capsule_id, capsules(id, title, status, unlock_at, owner_id, group_id)')
-        .eq('user_id', session.user.id)
-        .not('joined_at', 'is', null);
-      if (!data) return [];
-      return data
-        .map((r: any) => r.capsules)
-        .filter((c: any) => c && c.group_id === groupId)
-        .sort((a: GroupCapsule, b: GroupCapsule) =>
-          new Date(b.unlock_at).getTime() - new Date(a.unlock_at).getTime()
-        );
+        .from('capsules')
+        .select('id, title, status, unlock_at, owner_id, group_id, capsule_members!inner(joined_at)')
+        .eq('group_id', groupId)
+        .eq('capsule_members.user_id', session.user.id)
+        .not('capsule_members.joined_at', 'is', null)
+        .order('unlock_at', { ascending: false });
+      return (data ?? []) as unknown as GroupCapsule[];
     },
   );
 
@@ -141,7 +144,21 @@ export default function GroupDetailScreen() {
 
   const isCreator = group?.created_by === userId;
 
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(groupLoading && !group);
+
   if (groupLoading && !group) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+          <RetryPrompt onRetry={() => { resetTimeout(); refreshGroup(true); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>

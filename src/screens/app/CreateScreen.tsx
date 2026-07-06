@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import InfoTooltip from '../../components/InfoTooltip';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput, Animated,
@@ -17,10 +18,12 @@ import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
+import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 import { getGroupMembers } from '../../lib/groups';
+import { OCCASIONS, OccasionKey, PresetAward, pickDefaults } from '../../lib/awardPool';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -108,8 +111,17 @@ export default function CreateScreen() {
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
   const [hideFromMe, setHideFromMe] = useState(true);
+  const [occasion, setOccasion] = useState<OccasionKey>('general');
+  const [defaultAwards, setDefaultAwards] = useState<PresetAward[]>(() => pickDefaults('general'));
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  function selectOccasion(next: OccasionKey) {
+    setOccasion(next);
+    // Re-seed the preview whenever the occasion changes so the 4 preview
+    // chips match the newly-selected theme rather than staying stale.
+    setDefaultAwards(pickDefaults(next));
+  }
 
   async function handleCreate() {
     setError('');
@@ -150,6 +162,7 @@ export default function CreateScreen() {
         unlock_mode: unlockMode,
         superlative_voting_hours: votingHours,
         owner_preview_locked: hideFromMe,
+        occasion,
         status: 'active',
         visibility: 'invite',
       });
@@ -171,6 +184,18 @@ export default function CreateScreen() {
       setLoading(false);
       setError('Capsule created but could not set owner. Please try again.');
       return;
+    }
+
+    if (defaultAwards.length > 0) {
+      try {
+        await supabase.rpc('set_default_superlatives', {
+          p_capsule_id: capsuleId,
+          p_awards: defaultAwards,
+        });
+      } catch {
+        // Non-fatal — the capsule is already created and usable; the owner
+        // can still seed/regenerate defaults from the capsule page pre-unlock.
+      }
     }
 
     if (groupId) {
@@ -280,7 +305,13 @@ export default function CreateScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.label}>Unlock When</Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>Unlock When</Text>
+            <InfoTooltip
+              title="Unlock Mode"
+              body={"Date — opens automatically at the date and time you pick.\n\nTogether — opens when all members tap 'Check In' from the same location (within ~100 meters of each other).\n\nBoth — requires the date to have passed AND everyone to be physically together."}
+            />
+          </View>
           <View style={styles.toggle}>
             {UNLOCK_MODES.map(({ mode, label }) => (
               <TouchableOpacity
@@ -298,9 +329,62 @@ export default function CreateScreen() {
         {unlockMode !== 'proximity' && (
           <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
         )}
-        <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
+        <DatePickerField
+          label="Uploads Deadline"
+          optional
+          value={contribLockDate}
+          onChange={setContribLockDate}
+          contextLabel="No one can add photos after this date"
+          tooltip={{
+            title: 'Uploads Deadline',
+            body: 'After this date, no one (including you) can add new photos or videos to the capsule. The contents are then sealed until the unlock date.\n\nLeave it off if you want members to keep uploading right up until unlock.',
+          }}
+        />
 
         <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
+
+        <View style={styles.section}>
+          <View style={styles.labelRow}>
+            <Text style={styles.label}>Occasion</Text>
+            <InfoTooltip
+              title="Occasion"
+              body={"Picks the theme for this capsule's 4 automatic awards — e.g. sentimental for a wedding, playful for a trip. You can shuffle, swap, or remove any of them below, and members can still suggest their own after unlock."}
+            />
+          </View>
+          <View style={styles.occasionGrid}>
+            {[OCCASIONS.slice(0, 3), OCCASIONS.slice(3, 6)].map((row, rowIndex) => (
+              <View key={rowIndex} style={styles.occasionRow}>
+                {row.map(({ key, label, icon }) => {
+                  const selected = occasion === key;
+                  return (
+                    <TouchableOpacity
+                      key={key}
+                      style={[
+                        styles.occasionChip,
+                        selected && [styles.occasionChipActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }],
+                      ]}
+                      onPress={() => selectOccasion(key)}
+                    >
+                      <Ionicons name={icon as any} size={18} color={selected ? accentColor : '#888'} />
+                      <Text
+                        style={[styles.occasionChipText, selected && { color: accentColor }]}
+                        numberOfLines={1}
+                      >
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+          <DefaultAwardsCard
+            mode="preview"
+            occasion={occasion}
+            awards={defaultAwards}
+            onChange={setDefaultAwards}
+          />
+        </View>
 
         <View style={styles.section}>
           <Text style={styles.label}>Keep it a surprise</Text>
@@ -345,6 +429,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   subtitle: { fontSize: 15, color: '#888888', marginTop: 4 },
   section: { gap: 8 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   label: { fontSize: 14, fontWeight: '600', color: '#AAAAAA', textTransform: 'uppercase', letterSpacing: 0.5 },
   optional: { fontWeight: '400', color: '#555555', textTransform: 'none' },
   input: {
@@ -367,6 +452,18 @@ const styles = StyleSheet.create({
   toggleText: { color: '#666666', fontWeight: '600', fontSize: 15 },
   toggleTextActive: { color: '#FF6B35' },
   modeHint: { fontSize: 13, color: '#888888' },
+  occasionGrid: { gap: 8 },
+  occasionRow: { flexDirection: 'row', gap: 8 },
+  occasionChip: {
+    flex: 1,
+    alignItems: 'center', justifyContent: 'center', gap: 6,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1, borderColor: '#2A2A2A',
+    backgroundColor: '#1A1A1A',
+  },
+  occasionChipActive: { borderColor: '#FF6B35', backgroundColor: '#2A1500' },
+  occasionChipText: { color: '#888888', fontWeight: '600', fontSize: 13 },
   surpriseRow: {
     flexDirection: 'row',
     alignItems: 'center',

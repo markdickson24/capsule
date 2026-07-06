@@ -10,6 +10,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { supabase } from '../../lib/supabase';
+import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { haptics } from '../../lib/haptics';
 import { AppStackParamList } from '../../types/navigation';
@@ -192,7 +193,7 @@ export default function QRScannerScreen() {
                 <Text style={s.capsuleTitle}>{preview.title}</Text>
                 <View style={s.ownerRow}>
                   {preview.ownerAvatar ? (
-                    <Image source={preview.ownerAvatar} style={s.ownerAv} contentFit="cover" />
+                    <Image source={transformAvatarUrl(preview.ownerAvatar, 28)} style={s.ownerAv} contentFit="cover" />
                   ) : (
                     <View style={[s.ownerAv, s.ownerAvFallback]}>
                       <Text style={s.ownerInitial}>{(preview.ownerName[0] ?? '?').toUpperCase()}</Text>

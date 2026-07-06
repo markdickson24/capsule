@@ -15,7 +15,9 @@ import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme, type HomeLayout } from '../../context/ThemeContext';
 import { SkeletonCard } from '../../components/Skeleton';
+import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
+import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 import { listMyGroups, GroupRow, recurrenceLabel } from '../../lib/groups';
 
@@ -186,7 +188,13 @@ export default function HomeScreen() {
   );
 
   const capsules = (allCapsules ?? []).filter(c => !c.archived_at);
-  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at && c.owner_id === userId);
+  // allCapsules is already scoped to joined membership (the query above
+  // filters on joined_at is not null), so any archived capsule here is one
+  // this user can see regardless of ownership — any joined member can
+  // archive/restore now, not just the owner.
+  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at);
+
+  const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   async function onRefresh() {
     setRefreshing(true);
@@ -195,11 +203,21 @@ export default function HomeScreen() {
   }
 
   async function restoreCapsule(capsuleId: string) {
-    await supabase.from('capsules').update({ archived_at: null }).eq('id', capsuleId);
+    // Any joined member can restore now, not just the owner — a direct
+    // .update() would be rejected by RLS for non-owners, so this goes
+    // through the same security-definer RPC CapsuleDetailScreen uses.
+    await supabase.rpc('set_capsule_archived', { p_capsule_id: capsuleId, p_archived: false });
     await refresh();
   }
 
   if (loading) {
+    if (timedOut) {
+      return (
+        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+          <RetryPrompt onRetry={() => { resetTimeout(); refresh(true); }} />
+        </SafeAreaView>
+      );
+    }
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>

@@ -228,44 +228,64 @@ export default function AppNavigator() {
   const [initialRoute, setInitialRoute] = useState<'Onboarding' | 'Tabs' | null>(null);
 
   useEffect(() => {
-    let resolved = false;
+    let cancelled = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
     const session = sessionStore.get();
     if (!session) { setInitialRoute('Tabs'); return; }
 
-    const timeout = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        setInitialRoute('Tabs');
-      }
-    }, 5000);
+    const userId = session.user.id;
 
-    Promise.resolve(
-      supabase
-        .from('users')
-        .select('onboarded_at')
-        .eq('id', session.user.id)
-        .single()
-    )
-      .then(({ data, error }) => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timeout);
-        if (error) {
-          setInitialRoute('Tabs');
-          return;
-        }
-        setInitialRoute((data as any)?.onboarded_at ? 'Tabs' : 'Onboarding');
-      })
-      .catch(() => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(timeout);
+    sessionStore.wasOnboarded(userId).then(flag => {
+      if (cancelled) return;
+
+      if (flag) {
+        // Fast path: a previous launch already confirmed this user is
+        // onboarded — skip the network round-trip entirely instead of
+        // blocking first paint on it. onboarded_at never un-sets in practice.
         setInitialRoute('Tabs');
-      });
+        return;
+      }
+
+      // Slow path (first launch, fresh install, or not yet onboarded): fall
+      // back to the original network check.
+      let resolved = false;
+      timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          setInitialRoute('Tabs');
+        }
+      }, 5000);
+
+      Promise.resolve(
+        supabase
+          .from('users')
+          .select('onboarded_at')
+          .eq('id', userId)
+          .single()
+      )
+        .then(({ data, error }) => {
+          if (resolved || cancelled) return;
+          resolved = true;
+          if (timeout) clearTimeout(timeout);
+          if (error) {
+            setInitialRoute('Tabs');
+            return;
+          }
+          const onboarded = !!(data as any)?.onboarded_at;
+          if (onboarded) sessionStore.markOnboarded(userId);
+          setInitialRoute(onboarded ? 'Tabs' : 'Onboarding');
+        })
+        .catch(() => {
+          if (resolved || cancelled) return;
+          resolved = true;
+          if (timeout) clearTimeout(timeout);
+          setInitialRoute('Tabs');
+        });
+    });
 
     return () => {
-      resolved = true;
-      clearTimeout(timeout);
+      cancelled = true;
+      if (timeout) clearTimeout(timeout);
     };
   }, []);
 
