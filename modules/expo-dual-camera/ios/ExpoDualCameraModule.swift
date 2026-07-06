@@ -30,7 +30,7 @@ public class ExpoDualCameraModule: Module {
         view.startRecordingWithPromise(options: options, promise: promise)
       }
 
-      Function("stopRecording") { (view: ExpoDualCameraView) in
+      AsyncFunction("stopRecording") { (view: ExpoDualCameraView) in
         view.stopRecordingSync()
       }
     }
