@@ -294,8 +294,7 @@ Simultaneous front+back capture (Snapchat-style) with two **selectable layouts**
 - **Carousel for multi-item:** horizontal `FlatList` with `pagingEnabled`, page dots overlay, "N / total" counter pill in the top bar. `currentIndex` tracked via `onMomentumScrollEnd`
 - **Single shared `useVideoPlayer`** keyed by `currentItem.uri` — only mounts a `VideoView` for the item at `currentIndex`; other video slides show a play-icon placeholder. This avoids the rules-of-hooks problem of one player per item
 - The outer swipe-down PanResponder requires `g.dy > Math.abs(g.dx)` to start, so the horizontal `FlatList` keeps its gesture for paging
-- **Multi-select capsules** via horizontal chip scroll with `Set<string>`. After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
-- **Upload loop is (capsule × media)** sequential — total progress is `selectedIds.size * items.length`
+- **Multi-select capsules** via horizontal chip scroll with `Set<string>`. "Add to Capsule" is **optimistic**: it enqueues every (capsule × media) pair on the background upload queue (see "Background Upload Queue" below) and navigates immediately — `CapsuleDetail` (single capsule) or `Home` (multiple). There is no blocking upload UI on this screen anymore.
 - **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: PendingMedia[]` — the media auto-uploads after capsule creation
 - Swipe down > 100px triggers discard confirmation modal
 - Upload: web uses `arrayBuffer`, native uses `FileSystem.uploadAsync`
@@ -362,10 +361,7 @@ Large file (~2200 lines). Key sub-components and patterns:
 
 **Real-time:** `supabase.channel('capsule-${capsuleId}')` listens for `UPDATE` on `capsules` table. On status → 'unlocked': triggers reveal animation, invalidates `signedUrls:${capsuleId}` **and** `media:${capsuleId}` (a surprise-mode owner's pre-unlock cache may have cached an RLS-empty media list), then refetches media.
 
-**Upload flow:**
-- Web: `fetch(uri) → arrayBuffer → supabase.storage.upload()`
-- Native: `FileSystem.uploadAsync` with `Authorization` + `apikey` headers
-- After all uploads: invalidates `signedUrls:${capsuleId}` and `media:${capsuleId}`, then refetches media via `fetchPhotos()`
+**Upload flow:** all media uploads (Add Photos picker, camera, and everything arriving from PreviewScreen) go through the **background upload queue** (`src/lib/uploadQueue.ts`). `uploadPhotos` just enqueues and returns; `useUploadTasks(capsuleId)` renders the queue as local-URI **pending tiles** above the photo grid (spinner overlay while uploading; failed tiles get Retry + dismiss). A surprise-mode locked box shows an "N uploading…" line instead of tiles. An effect watches the task count and calls `fetchPhotos()` as each task lands (the queue has already invalidated `media:`/`signedUrls:`/`capsule:` for the capsule). The aggregate "Uploading n/N" row + `ProgressBar` is driven by `uploadQueue.getProgress(capsuleId)`.
 
 **Reactions:** `addReaction()` generates the reaction ID client-side via `randomUUID()` — never chain `.select()` after `.insert()` on the `reactions` table (the SELECT RLS policy may fail even though the insert succeeded, causing the optimistic reaction to disappear). If the user already has a reaction on the media, the existing row is updated (emoji swap) instead of inserting a duplicate — respects the `unique(media_id, user_id)` constraint.
 
@@ -657,6 +653,31 @@ Not every cache consumer uses this hook — `CapsuleDetailScreen` and `AwardsSec
 - `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section
 
 **Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed). Uploading/deleting media or a capsule unlocking invalidates both `signedUrls:${id}` and `media:${id}` together — invalidating only the signed-URL cache while `media:${id}` is one mutation site is not enough.
+
+## Background Upload Queue (`src/lib/uploadQueue.ts`)
+
+Module-level sequential upload worker — the optimistic-UI backbone for media.
+Callers `uploadQueue.enqueue(entries)` and move on; the queue uploads one task
+at a time (web: arrayBuffer + `supabase.storage.upload`; native:
+`FileSystem.uploadAsync` via `getFreshAccessToken()`), inserts the `media` row
+(including dual-photo `alt_storage_key`, best-effort), and invalidates
+`capsules` + `capsule:`/`media:`/`signedUrls:` per success. Failures stay in
+the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
+as retryable tiles by `CapsuleDetailScreen`. `useUploadTasks(capsuleId)`
+(`src/hooks/useUploadTasks.ts`) is the reactive subscription;
+`getProgress(capsuleId)` returns per-capsule `{done,total}` since that
+capsule's queue was last empty. When the whole queue drains it fires one toast
+("N items added" / "· M failed") through the global ToastHost, so completion
+reaches the user wherever they navigated. In-memory only: uploads do not
+survive an app kill (the failed/pending tiles vanish with the process).
+
+**Optimistic-action pattern** (used by NotificationsScreen accept/decline,
+ManageMembersScreen remove, HomeScreen restore, CapsuleDetail archive): snapshot
+the current state → apply the state change / navigate immediately → fire the
+write with `.then(({ error }) => …)` → on error restore the snapshot and
+`toast.show(...)`. For invite accepts, `read_at` is persisted only **after**
+the membership write commits — persisting it up front on a failed accept would
+orphan the invite.
 
 ## Retry on slow loads (`useLoadingTimeout` + `RetryPrompt`)
 

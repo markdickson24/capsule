@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import ProgressBar from '../../components/ProgressBar';
 import { uploadQueue } from '../../lib/uploadQueue';
+import { toast } from '../../lib/toast';
 import { useUploadTasks } from '../../hooks/useUploadTasks';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
@@ -1786,14 +1787,24 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             <Text style={styles.dangerLabel}>Danger Zone</Text>
             <TouchableOpacity
               style={styles.archiveBtn}
-              onPress={async () => {
+              onPress={() => {
+                // Optimistic: leave immediately, archive in the background.
+                // On failure the global toast reaches the user on Home.
                 const isArchived = !!(capsule as any).archived_at;
-                await supabase.rpc('set_capsule_archived', {
+                haptics.light();
+                navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+                supabase.rpc('set_capsule_archived', {
                   p_capsule_id: capsuleId,
                   p_archived: !isArchived,
+                }).then(({ error }) => {
+                  if (error) {
+                    toast.show(isArchived
+                      ? "Couldn't restore the capsule — try again."
+                      : "Couldn't archive the capsule — try again.");
+                  } else {
+                    cache.invalidate('capsules', 'profile');
+                  }
                 });
-                cache.invalidate('capsules', 'profile');
-                navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
               }}
             >
               <Ionicons name="archive-outline" size={18} color="#888888" />

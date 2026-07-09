@@ -16,6 +16,7 @@ import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { acceptFriendRequest, removeFriendship } from '../../lib/friends';
 import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
@@ -109,7 +110,6 @@ export default function NotificationsScreen() {
   const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
   const [pendingMap, setPendingMap] = useState<Record<string, string>>({});
   const [refreshing, setRefreshing] = useState(false);
-  const [accepting, setAccepting] = useState<string | null>(null);
   const headerAnim = useFadeIn(0, 250);
 
   const { loading, refresh } = useCachedFetch<NotifData>(
@@ -182,48 +182,73 @@ export default function NotificationsScreen() {
     cache.invalidate('notifications');
   }
 
-  async function accept(notif: DisplayNotification) {
+  // Optimistic accept: the card clears and the capsule opens immediately;
+  // the membership write happens in the background. On failure everything is
+  // rolled back and the global toast reaches the user wherever they are.
+  // read_at is only persisted AFTER the write commits — persisting it up
+  // front on a failed accept would orphan the invite forever.
+  function accept(notif: DisplayNotification) {
     const capsuleId = notif.capsule_id;
     if (!capsuleId) return;
     const memberId = pendingMap[capsuleId];
     if (!memberId) return;
-    setAccepting(notif.id);
-    const { error } = await supabase
+
+    const prevNotifications = notifications;
+    const prevPendingMap = pendingMap;
+    haptics.success();
+    setNotifications(prev => prev.filter(n => n.id !== notif.id));
+    setPendingMap(prev => {
+      const next = { ...prev };
+      delete next[capsuleId];
+      return next;
+    });
+    navigation.navigate('CapsuleDetail', { capsuleId });
+
+    supabase
       .from('capsule_members')
       .update({ joined_at: new Date().toISOString() })
-      .eq('id', memberId);
-
-    if (!error) {
-      haptics.success();
-      dismiss(notif);
-      setPendingMap(prev => {
-        const next = { ...prev };
-        delete next[capsuleId];
-        return next;
+      .eq('id', memberId)
+      .then(({ error }) => {
+        if (error) {
+          setNotifications(prevNotifications);
+          setPendingMap(prevPendingMap);
+          toast.show("Couldn't accept the invite — try again.");
+        } else {
+          void persistRead(notif);
+          cache.invalidate('capsules', 'profile');
+        }
       });
-      cache.invalidate('capsules', 'profile');
-      navigation.navigate('CapsuleDetail', { capsuleId });
-    }
-    setAccepting(null);
   }
 
-  async function acceptFriend(item: DisplayNotification) {
+  function acceptFriend(item: DisplayNotification) {
     if (!item.actor_id) return;
-    setAccepting(item.id);
-    const { error } = await acceptFriendRequest(item.actor_id);
-    if (!error) {
-      haptics.success();
-      dismiss(item);
-      cache.invalidate('profile');
-    }
-    setAccepting(null);
+    const prevNotifications = notifications;
+    haptics.success();
+    setNotifications(prev => prev.filter(n => n.id !== item.id));
+    acceptFriendRequest(item.actor_id).then(({ error }) => {
+      if (error) {
+        setNotifications(prevNotifications);
+        toast.show("Couldn't accept the request — try again.");
+      } else {
+        void persistRead(item);
+        cache.invalidate('profile');
+      }
+    });
   }
 
   function declineFriend(item: DisplayNotification) {
     if (!item.actor_id) return;
+    const prevNotifications = notifications;
     haptics.light();
-    removeFriendship(item.actor_id);
-    dismiss(item);
+    setNotifications(prev => prev.filter(n => n.id !== item.id));
+    removeFriendship(item.actor_id).then(({ error }) => {
+      if (error) {
+        setNotifications(prevNotifications);
+        toast.show("Couldn't decline — try again.");
+      } else {
+        void persistRead(item);
+      }
+    });
   }
 
   async function onRefresh() {
@@ -400,10 +425,9 @@ export default function NotificationsScreen() {
                   <TouchableOpacity
                     style={[styles.acceptBtn, { backgroundColor: accentColor }]}
                     onPress={() => accept(item)}
-                    disabled={accepting === item.id}
                   >
                     <Text style={styles.acceptBtnText}>
-                      {accepting === item.id ? '…' : 'Accept'}
+                      Accept
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -419,9 +443,8 @@ export default function NotificationsScreen() {
                     <TouchableOpacity
                       style={[styles.acceptBtn, { backgroundColor: accentColor }]}
                       onPress={() => acceptFriend(item)}
-                      disabled={accepting === item.id}
-                    >
-                      <Text style={styles.acceptBtnText}>{accepting === item.id ? '…' : 'Accept'}</Text>
+                      >
+                      <Text style={styles.acceptBtnText}>Accept</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={styles.declineBtn} onPress={() => declineFriend(item)}>
                       <Ionicons name="close" size={18} color="#888888" />

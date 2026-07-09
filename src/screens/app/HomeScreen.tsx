@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { haptics } from '../../lib/haptics';
+import { toast } from '../../lib/toast';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
@@ -160,6 +161,9 @@ export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [refreshing, setRefreshing] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
+  // Capsules optimistically hidden from the Archived section while their
+  // restore RPC is in flight — re-shown (with a toast) if it fails.
+  const [restoringIds, setRestoringIds] = useState<Set<string>>(new Set());
   const headerAnim = useFadeIn(0, 250);
 
   const userId = sessionStore.get()?.user?.id ?? null;
@@ -192,7 +196,7 @@ export default function HomeScreen() {
   // filters on joined_at is not null), so any archived capsule here is one
   // this user can see regardless of ownership — any joined member can
   // archive/restore now, not just the owner.
-  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at);
+  const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at && !restoringIds.has(c.id));
 
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
@@ -202,12 +206,29 @@ export default function HomeScreen() {
     setRefreshing(false);
   }
 
-  async function restoreCapsule(capsuleId: string) {
-    // Any joined member can restore now, not just the owner — a direct
-    // .update() would be rejected by RLS for non-owners, so this goes
-    // through the same security-definer RPC CapsuleDetailScreen uses.
-    await supabase.rpc('set_capsule_archived', { p_capsule_id: capsuleId, p_archived: false });
-    await refresh();
+  // Optimistic: the card leaves the Archived section instantly (hidden
+  // locally), the RPC runs in the background, and refresh() moves it into the
+  // active list for real. On failure the card reappears with a toast.
+  // Any joined member can restore, not just the owner — a direct .update()
+  // would be rejected by RLS for non-owners, so this goes through the same
+  // security-definer RPC CapsuleDetailScreen uses.
+  function restoreCapsule(capsuleId: string) {
+    haptics.light();
+    setRestoringIds(prev => new Set(prev).add(capsuleId));
+    supabase
+      .rpc('set_capsule_archived', { p_capsule_id: capsuleId, p_archived: false })
+      .then(async ({ error }) => {
+        if (error) {
+          toast.show("Couldn't restore the capsule — try again.");
+        } else {
+          await refresh();
+        }
+        setRestoringIds(prev => {
+          const next = new Set(prev);
+          next.delete(capsuleId);
+          return next;
+        });
+      });
   }
 
   if (loading) {
