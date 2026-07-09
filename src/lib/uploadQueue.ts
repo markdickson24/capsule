@@ -41,6 +41,18 @@ let working = false;
 // Counters for the drain toast; reset each time the queue goes idle→active.
 let batchAdded = 0;
 let batchFailed = 0;
+// Dedup for multi-capsule fan-out (same local file enqueued for N capsules,
+// e.g. PreviewScreen's multi-select "Add to Capsule"): keyed by the SOURCE
+// local uri, so the real upload only happens once per unique file per batch;
+// every later occurrence is a bucket-side storage.copy() instead of
+// re-uploading the same bytes. Three separate maps (main photo/video, dual
+// alt, video thumbnail) since each is a distinct derived object per source
+// uri. Cleared when the queue fully drains (see work()) so a later,
+// unrelated batch doesn't copy from a stale/unrelated key.
+type CachedUpload = { key: string; size: number; ext: string };
+const mainUploadCache = new Map<string, CachedUpload>();
+const altUploadCache = new Map<string, CachedUpload>();
+const thumbUploadCache = new Map<string, CachedUpload>();
 // Per-capsule done/total since that capsule's queue was last empty — drives
 // the aggregate progress bar on CapsuleDetail. Cleared when the capsule's
 // last task leaves the queue.
@@ -104,27 +116,57 @@ async function prepareForUpload(
   return { uri: resizedUri, mimeType: 'image/jpeg' };
 }
 
+// Multi-capsule fan-out shortcut: if `sourceUri` was already uploaded once in
+// this batch (tracked in `cacheMap`), duplicate the existing storage object
+// with a bucket-side copy — zero device bytes — instead of re-running
+// `produce()` (resize + real upload) again. The storage INSERT RLS policy
+// validates the destination path's own capsule membership, so a copy is
+// permitted for exactly the capsules the caller could upload to directly.
+async function copyOrUpload(
+  cacheMap: Map<string, CachedUpload>,
+  sourceUri: string,
+  capsuleId: string,
+  produce: () => Promise<{ uri: string; mimeType: string }>,
+): Promise<CachedUpload> {
+  const cached = cacheMap.get(sourceUri);
+  if (cached) {
+    const key = `${capsuleId}/${randomUUID()}.${cached.ext}`;
+    const { error } = await supabase.storage.from('capsule-media').copy(cached.key, key);
+    if (error) throw new Error(error.message);
+    return { key, size: cached.size, ext: cached.ext };
+  }
+  const prepared = await produce();
+  const ext = prepared.mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
+  const key = `${capsuleId}/${randomUUID()}.${ext}`;
+  const size = await uploadFile(key, prepared.uri, prepared.mimeType);
+  const entry: CachedUpload = { key, size, ext };
+  cacheMap.set(sourceUri, entry);
+  return entry;
+}
+
 async function runTask(task: UploadTask): Promise<void> {
   const session = sessionStore.get();
   if (!session) throw new Error('Not signed in');
 
-  const main = await prepareForUpload(task.uri, task.mediaType, task.mimeType);
-  const ext = main.mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
-  const storageKey = `${task.capsuleId}/${randomUUID()}.${ext}`;
-  const sizeBytes = await uploadFile(storageKey, main.uri, main.mimeType);
+  const wantsAlt = !!task.altUri && task.mediaType === 'photo';
 
-  // Dual (PiP) swap variant — best-effort: if it fails, keep the main photo.
-  let altStorageKey: string | null = null;
-  if (task.altUri && task.mediaType === 'photo') {
-    const key = `${task.capsuleId}/${randomUUID()}.jpg`;
-    try {
-      const alt = await prepareForUpload(task.altUri, 'photo', 'image/jpeg');
-      await uploadFile(key, alt.uri, alt.mimeType);
-      altStorageKey = key;
-    } catch {
-      altStorageKey = null;
-    }
-  }
+  // Main + alt run concurrently — on a cache miss for both, this halves wall
+  // time for swappable dual photos; on a cache hit, copies are cheap enough
+  // that concurrency costs nothing either way.
+  const [main, altEntry] = await Promise.all([
+    copyOrUpload(mainUploadCache, task.uri, task.capsuleId, () =>
+      prepareForUpload(task.uri, task.mediaType, task.mimeType)
+    ),
+    wantsAlt
+      ? copyOrUpload(altUploadCache, task.altUri!, task.capsuleId, () =>
+          prepareForUpload(task.altUri!, 'photo', 'image/jpeg')
+        ).catch(() => null) // best-effort: keep the main photo if the alt fails
+      : Promise.resolve(null),
+  ]);
+
+  const storageKey = main.key;
+  const sizeBytes = main.size;
+  const altStorageKey = altEntry?.key ?? null;
 
   // Video thumbnail generated from the LOCAL file (no network) so every
   // member's device doesn't have to download+decode the remote video just to
@@ -134,10 +176,11 @@ async function runTask(task: UploadTask): Promise<void> {
   let thumbnailKey: string | null = null;
   if (task.mediaType === 'video' && Platform.OS !== 'web') {
     try {
-      const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 });
-      const key = `${task.capsuleId}/${randomUUID()}_thumb.jpg`;
-      await uploadFile(key, thumbUri, 'image/jpeg');
-      thumbnailKey = key;
+      const thumbEntry = await copyOrUpload(thumbUploadCache, task.uri, task.capsuleId, async () => {
+        const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 });
+        return { uri: thumbUri, mimeType: 'image/jpeg' };
+      });
+      thumbnailKey = thumbEntry.key;
     } catch {
       thumbnailKey = null;
     }
@@ -202,6 +245,11 @@ async function work() {
   }
   batchAdded = 0;
   batchFailed = 0;
+  // Drop the dedup caches now that the batch is fully done — a later,
+  // unrelated upload shouldn't copy from a stale key.
+  mainUploadCache.clear();
+  altUploadCache.clear();
+  thumbUploadCache.clear();
 }
 
 export const uploadQueue = {

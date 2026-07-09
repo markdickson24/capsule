@@ -667,6 +667,27 @@ at a time (web: arrayBuffer + `supabase.storage.upload`; native:
 below — both best-effort), and invalidates
 `capsules` + `capsule:`/`media:`/`signedUrls:` per success.
 
+**Multi-capsule fan-out uploads each file once, not once per capsule.**
+`PreviewScreen`'s multi-select "Add to Capsule" enqueues one task per
+(capsule × media) pair in a single `enqueue()` call — selecting 3 capsules for
+5 photos used to mean 15 full device-to-storage uploads of the same 5 files.
+`runTask` now routes every upload (main, dual `altUri`, and video thumbnail)
+through `copyOrUpload()`, keyed by the **source local uri** in one of three
+module-level `Map`s (`mainUploadCache`/`altUploadCache`/`thumbUploadCache`).
+The first task for a given uri does the real `prepareForUpload` + `uploadFile`
+and caches the resulting `{ key, size, ext }`; every later task for the same
+uri (i.e. the same file going to another capsule) does a bucket-side
+`supabase.storage.from('capsule-media').copy(cachedKey, newKey)` instead —
+zero device bytes. The storage INSERT RLS policy validates the *destination*
+path's own capsule membership (identical check to a direct upload), so a copy
+is permitted for exactly the capsules the caller could upload to directly;
+verified against the live policy definitions rather than a device run — copy
+succeeds iff a normal upload to that destination would. The three caches are
+cleared when the queue fully drains (`work()`), so an unrelated later batch
+never copies from a stale key. Main + alt also now upload **concurrently**
+(`Promise.all`) instead of sequentially — free wall-time win on swappable
+dual photos regardless of cache hit/miss.
+
 **Video thumbnail at upload time:** for `mediaType === 'video'` (native only —
 `expo-video-thumbnails` has no web implementation), `runTask` grabs a frame
 from the **local** file via `VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 })`
