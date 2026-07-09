@@ -228,6 +228,12 @@ Defined in `supabase-schema.sql`.
 
 > ⚠️ **Adding a new client-readable column to `users`?** Because the grant is column-level (the table-wide SELECT grant was revoked), a new column added via `ALTER TABLE ADD COLUMN` gets **no** SELECT grant by default — `authenticated` will have INSERT/UPDATE but not SELECT. Any query selecting it then fails with `42501 permission denied` for the **entire** query (not just that column), silently breaking unrelated fields in the same `select()`. **Always `grant select (...)` the new column to `authenticated` in the same migration.** This bit `home_layout` (added in `20260610020000`, granted in `20260610210000_grant_home_layout_select.sql`): the missing grant made `ThemeContext`'s `select('accent_color, home_layout')` 403, so accent color reset to default on every sign-in.
 
+**Indexes added for actual query shapes** (`20260709120000_perf_indexes.sql`, PERFORMANCE.md #9):
+- `idx_notifications_unread` — partial `(user_id, sent_at desc) where read_at is null`, covers the Alerts list + tab-badge query (the most-frequent query in the app).
+- `idx_capsules_unlock_due` — partial `(unlock_at) where status='active' and unlock_mode='time'`, covers the `unlock-capsules` cron's per-minute filter.
+- `idx_capsules_group_id` — plain `(group_id)`, covers a group's capsule list + the `create-group-capsules` cron (was an unindexed FK per the advisors).
+- `idx_media_capsule_uploaded` — composite `(capsule_id, uploaded_at desc)`, replaces the old single-column `idx_media_capsule_id` (dropped in the same migration) so `CapsuleDetailScreen.fetchPhotos`'s `capsule_id = ? order by uploaded_at desc` doesn't sort separately every call.
+
 **Triggers:**
 - `handle_new_user()` — auto-creates `users` row on `auth.users` insert
 - `notify_on_reaction()` — inserts reaction notification (not to self)
