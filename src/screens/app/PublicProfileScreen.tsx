@@ -204,24 +204,21 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
     const cuid = session?.user.id ?? '';
     setCurrentUserId(cuid);
 
-    const [profileRes, myMembershipsRes] = await Promise.all([
+    // Mutual capsules in ONE query: the capsule_members SELECT policy is
+    // `capsule_id IN get_my_capsule_ids()`, so filtering to the OTHER user's rows is
+    // already restricted by RLS to capsules I also belong to — the intersection is
+    // computed server-side. No separate "my memberships" fetch or `.in(ids)` list.
+    const [profileRes, mutualRes] = await Promise.all([
       supabase.from('users').select('id, display_name, bio, avatar_url').eq('id', userId).single(),
-      supabase.from('capsule_members').select('capsule_id').eq('user_id', cuid).not('joined_at', 'is', null),
-    ]);
-
-    if (profileRes.data) setProfile(profileRes.data as Profile);
-
-    const myCapsuleIds = (myMembershipsRes.data ?? []).map((r: any) => r.capsule_id);
-
-    if (myCapsuleIds.length > 0) {
-      const { data: mutual } = await supabase
+      supabase
         .from('capsule_members')
         .select('capsule_id, capsules(id, title, status)')
         .eq('user_id', userId)
-        .not('joined_at', 'is', null)
-        .in('capsule_id', myCapsuleIds);
-      setMutualCapsules((mutual ?? []) as MutualCapsule[]);
-    }
+        .not('joined_at', 'is', null),
+    ]);
+
+    if (profileRes.data) setProfile(profileRes.data as Profile);
+    setMutualCapsules((mutualRes.data ?? []) as MutualCapsule[]);
   }
 
   if (loading) {
