@@ -331,7 +331,7 @@ Receives photos/videos shared from other apps (Photos, Files, Messages, Instagra
 ## Push Notifications (`usePushNotifications.ts`)
 
 - Called from `App.tsx` with `userId` from session
-- Registers Expo push token (native only) and stores in `users.push_token`
+- Registers Expo push token (native only) and stores in `users.push_token` — but **only if permission is already granted**. `registerToken` never calls `requestPermissionsAsync`; the native prompt fires exactly once, from `requestPushPermission(userId)` (exported from the same module, no-op `false` on web), which the Onboarding "Don't miss it" primer calls after the user's first capsule is created. A "maybe later" answer writes `cap_notif_reprime:<userId>` to AsyncStorage so a future contextual re-ask knows the prompt is still unspent.
 - Notification tap handler: reads `data.capsuleId` or `data.screen` from notification payload, navigates via `navigationRef`
 - Notification display config: `showAlert`, `playSound`, `showBanner`, `showList` all true
 - Invite push notifications are sent by the `send-invite-push` edge function. `CapsuleDetailScreen.sendInviteNotification()` calls it via `supabase.functions.invoke()`; the function verifies the caller owns the capsule, reads the invitee's `push_token` with the service role, and posts to Expo. The in-app notification row itself is created server-side by the `notify_on_invite` trigger.
@@ -454,20 +454,21 @@ All of the following are owner-only and silently no-op / navigate away if not ow
 
 ## Onboarding (`OnboardingScreen`)
 
-A 4-step wizard that runs after new sign-ups. Gated by `users.onboarded_at`:
+A 5-step personalized flow ("Onboarding v2" — full design rationale in `designs/ONBOARDING_V2.md`) that runs after new sign-ups. Gated by `users.onboarded_at`:
 - AppNavigator first checks a **local flag** (`sessionStore.wasOnboarded(userId)`, an `AsyncStorage` boolean keyed per user — see `markOnboarded`/`wasOnboarded` in `src/lib/sessionStore.ts`). If set, routes straight to `'Tabs'` with **no network round-trip** — this used to block first paint on every launch behind a `users.onboarded_at` query (up to a 5s timeout). The flag is written the moment a `users.onboarded_at` query confirms `true`, and again when the wizard itself completes.
 - If the local flag isn't set (first launch, fresh install, or genuinely not yet onboarded), falls back to the original behavior: queries `users.onboarded_at`. If null → `initialRouteName = 'Onboarding'`. Otherwise → `'Tabs'` (and the local flag gets written for next launch). On query error or 5s timeout, falls through to Tabs (don't strand the user).
 - `users.onboarded_at` remains the server source of truth — the local flag only exists to skip the round-trip for returning users; nothing in the app currently un-sets `onboarded_at`, so a stale-true local flag isn't a real-world risk.
-- The wizard writes `display_name`, optionally `avatar_url` / `bio` / `accent_color`, and sets `onboarded_at = now()` in a single update on completion, then calls `sessionStore.markOnboarded(userId)`.
-- Final step uses `navigation.replace('Tabs', { screen: 'Home' })` (no back stack to the wizard).
+- `saveProfile()` writes `display_name` + optionally `avatar_url` and stamps `onboarded_at = now()`, then calls `sessionStore.markOnboarded(userId)`. It runs at the end of step 3 (both "Create my capsule" and every skip-to-Home path) — so a user killed mid-wizard before step 3 correctly re-enters it, and one who completed step 3 never does.
+- Exits use `navigation.replace('Tabs', …)` (no back stack to the wizard). Bio and accent color are **not** collected here anymore — they live in Edit Profile and Settings.
 
-Steps:
-1. **Name + avatar.** Display name required (max 30). Avatar via `expo-image-picker` → resize to 400px → upload to `avatars/${userId}/avatar.jpg` (web: arrayBuffer; native: FileSystem.uploadAsync).
-2. **Accent color.** Reuses the shared `<ColorPicker>` component (`src/components/ColorPicker.tsx`). On completion, also calls `ThemeContext.setAccentColor` so the change is reflected everywhere immediately.
-3. **Bio.** 80-char free-text (mirrors the DB `check (char_length(bio) <= 80)` constraint).
-4. **First-capsule preset.** Four cards (Vacation memories, Baby's first year, Wedding day, Year in review) — tapping one calls `navigation.replace('Tabs', { screen: 'Create', params: { presetTitle, presetDescription } })`, which CreateScreen reads via `useRoute()` to prefill the form. "Skip & finish" goes straight to Home.
+Steps (state machine inside the one screen; dynamic copy comes from `src/lib/onboardingMoments.ts` — the `MOMENTS` matrix keyed on `OccasionKey`, exporting title seeds, date chips, flavor lines, and invite nudges per occasion):
+1. **Name + avatar.** Display name required (max 30). Avatar upload **starts in the background the moment it's picked** (`avatarUrlPromise` ref) so a failure isn't discovered at finish-time; `resolveAvatarUrl()` awaits it, retries once, and degrades to a toast (never blocks completion). A live member-row preview chip renders the name/avatar as they type.
+2. **"What are you waiting for?"** Six moment cards (mapping 1:1 to `capsules.occasion`) + an optional 60-char free-text line. Tapping a card advances immediately; typed free text **becomes the capsule title verbatim** (always beats the seed — never rewrite the user's words). Skip → `skipToHome()`.
+3. **First capsule, pre-built.** A capsule card with inline-editable title, occasion-aware date chips (first chip pre-selected) + "Pick my own date" (expands the shared `DatePickerField`), and a surprise-mode promise line. "Create my capsule" runs `saveProfile()` then the standard RLS-safe create (client UUID → `capsules` insert without `.select()` → owner `capsule_members` row → `set_default_superlatives` best-effort). Always `owner_preview_locked: true`, `unlock_mode: 'time'`, 48h voting.
+4. **Notification primer** (forward-only, reached only when a capsule was created). Names the user's capsule + date; "Yes, notify me" calls `requestPushPermission` (the app's only native-prompt call site); "maybe later" sets the `cap_notif_reprime:<userId>` AsyncStorage flag. On web the button is copy-only ("Sounds good").
+5. **Sealed ceremony** (forward-only). Lock scale-in + `haptics.success()` + live countdown (30s tick). Actions: **Invite people** (`Share.share` of the `capsule://join/<id>` link; on failure/web falls back to navigating into the capsule where the full invite UI lives), **Add the first photo** (→ Camera tab), or "take me home".
 
-Footer renders only the buttons that apply for the current step. Step 1: just `Next`. Steps 2–3: `Back | Skip | Next`. Step 4: `Back | Skip & finish` (preset cards are themselves the primary action). Don't render placeholder `<View>`s for missing buttons or they'll consume row width.
+Footer only exists for steps 1–3 (`Back` from 2–3; contextual `Next`/skip). Steps 4–5 render their own primary actions in-body. Don't render placeholder `<View>`s for missing footer buttons or they'll consume row width.
 
 ## Settings Screen (`SettingsScreen`)
 

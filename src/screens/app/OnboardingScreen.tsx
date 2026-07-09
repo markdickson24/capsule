@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
-  View, Text, StyleSheet, ScrollView, TextInput,
-  TouchableOpacity, Platform, KeyboardAvoidingView,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
+  Platform, KeyboardAvoidingView, Animated, Share,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,41 +10,96 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as FileSystem from 'expo-file-system/legacy';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase, getFreshSession } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
-import ColorPicker from '../../components/ColorPicker';
 import { AppStackParamList } from '../../types/navigation';
+import { MOMENTS, GENERAL_MOMENT, Moment } from '../../lib/onboardingMoments';
+import { pickDefaults } from '../../lib/awardPool';
+import { randomUUID } from '../../lib/uuid';
+import { cache } from '../../lib/cache';
+import { haptics } from '../../lib/haptics';
+import { toast } from '../../lib/toast';
+import { requestPushPermission } from '../../hooks/usePushNotifications';
+import DatePickerField from '../../components/DatePicker';
 import type { TablesUpdate } from '../../types/supabase';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
-const PRESETS: { title: string; description: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { title: 'Vacation memories',  description: 'Photos from the trip, opened when we get home.', icon: 'airplane-outline' },
-  { title: "Baby's first year",  description: 'Every milestone, locked until their first birthday.', icon: 'happy-outline' },
-  { title: 'Wedding day',        description: 'Everyone shares their angle — opened on the honeymoon.', icon: 'heart-outline' },
-  { title: 'Year in review',     description: 'A year of moments, opened on New Year\'s Eve.', icon: 'calendar-outline' },
-];
+type Step = 1 | 2 | 3 | 4 | 5;
 
-const DEFAULT_ACCENT = '#FF6B35';
+// AsyncStorage flag: user said "maybe later" on the notification primer.
+// A future contextual re-ask (e.g. after their first accepted invite) can
+// check this to know the native prompt is still unspent.
+const NOTIF_REPRIME_PREFIX = 'cap_notif_reprime:';
+
+function formatUnlockDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function formatCountdown(d: Date): string {
+  const ms = d.getTime() - Date.now();
+  if (ms <= 0) return 'any moment now';
+  const mins = Math.floor(ms / 60_000);
+  const hours = Math.floor(mins / 60);
+  const days = Math.floor(hours / 24);
+  if (days >= 2) return `in ${days} days`;
+  if (days === 1) return 'in 1 day';
+  if (hours >= 2) return `in ${hours} hours`;
+  if (hours === 1) return 'in 1 hour';
+  return `in ${Math.max(1, mins)} minute${mins === 1 ? '' : 's'}`;
+}
+
+// Chunk the 6 moment cards into rows of 2 — flex:1 cards inside fixed rows,
+// never percentage widths (iOS ScrollView computes those to 0).
+const MOMENT_ROWS: Moment[][] = [];
+for (let i = 0; i < MOMENTS.length; i += 2) MOMENT_ROWS.push(MOMENTS.slice(i, i + 2));
 
 export default function OnboardingScreen({ navigation }: Props) {
-  const { accentColor, setAccentColor } = useTheme();
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const { accentColor } = useTheme();
+  const [step, setStep] = useState<Step>(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // Step 1
+  // Screen 1
   const [displayName, setDisplayName] = useState('');
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  // Upload starts the moment a photo is picked (background), so a failure
+  // isn't discovered three screens later at finish-time.
+  const avatarUrlPromise = useRef<Promise<string | null> | null>(null);
 
-  // Step 2 — bound to ColorPicker
-  const [pendingColor, setPendingColor] = useState(accentColor || DEFAULT_ACCENT);
+  // Screen 2
+  const [moment, setMoment] = useState<Moment>(GENERAL_MOMENT);
+  const [intentText, setIntentText] = useState('');
 
-  // Step 3
-  const [bio, setBio] = useState('');
+  // Screen 3
+  const [title, setTitle] = useState('');
+  const [unlockDate, setUnlockDate] = useState<Date | null>(null);
+  const [selectedChip, setSelectedChip] = useState<number | 'custom'>(0);
+  const [customDateOpen, setCustomDateOpen] = useState(false);
 
+  // Screens 4–5
+  const [createdCapsuleId, setCreatedCapsuleId] = useState<string | null>(null);
+  const [countdownText, setCountdownText] = useState('');
+  const sealAnim = useRef(new Animated.Value(0)).current;
+
+  const firstName = displayName.trim().split(/\s+/)[0] || '';
+
+  // ── Screen 5: seal ceremony + live countdown ──────────────────────────────
+  useEffect(() => {
+    if (step !== 5) return;
+    haptics.success();
+    Animated.spring(sealAnim, { toValue: 1, friction: 5, tension: 60, useNativeDriver: true }).start();
+    const tick = () => { if (unlockDate) setCountdownText(formatCountdown(unlockDate)); };
+    tick();
+    const interval = setInterval(tick, 30_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
+
+  // ── Avatar ────────────────────────────────────────────────────────────────
   async function pickAvatar() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -53,7 +108,9 @@ export default function OnboardingScreen({ navigation }: Props) {
       quality: 0.9,
     });
     if (result.canceled || !result.assets[0]) return;
-    setAvatarUri(result.assets[0].uri);
+    const uri = result.assets[0].uri;
+    setAvatarUri(uri);
+    avatarUrlPromise.current = uploadAvatar(uri).catch(() => null);
   }
 
   async function uploadAvatar(uri: string): Promise<string> {
@@ -67,10 +124,10 @@ export default function OnboardingScreen({ navigation }: Props) {
       path = `${session.user.id}/avatar.jpg`;
       const resp = await fetch(uri);
       const buf = await resp.arrayBuffer();
-      const { error } = await supabase.storage
+      const { error: upErr } = await supabase.storage
         .from('avatars')
         .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-      if (error) throw new Error(error.message);
+      if (upErr) throw new Error(upErr.message);
     } else {
       const { accessToken, userId } = await getFreshSession();
       path = `${userId}/avatar.jpg`;
@@ -94,7 +151,7 @@ export default function OnboardingScreen({ navigation }: Props) {
         }
       );
       if (result.status < 200 || result.status >= 300) {
-        throw new Error(`Storage ${result.status}: ${result.body?.slice(0, 200) ?? 'no body'}`);
+        throw new Error(`Storage ${result.status}`);
       }
     }
 
@@ -102,29 +159,28 @@ export default function OnboardingScreen({ navigation }: Props) {
     return `${data.publicUrl}?t=${Date.now()}`;
   }
 
-  async function finish(opts: { preset?: typeof PRESETS[number] } = {}) {
-    setError('');
+  /** Await the background upload; retry once if it failed; never block completion. */
+  async function resolveAvatarUrl(): Promise<string | null> {
+    if (!avatarUri) return null;
+    const fromBackground = await (avatarUrlPromise.current ?? Promise.resolve(null));
+    if (fromBackground) return fromBackground;
+    try {
+      return await uploadAvatar(avatarUri);
+    } catch {
+      toast.show("Couldn't upload your photo — add it later from Profile.");
+      return null;
+    }
+  }
+
+  // ── Profile save (stamps onboarded_at — the exit gate) ────────────────────
+  async function saveProfile(): Promise<boolean> {
     const session = sessionStore.get();
-    if (!session) { setError('Session lost. Try signing out and in.'); return; }
+    if (!session) { setError('Session lost. Try signing out and in.'); return false; }
     const userId = session.user.id;
 
-    setSaving(true);
-
-    let avatarUrl: string | null = null;
-    if (avatarUri) {
-      try {
-        avatarUrl = await uploadAvatar(avatarUri);
-      } catch (e: any) {
-        setSaving(false);
-        setError(`Avatar upload failed: ${e?.message ?? 'unknown error'}`);
-        return;
-      }
-    }
-
+    const avatarUrl = await resolveAvatarUrl();
     const updates: TablesUpdate<'users'> = {
       display_name: displayName.trim(),
-      accent_color: pendingColor,
-      bio: bio.trim() || null,
       onboarded_at: new Date().toISOString(),
     };
     if (avatarUrl) updates.avatar_url = avatarUrl;
@@ -135,48 +191,163 @@ export default function OnboardingScreen({ navigation }: Props) {
       .eq('id', userId);
 
     if (updateError) {
-      setSaving(false);
       setError('Could not save your profile. Please try again.');
+      return false;
+    }
+    sessionStore.markOnboarded(userId);
+    return true;
+  }
+
+  // ── Step transitions ──────────────────────────────────────────────────────
+  function goStep2() {
+    if (!displayName.trim()) { setError('Please enter a display name.'); return; }
+    if (displayName.trim().length > 30) { setError('Display name must be 30 characters or less.'); return; }
+    setError('');
+    setStep(2);
+  }
+
+  function enterStep3(m: Moment, text: string) {
+    setMoment(m);
+    setTitle(text.trim() || m.titleSeed);
+    const firstChip = m.dateChips[0];
+    setUnlockDate(firstChip ? firstChip.resolve() : null);
+    setSelectedChip(0);
+    setCustomDateOpen(false);
+    setError('');
+    setStep(3);
+  }
+
+  function selectMomentCard(m: Moment) {
+    haptics.light();
+    enterStep3(m, intentText);
+  }
+
+  async function skipToHome() {
+    setError('');
+    setSaving(true);
+    const ok = await saveProfile();
+    setSaving(false);
+    if (ok) navigation.replace('Tabs', { screen: 'Home' });
+  }
+
+  // ── Screen 3: create the capsule ──────────────────────────────────────────
+  async function createCapsule() {
+    setError('');
+    const finalTitle = title.trim() || moment.titleSeed;
+    if (finalTitle.length > 100) { setError('Name must be 100 characters or less.'); return; }
+    if (!unlockDate) { setError('Pick a date for the unlock.'); return; }
+    if (unlockDate <= new Date()) { setError('The unlock date must be in the future.'); return; }
+
+    const session = sessionStore.get();
+    const user = session?.user;
+    if (!user) { setError('Session lost. Try signing out and in.'); return; }
+
+    setSaving(true);
+
+    const profileOk = await saveProfile();
+    if (!profileOk) { setSaving(false); return; }
+
+    // Same RLS-safe pattern as CreateScreen: client UUID, insert WITHOUT
+    // .select() (the member row doesn't exist yet), then the owner member row.
+    const capsuleId = randomUUID();
+    const { error: capsuleError } = await supabase
+      .from('capsules')
+      .insert({
+        id: capsuleId,
+        owner_id: user.id,
+        title: finalTitle,
+        description: null,
+        unlock_at: unlockDate.toISOString(),
+        contribution_lock_at: null,
+        unlock_mode: 'time',
+        superlative_voting_hours: 48,
+        owner_preview_locked: true,
+        occasion: moment.occasion,
+        status: 'active',
+        visibility: 'invite',
+      });
+
+    if (capsuleError) {
+      setSaving(false);
+      setError('Could not create your capsule. Please try again.');
       return;
     }
 
-    sessionStore.markOnboarded(userId);
+    const { error: memberError } = await supabase.from('capsule_members').insert({
+      capsule_id: capsuleId,
+      user_id: user.id,
+      role: 'owner',
+      joined_at: new Date().toISOString(),
+    });
 
-    // Persist accent color in theme context too
-    if (pendingColor !== accentColor) {
-      await setAccentColor(pendingColor);
+    if (memberError) {
+      setSaving(false);
+      setError('Capsule created but could not set you as owner. Please try again.');
+      return;
     }
 
-    setSaving(false);
-
-    if (opts.preset) {
-      navigation.replace('Tabs', {
-        screen: 'Create',
-        params: { presetTitle: opts.preset.title, presetDescription: opts.preset.description },
+    try {
+      await supabase.rpc('set_default_superlatives', {
+        p_capsule_id: capsuleId,
+        p_awards: pickDefaults(moment.occasion),
       });
-    } else {
+    } catch {
+      // Non-fatal — defaults can be seeded from the capsule page pre-unlock.
+    }
+
+    cache.invalidate('capsules', 'profile');
+    setCreatedCapsuleId(capsuleId);
+    setTitle(finalTitle);
+    setSaving(false);
+    setStep(4);
+  }
+
+  // ── Screen 4: notification primer ─────────────────────────────────────────
+  async function primerYes() {
+    const session = sessionStore.get();
+    setSaving(true);
+    if (session) {
+      // The one intentional native-prompt call in the app (no-op → false on web).
+      await requestPushPermission(session.user.id);
+    }
+    setSaving(false);
+    haptics.light();
+    setStep(5);
+  }
+
+  function primerLater() {
+    const session = sessionStore.get();
+    if (session) {
+      AsyncStorage.setItem(`${NOTIF_REPRIME_PREFIX}${session.user.id}`, '1').catch(() => {});
+    }
+    setStep(5);
+  }
+
+  // ── Screen 5 actions ──────────────────────────────────────────────────────
+  async function invitePeople() {
+    if (!createdCapsuleId) return;
+    try {
+      await Share.share({
+        message: `Join my Capsule "${title}"! Tap to join: capsule://join/${createdCapsuleId}`,
+      });
+    } catch {
+      // Web (or share unavailable): land them in the capsule, where the full
+      // invite UI (QR + search) lives.
       navigation.replace('Tabs', { screen: 'Home' });
+      navigation.navigate('CapsuleDetail', { capsuleId: createdCapsuleId });
     }
   }
 
-  function next() {
-    if (step === 1) {
-      if (!displayName.trim()) { setError('Please enter a display name.'); return; }
-      if (displayName.trim().length > 30) { setError('Display name must be 30 characters or less.'); return; }
-      setError('');
-      setStep(2);
-    } else if (step === 2) {
-      setError('');
-      setStep(3);
-    } else if (step === 3) {
-      setError('');
-      setStep(4);
-    }
+  function addFirstPhoto() {
+    navigation.replace('Tabs', { screen: 'Camera' });
   }
 
-  function back() {
-    if (step > 1) setStep((s) => (s - 1) as 1 | 2 | 3);
+  function goHome() {
+    navigation.replace('Tabs', { screen: 'Home' });
   }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  const avatarInitial = firstName ? firstName[0].toUpperCase() : null;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -186,13 +357,13 @@ export default function OnboardingScreen({ navigation }: Props) {
       >
         {/* Progress dots */}
         <View style={styles.progressRow}>
-          {[1, 2, 3, 4].map((n) => (
+          {[1, 2, 3, 4, 5].map((n) => (
             <View
               key={n}
               style={[
                 styles.progressDot,
-                n === step && { backgroundColor: pendingColor, width: 24 },
-                n < step && { backgroundColor: pendingColor },
+                n === step && { backgroundColor: accentColor, width: 24 },
+                n < step && { backgroundColor: accentColor },
               ]}
             />
           ))}
@@ -205,18 +376,17 @@ export default function OnboardingScreen({ navigation }: Props) {
         >
           {step === 1 && (
             <View style={styles.stepBody}>
-              <Text style={styles.heading}>What should we call you?</Text>
-              <Text style={styles.sub}>This is how friends will see you in capsules.</Text>
+              <Text style={styles.heading}>First things first — who are you?</Text>
 
               <TouchableOpacity style={styles.avatarSlot} onPress={pickAvatar} activeOpacity={0.8}>
                 {avatarUri ? (
                   <Image source={avatarUri} style={styles.avatarImg} />
                 ) : (
-                  <View style={[styles.avatarPlaceholder, { backgroundColor: pendingColor }]}>
+                  <View style={[styles.avatarPlaceholder, { backgroundColor: accentColor }]}>
                     <Ionicons name="camera-outline" size={32} color="#FFFFFF" />
                   </View>
                 )}
-                <Text style={[styles.avatarHint, { color: pendingColor }]}>
+                <Text style={[styles.avatarHint, { color: accentColor }]}>
                   {avatarUri ? 'Change photo' : 'Add a photo (optional)'}
                 </Text>
               </TouchableOpacity>
@@ -230,100 +400,317 @@ export default function OnboardingScreen({ navigation }: Props) {
                 autoCapitalize="words"
                 maxLength={30}
               />
+
+              {/* Live member-row preview — the first proof the app reacts to them */}
+              <View style={styles.previewCard}>
+                {avatarUri ? (
+                  <Image source={avatarUri} style={styles.previewAvatar} />
+                ) : (
+                  <View style={[styles.previewAvatar, styles.previewAvatarFallback, { backgroundColor: accentColor }]}>
+                    {avatarInitial
+                      ? <Text style={styles.previewInitial}>{avatarInitial}</Text>
+                      : <Ionicons name="person-outline" size={16} color="#FFFFFF" />}
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.previewName} numberOfLines={1}>
+                    {displayName.trim() || 'Your name'}
+                  </Text>
+                  <Text style={styles.previewMeta}>added 3 photos · just now</Text>
+                </View>
+              </View>
+              <Text style={styles.previewHint}>This is how friends see you inside a capsule.</Text>
             </View>
           )}
 
           {step === 2 && (
             <View style={styles.stepBody}>
-              <Text style={styles.heading}>Pick your color</Text>
-              <Text style={styles.sub}>It'll tint buttons, accents, and the camera button.</Text>
-              <ColorPicker value={pendingColor} onChange={setPendingColor} />
+              <Text style={styles.heading}>
+                {firstName ? `Nice to meet you, ${firstName}.` : 'Nice to meet you.'}
+              </Text>
+              <Text style={styles.sub}>What are you waiting for?</Text>
+
+              <View style={styles.momentGrid}>
+                {MOMENT_ROWS.map((row, i) => (
+                  <View key={i} style={styles.momentRow}>
+                    {row.map((m) => (
+                      <TouchableOpacity
+                        key={m.occasion}
+                        style={[styles.momentCard, { borderColor: `${accentColor}40` }]}
+                        onPress={() => selectMomentCard(m)}
+                        disabled={saving}
+                        activeOpacity={0.85}
+                      >
+                        <View style={[styles.momentIcon, { backgroundColor: `${accentColor}22` }]}>
+                          <Ionicons name={m.icon as any} size={20} color={accentColor} />
+                        </View>
+                        <Text style={styles.momentLabel}>{m.label}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ))}
+              </View>
+
+              <TextInput
+                style={styles.input}
+                placeholder="or tell us in your own words…"
+                placeholderTextColor="#555"
+                value={intentText}
+                onChangeText={setIntentText}
+                maxLength={60}
+                returnKeyType="done"
+                onSubmitEditing={() => {
+                  if (intentText.trim()) enterStep3(GENERAL_MOMENT, intentText);
+                }}
+              />
+              {intentText.trim().length > 0 && (
+                <Text style={styles.momentTypedHint}>
+                  Tap a card above that fits, or continue — “{intentText.trim()}” becomes your capsule.
+                </Text>
+              )}
             </View>
           )}
 
           {step === 3 && (
             <View style={styles.stepBody}>
-              <Text style={styles.heading}>Tell us a little</Text>
-              <Text style={styles.sub}>A short bio shown on your profile. 80 characters max.</Text>
-              <TextInput
-                style={[styles.input, styles.textarea]}
-                placeholder="e.g. Photographer. Dog dad. Always packing snacks."
-                placeholderTextColor="#555"
-                value={bio}
-                onChangeText={setBio}
-                maxLength={80}
-                multiline
-              />
-              <Text style={styles.charCount}>{bio.length}/80</Text>
+              <Text style={styles.heading}>Let's set up your first capsule.</Text>
+
+              {/* Pre-built capsule card, title inline-editable */}
+              <View style={[styles.capsuleCard, { borderColor: `${accentColor}40` }]}>
+                <View style={styles.capsuleCardHeader}>
+                  <View style={[styles.capsuleLock, { backgroundColor: `${accentColor}22` }]}>
+                    <Ionicons name="lock-closed" size={18} color={accentColor} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <TextInput
+                      style={styles.capsuleTitleInput}
+                      value={title}
+                      onChangeText={setTitle}
+                      maxLength={100}
+                      placeholder={moment.titleSeed}
+                      placeholderTextColor="#555"
+                    />
+                    <Text style={styles.capsuleRenameHint}>
+                      <Ionicons name="pencil-outline" size={11} color="#666" /> tap to rename
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.capsuleOpens}>
+                  Opens {unlockDate ? formatUnlockDate(unlockDate) : '— pick a date below'}
+                </Text>
+              </View>
+
+              <Text style={styles.flavor}>{moment.flavor}</Text>
+
+              {/* Occasion-aware date chips */}
+              <View style={styles.chipWrap}>
+                {moment.dateChips.map((chip, i) => {
+                  const active = selectedChip === i;
+                  return (
+                    <TouchableOpacity
+                      key={chip.label}
+                      style={[
+                        styles.dateChip,
+                        active && { borderColor: accentColor, backgroundColor: `${accentColor}22` },
+                      ]}
+                      onPress={() => {
+                        haptics.light();
+                        setSelectedChip(i);
+                        setUnlockDate(chip.resolve());
+                        setCustomDateOpen(false);
+                      }}
+                    >
+                      <Text style={[styles.dateChipText, active && { color: accentColor }]}>
+                        {chip.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <TouchableOpacity
+                  style={[
+                    styles.dateChip,
+                    selectedChip === 'custom' && { borderColor: accentColor, backgroundColor: `${accentColor}22` },
+                  ]}
+                  onPress={() => {
+                    setSelectedChip('custom');
+                    setCustomDateOpen(true);
+                  }}
+                >
+                  <Ionicons
+                    name="calendar-outline"
+                    size={14}
+                    color={selectedChip === 'custom' ? accentColor : '#888888'}
+                  />
+                  <Text style={[styles.dateChipText, selectedChip === 'custom' && { color: accentColor }]}>
+                    Pick my own date
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {customDateOpen && (
+                <DatePickerField
+                  label="Unlock Date"
+                  value={unlockDate}
+                  onChange={setUnlockDate}
+                  contextLabel="Capsule unlocks for everyone"
+                />
+              )}
+
+              <View style={styles.surpriseRow}>
+                <Ionicons name="eye-off-outline" size={16} color="#888888" />
+                <Text style={styles.surpriseText}>
+                  It stays locked for everyone — even you — until that day.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: accentColor }]}
+                onPress={createCapsule}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                {saving
+                  ? <LoadingBrand size="small" color="#fff" />
+                  : <Text style={styles.primaryBtnText}>Create my capsule</Text>}
+              </TouchableOpacity>
             </View>
           )}
 
           {step === 4 && (
-            <View style={styles.stepBody}>
-              <Text style={styles.heading}>Start your first capsule</Text>
-              <Text style={styles.sub}>Pick a starting point — you can change everything later.</Text>
-
-              <View style={styles.presetGrid}>
-                {PRESETS.map((p) => (
-                  <TouchableOpacity
-                    key={p.title}
-                    style={[styles.presetCard, { borderColor: `${pendingColor}40` }]}
-                    onPress={() => finish({ preset: p })}
-                    disabled={saving}
-                    activeOpacity={0.85}
-                  >
-                    <View style={[styles.presetIcon, { backgroundColor: `${pendingColor}22` }]}>
-                      <Ionicons name={p.icon} size={22} color={pendingColor} />
-                    </View>
-                    <Text style={styles.presetTitle}>{p.title}</Text>
-                    <Text style={styles.presetDesc} numberOfLines={2}>{p.description}</Text>
-                  </TouchableOpacity>
-                ))}
+            <View style={[styles.stepBody, styles.centeredBody]}>
+              <View style={[styles.bigIconCircle, { backgroundColor: `${accentColor}22` }]}>
+                <Ionicons name="notifications-outline" size={40} color={accentColor} />
               </View>
+              <Text style={[styles.heading, styles.centerText]}>
+                “{title}” opens {unlockDate ? formatUnlockDate(unlockDate) : 'soon'}.
+              </Text>
+              <Text style={[styles.sub, styles.centerText, { marginTop: 0 }]}>
+                Want us to tell you the second it unlocks?{'\n'}
+                That's the whole point of Capsule — don't miss it.
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, styles.fullWidth, { backgroundColor: accentColor }]}
+                onPress={primerYes}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                {saving
+                  ? <LoadingBrand size="small" color="#fff" />
+                  : (
+                    <Text style={styles.primaryBtnText}>
+                      {Platform.OS === 'web' ? "Sounds good" : '🔔 Yes, notify me'}
+                    </Text>
+                  )}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={primerLater} disabled={saving}>
+                <Text style={styles.quietLink}>maybe later</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {step === 5 && (
+            <View style={[styles.stepBody, styles.centeredBody]}>
+              <Animated.View
+                style={[
+                  styles.sealCircle,
+                  { backgroundColor: `${accentColor}22` },
+                  {
+                    opacity: sealAnim,
+                    transform: [{
+                      scale: sealAnim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
+                    }],
+                  },
+                ]}
+              >
+                <Ionicons name="lock-closed" size={44} color={accentColor} />
+              </Animated.View>
+
+              <Text style={[styles.heading, styles.centerText]}>Sealed.</Text>
+              <Text style={[styles.sealSub, styles.centerText]}>
+                “{title}” opens {countdownText}.
+              </Text>
+              <Text style={[styles.sub, styles.centerText, { marginTop: 0 }]}>
+                Capsules are better full. {moment.nudge}
+              </Text>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, styles.fullWidth, { backgroundColor: accentColor }]}
+                onPress={invitePeople}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.primaryBtnText}>Invite people</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryBtn, styles.fullWidth]}
+                onPress={addFirstPhoto}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.secondaryBtnText}>Add the first photo</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={goHome}>
+                <Text style={styles.quietLink}>take me home</Text>
+              </TouchableOpacity>
             </View>
           )}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </ScrollView>
 
-        {/* Footer */}
-        <View style={styles.footer}>
-          {step > 1 ? (
-            <TouchableOpacity onPress={back} style={styles.footerSecondary} disabled={saving}>
-              <Text style={[styles.footerSecondaryText, { color: pendingColor }]}>Back</Text>
-            </TouchableOpacity>
-          ) : null}
+        {/* Footer — steps 1–3 only; 4–5 are forward-only ceremonies */}
+        {step <= 3 && (
+          <View style={styles.footer}>
+            {step > 1 && (
+              <TouchableOpacity
+                onPress={() => { setError(''); setStep((step - 1) as Step); }}
+                style={styles.footerSecondary}
+                disabled={saving}
+              >
+                <Text style={[styles.footerSecondaryText, { color: accentColor }]}>Back</Text>
+              </TouchableOpacity>
+            )}
 
-          {step < 4 && step > 1 ? (
-            <TouchableOpacity onPress={() => { setError(''); setStep((s) => Math.min(4, s + 1) as 1 | 2 | 3 | 4); }} style={styles.footerSecondary} disabled={saving}>
-              <Text style={[styles.footerSecondaryText, { color: '#888888' }]}>Skip</Text>
-            </TouchableOpacity>
-          ) : null}
+            {step === 1 && (
+              <TouchableOpacity
+                style={[styles.footerPrimary, { backgroundColor: accentColor }]}
+                onPress={goStep2}
+                disabled={saving}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.footerPrimaryText}>Next</Text>
+                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
 
-          {step < 4 ? (
-            <TouchableOpacity
-              style={[styles.footerPrimary, { backgroundColor: pendingColor }]}
-              onPress={next}
-              disabled={saving}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.footerPrimaryText}>Next</Text>
-              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.footerPrimary, { backgroundColor: pendingColor }]}
-              onPress={() => finish()}
-              disabled={saving}
-              activeOpacity={0.85}
-            >
-              {saving
-                ? <LoadingBrand size="small" color="#fff" />
-                : <Text style={styles.footerPrimaryText}>Skip & finish</Text>
-              }
-            </TouchableOpacity>
-          )}
-        </View>
+            {step === 2 && (
+              intentText.trim() ? (
+                <TouchableOpacity
+                  style={[styles.footerPrimary, { backgroundColor: accentColor }]}
+                  onPress={() => enterStep3(GENERAL_MOMENT, intentText)}
+                  disabled={saving}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.footerPrimaryText}>Next</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={skipToHome} style={styles.footerSkip} disabled={saving}>
+                  {saving
+                    ? <LoadingBrand size="small" color="#888" />
+                    : <Text style={styles.footerSkipText}>skip for now</Text>}
+                </TouchableOpacity>
+              )
+            )}
+
+            {step === 3 && (
+              <TouchableOpacity onPress={skipToHome} style={styles.footerSkip} disabled={saving}>
+                {saving
+                  ? <LoadingBrand size="small" color="#888" />
+                  : <Text style={styles.footerSkipText}>skip for now</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -335,8 +722,11 @@ const styles = StyleSheet.create({
   progressDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#2A2A2A' },
   scroll: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 16, paddingBottom: 24, gap: 20 },
   stepBody: { gap: 16 },
+  centeredBody: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 18 },
+  centerText: { textAlign: 'center' },
   heading: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
-  sub: { fontSize: 15, color: '#888888', marginTop: -8 },
+  sub: { fontSize: 15, color: '#888888', marginTop: -8, lineHeight: 21 },
+
   avatarSlot: { alignItems: 'center', gap: 10, marginTop: 8 },
   avatarPlaceholder: {
     width: 96, height: 96, borderRadius: 48,
@@ -354,22 +744,94 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
   },
-  textarea: { minHeight: 90, textAlignVertical: 'top' },
-  charCount: { color: '#555555', fontSize: 12, textAlign: 'right', marginTop: -10 },
-  presetGrid: { gap: 12, marginTop: 4 },
-  presetCard: {
+
+  previewCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: '#2A2A2A',
+    marginTop: 4,
+  },
+  previewAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#2A2A2A' },
+  previewAvatarFallback: { alignItems: 'center', justifyContent: 'center' },
+  previewInitial: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  previewName: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  previewMeta: { color: '#666666', fontSize: 12, marginTop: 1 },
+  previewHint: { color: '#666666', fontSize: 13, marginTop: -8 },
+
+  momentGrid: { gap: 12, marginTop: 4 },
+  momentRow: { flexDirection: 'row', gap: 12 },
+  momentCard: {
+    flex: 1,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    gap: 8,
+  },
+  momentIcon: {
+    width: 36, height: 36, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  momentLabel: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  momentTypedHint: { color: '#666666', fontSize: 13, marginTop: -8, lineHeight: 18 },
+
+  capsuleCard: {
     backgroundColor: '#1A1A1A',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    gap: 8,
+    gap: 10,
   },
-  presetIcon: {
+  capsuleCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  capsuleLock: {
     width: 40, height: 40, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
   },
-  presetTitle: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  presetDesc: { color: '#888888', fontSize: 13, lineHeight: 18 },
+  capsuleTitleInput: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', padding: 0 },
+  capsuleRenameHint: { color: '#666666', fontSize: 11, marginTop: 2 },
+  capsuleOpens: { color: '#888888', fontSize: 14 },
+  flavor: { color: '#888888', fontSize: 14, fontStyle: 'italic', marginTop: -6 },
+
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  dateChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#1A1A1A',
+    borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  dateChipText: { color: '#888888', fontSize: 14, fontWeight: '600' },
+
+  surpriseRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  surpriseText: { color: '#888888', fontSize: 13, flex: 1, lineHeight: 18 },
+
+  primaryBtn: {
+    borderRadius: 16, paddingVertical: 16,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 4,
+  },
+  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  secondaryBtn: {
+    borderRadius: 16, paddingVertical: 16,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  secondaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  fullWidth: { alignSelf: 'stretch' },
+  quietLink: { color: '#666666', fontSize: 14, fontWeight: '600', paddingVertical: 10 },
+
+  bigIconCircle: {
+    width: 88, height: 88, borderRadius: 44,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sealCircle: {
+    width: 104, height: 104, borderRadius: 52,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  sealSub: { color: '#FFFFFF', fontSize: 17, fontWeight: '600', marginTop: -6 },
+
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
   footer: {
     flexDirection: 'row',
@@ -383,6 +845,8 @@ const styles = StyleSheet.create({
   },
   footerSecondary: { paddingVertical: 12, paddingHorizontal: 8, minWidth: 60 },
   footerSecondaryText: { fontSize: 16, fontWeight: '600' },
+  footerSkip: { flex: 1, alignItems: 'center', paddingVertical: 12 },
+  footerSkipText: { color: '#888888', fontSize: 15, fontWeight: '600' },
   footerPrimary: {
     flex: 1,
     flexDirection: 'row',

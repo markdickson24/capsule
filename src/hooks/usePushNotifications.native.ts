@@ -62,18 +62,17 @@ export function usePushNotifications(userId?: string) {
   }, []);
 }
 
+// Launch-path registration: NEVER requests permission. iOS gives exactly one
+// shot at the native prompt, and firing it cold at launch (it used to stack on
+// top of Onboarding step 1 for fresh sign-ups) burns it at the worst possible
+// moment. This only refreshes the token for users who already granted; the
+// actual ask happens via requestPushPermission() below, behind Onboarding v2's
+// contextual primer.
 async function registerToken(userId: string) {
   if (Platform.OS === 'web') return;
 
-  const { status: existing } = await Notifications.getPermissionsAsync();
-  let finalStatus = existing;
-
-  if (existing !== 'granted') {
-    const { status } = await Notifications.requestPermissionsAsync();
-    finalStatus = status;
-  }
-
-  if (finalStatus !== 'granted') return;
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status !== 'granted') return;
 
   const projectId =
     Constants.expoConfig?.extra?.eas?.projectId ??
@@ -96,4 +95,24 @@ async function registerToken(userId: string) {
     .from('users')
     .update({ push_token: token })
     .eq('id', userId);
+}
+
+/**
+ * The one place the native permission prompt is allowed to fire. Called from
+ * the Onboarding "Don't miss it" primer (and any future contextual re-ask).
+ * Returns whether pushes ended up enabled; registers the token on grant.
+ */
+export async function requestPushPermission(userId: string): Promise<boolean> {
+  if (Platform.OS === 'web') return false;
+
+  const { status: existing } = await Notifications.getPermissionsAsync();
+  let finalStatus = existing;
+  if (existing !== 'granted') {
+    const { status } = await Notifications.requestPermissionsAsync();
+    finalStatus = status;
+  }
+  if (finalStatus !== 'granted') return false;
+
+  await registerToken(userId);
+  return true;
 }
