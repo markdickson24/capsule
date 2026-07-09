@@ -16,6 +16,18 @@ type Row = {
   users: { push_token: string | null } | null;
 };
 
+// Expo's push API rejects a request with more than 100 messages (the whole batch
+// fails), so chunk into ≤100-message requests, sequentially.
+async function sendExpoPush(messages: object[]): Promise<void> {
+  for (let i = 0; i < messages.length; i += 100) {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(messages.slice(i, i + 100)),
+    });
+  }
+}
+
 function buildPayload(row: Row): { title: string; body: string } | null {
   const capsuleTitle = row.capsules?.title ?? 'a capsule';
   switch (row.type) {
@@ -80,11 +92,7 @@ Deno.serve(async (req) => {
   }
 
   if (messages.length > 0) {
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(messages),
-    });
+    await sendExpoPush(messages);
   }
 
   // Mark every row we processed (including ones without a push_token) so the

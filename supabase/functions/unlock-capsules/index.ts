@@ -28,6 +28,20 @@ function formatRemaining(ms: number): string {
   return 'in moments';
 }
 
+// Expo's push API rejects a request carrying more than 100 messages — beyond
+// that the WHOLE batch fails, which for a 100+ member capsule unlocking would
+// silently drop every push for that tick. Slice into ≤100-message requests
+// (sequential, to stay friendly with Expo's rate limits).
+async function sendExpoPush(messages: ExpoMessage[]): Promise<void> {
+  for (let i = 0; i < messages.length; i += 100) {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(messages.slice(i, i + 100)),
+    });
+  }
+}
+
 async function pushTokensFor(capsuleId: string): Promise<{ tokens: string[]; userIds: string[] }> {
   const { data: members } = await supabase
     .from('capsule_members')
@@ -152,11 +166,7 @@ Deno.serve(async (req) => {
   }
 
   if (messages.length) {
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(messages),
-    });
+    await sendExpoPush(messages);
   }
 
   return new Response(
