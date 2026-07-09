@@ -28,45 +28,37 @@ export async function listMyGroups(): Promise<GroupRow[]> {
   const me = myId();
   if (!me) return [];
 
+  // One round-trip: the embedded `group_members(count)` aggregate returns the
+  // member count as a scalar (no member-row payload), instead of a second query
+  // that fetched every member row just to count them client-side.
   const { data } = await supabase
     .from('group_members')
-    .select('group_id, groups(id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, created_at)')
+    .select('group_id, groups(id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, created_at, group_members(count))')
     .eq('user_id', me);
 
   if (!data || data.length === 0) return [];
 
-  const groupIds = data.map((r: any) => r.group_id as string);
-  const { data: counts } = await supabase
-    .from('group_members')
-    .select('group_id')
-    .in('group_id', groupIds);
-
-  const countMap: Record<string, number> = {};
-  (counts ?? []).forEach((r: any) => {
-    countMap[r.group_id] = (countMap[r.group_id] ?? 0) + 1;
-  });
-
   return data
     .map((r: any) => r.groups)
     .filter(Boolean)
-    .map((g: any) => ({ ...g, memberCount: countMap[g.id] ?? 1 }));
+    .map((g: any) => ({ ...g, memberCount: g.group_members?.[0]?.count ?? 1 }));
 }
 
 export async function getGroup(groupId: string): Promise<GroupRow | null> {
+  // One round-trip via the embedded count aggregate (see listMyGroups).
   const { data } = await supabase
     .from('groups')
-    .select('id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, created_at')
+    .select('id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, created_at, group_members(count)')
     .eq('id', groupId)
     .single();
 
   if (!data) return null;
 
-  const { data: counts } = await supabase
-    .from('group_members')
-    .select('id')
-    .eq('group_id', groupId);
-
-  return { ...data, recurrence_interval: data.recurrence_interval as GroupRecurrence, memberCount: counts?.length ?? 1 };
+  return {
+    ...data,
+    recurrence_interval: data.recurrence_interval as GroupRecurrence,
+    memberCount: (data as any).group_members?.[0]?.count ?? 1,
+  };
 }
 
 export async function getGroupMembers(groupId: string): Promise<GroupMemberProfile[]> {
