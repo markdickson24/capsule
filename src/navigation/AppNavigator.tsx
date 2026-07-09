@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -9,6 +9,7 @@ import { AppTabParamList, AppStackParamList } from '../types/navigation';
 import LoadingBrand, { LoadingBrandScreen } from '../components/LoadingBrand';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
+import { cache } from '../lib/cache';
 import { haptics } from '../lib/haptics';
 import { useTheme } from '../context/ThemeContext';
 import HomeScreen from '../screens/app/HomeScreen';
@@ -45,12 +46,16 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { accentColor } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
-  const lastBadgeFetch = useRef(0);
 
+  // Badge is derived from the `notifications` cache the Alerts screen already
+  // fills, instead of an independent per-tab-switch query throttled to 60s (which
+  // left the badge stale for up to a minute after reading — BUGS.md #10). When the
+  // cache is populated the count is the length of that grouped list; when it's been
+  // invalidated (or never loaded — e.g. cold start before visiting Alerts) we fall
+  // back to a lightweight count query. Subscribing means the badge updates the
+  // instant a notification is read/dismissed/received.
   useEffect(() => {
-    const now = Date.now();
-    if (now - lastBadgeFetch.current < 60_000) return;
-    lastBadgeFetch.current = now;
+    let active = true;
     async function fetchCount() {
       const session = sessionStore.get();
       if (!session) return;
@@ -59,10 +64,17 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         .select('*', { count: 'exact', head: true })
         .eq('user_id', session.user.id)
         .is('read_at', null);
-      setUnreadCount(count ?? 0);
+      if (active) setUnreadCount(count ?? 0);
     }
-    fetchCount();
-  }, [state.index]);
+    function recompute() {
+      const cached = cache.get<{ notifications: unknown[] }>('notifications');
+      if (cached?.notifications) setUnreadCount(cached.notifications.length);
+      else fetchCount();
+    }
+    recompute();
+    const unsubscribe = cache.subscribe('notifications', recompute);
+    return () => { active = false; unsubscribe(); };
+  }, []);
 
   return (
     <View style={[styles.wrapper, { paddingBottom: insets.bottom }]}>
