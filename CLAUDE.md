@@ -242,7 +242,7 @@ Defined in `supabase-schema.sql`.
 
 **Pending invites:** `joined_at IS NULL` on `capsule_members` means invite not yet accepted. `joined_at` is set when the user accepts.
 
-**Notifications are soft-deleted** by setting `read_at`. Queries filter `.is('read_at', null)` to show only unread.
+**Notifications are soft-deleted** by setting `read_at`. Queries filter `.is('read_at', null)` to show only unread. `NotificationsScreen`'s main query is capped at `.limit(100)` — unread rows accumulate for passive users (nothing auto-reads reaction/suggestion notifications), so a dormant account could otherwise pull hundreds of rows plus embedded joins in one request.
 
 ---
 
@@ -518,7 +518,7 @@ Addresses the complaint that the creator could peek at a capsule's contents befo
 - **Default ON for new capsules** (`default true`). Migration `20260618000000_owner_preview_lock.sql` backfilled all **pre-existing** capsules to `false` so their owners keep the old preview behavior.
 - **Creation-only.** `CreateScreen` has a "Keep it a surprise" `Switch` (default on) that sets the column at insert. There is **no toggle in `EditCapsuleScreen`** — by design, so an owner can't flip it off right before unlock to peek. (The DB owner-UPDATE policy still technically allows changing the column; the client just never exposes a control.)
 - **Server-side enforcement (RLS).** The `media` SELECT policy gates pre-unlock reads on `cm.role in ('owner','contributor') AND NOT c.owner_preview_locked`. So the owner genuinely can't read media rows (and thus can't obtain `storage_key`s to sign URLs) while locked — not just a client-side hide.
-- **The count comes from a SECURITY DEFINER RPC** `capsule_media_count(p_capsule_id)` (joined-member-authorized, returns 0 for non-members) because RLS now hides the rows themselves. `CapsuleDetailScreen.fetchPhotos` calls it into `mediaCount` state; the locked box renders `mediaCount` (not `photos.length`, which is empty under the lock).
+- **The count comes from a SECURITY DEFINER RPC** `capsule_media_count(p_capsule_id)` (joined-member-authorized, returns 0 for non-members) because RLS now hides the rows themselves. `CapsuleDetailScreen.fetchPhotos` only calls it when the `media` row-read comes back with **zero rows** (the one case that's ambiguous — genuinely empty vs. RLS-hidden); whenever rows are readable, `mediaCount` is set directly from the fetched row count instead, skipping the round-trip. The locked box renders `mediaCount` (not `photos.length`, which is empty under the lock).
 - **Client gate:** `canSeePhotos = !isLocked || (isOwner && !capsule.owner_preview_locked)`.
 
 ## Superlatives (Awards)

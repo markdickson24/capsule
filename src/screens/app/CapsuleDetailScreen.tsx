@@ -1154,12 +1154,6 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   }
 
   async function fetchPhotos(force = false) {
-    // True count even when RLS hides the rows (surprise-mode capsules
-    // lock the owner out of reading media until unlock).
-    supabase
-      .rpc('capsule_media_count', { p_capsule_id: capsuleId })
-      .then(({ data }) => { if (typeof data === 'number') setMediaCount(data); });
-
     // Cache the media row list itself (not just the signed URLs derived from
     // it) so a cache hit skips the DB read entirely. Short TTL since new
     // uploads should show up reasonably fast; force=true (pull-to-refresh)
@@ -1176,6 +1170,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         .order('uploaded_at', { ascending: false });
       mediaData = data ?? [];
       cache.set(mediaCacheKey, mediaData);
+    }
+
+    if (mediaData.length > 0) {
+      // Rows are readable, so the row count itself IS the true count — no
+      // need for the RPC round-trip.
+      setMediaCount(mediaData.length);
+    } else {
+      // Zero rows is ambiguous: genuinely empty, or RLS is hiding them
+      // (locked surprise-mode capsule, owner included). The RPC is the only
+      // way to tell them apart, so it's only worth calling in this case.
+      supabase
+        .rpc('capsule_media_count', { p_capsule_id: capsuleId })
+        .then(({ data }) => { if (typeof data === 'number') setMediaCount(data); });
     }
 
     if (!mediaData || mediaData.length === 0) { setPhotos([]); return; }

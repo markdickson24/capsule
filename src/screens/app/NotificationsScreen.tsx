@@ -125,7 +125,8 @@ export default function NotificationsScreen() {
           .select('id, capsule_id, actor_id, type, sent_at, read_at, capsules(title), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
           .eq('user_id', userId)
           .is('read_at', null)
-          .order('sent_at', { ascending: false }),
+          .order('sent_at', { ascending: false })
+          .limit(100),
         supabase
           .from('capsule_members')
           .select('id, capsule_id')
