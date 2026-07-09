@@ -1026,6 +1026,76 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [currentUserId, setCurrentUserId] = useState('');
   const [showInvite, setShowInvite] = useState(false);
   const [showMembersSheet, setShowMembersSheet] = useState(false);
+  // Decoupled from showMembersSheet so the swipe-down-to-close animation can
+  // finish playing before the Modal actually unmounts — mirrors
+  // SuggestCategoryModal's visible/mounted split. animationType is 'none'
+  // (not the Modal's built-in 'slide') because we drive the whole open/close
+  // transform ourselves via membersSheetTranslateY, so a mid-drag position can
+  // continue smoothly into the close animation instead of snapping first.
+  const [membersSheetMounted, setMembersSheetMounted] = useState(false);
+  // A persistent (component-lifetime) useRef value, unlike MediaViewerModal's
+  // which remounts fresh every open — so every animation touching it MUST use
+  // useNativeDriver: false. React Native's native driver permanently latches a
+  // value the first time useNativeDriver:true runs on it; a later JS-driven
+  // .setValue() (our drag) on a native-latched value silently stops updating.
+  // Mixing drivers on a value that's only ever created once would work on the
+  // first open/close cycle and then regress on the second.
+  const membersSheetTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  useEffect(() => {
+    if (showMembersSheet) {
+      setMembersSheetMounted(true);
+      membersSheetTranslateY.setValue(SCREEN_HEIGHT);
+      Animated.timing(membersSheetTranslateY, { toValue: 0, duration: 260, useNativeDriver: false }).start();
+    } else if (membersSheetMounted) {
+      Animated.timing(membersSheetTranslateY, { toValue: SCREEN_HEIGHT, duration: 220, useNativeDriver: false })
+        .start(() => setMembersSheetMounted(false));
+    }
+    // membersSheetMounted intentionally omitted — including it would re-fire
+    // this effect right after the close animation's own setMembersSheetMounted(false).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMembersSheet]);
+  // Scroll position of the member list, tracked via a ref (not state) so
+  // reading it inside the PanResponder callbacks never triggers a re-render.
+  const membersScrollY = useRef(0);
+  // Swipe-down-to-dismiss, attached to the whole sheet (see the outer
+  // Animated.View below) so a downward drag anywhere on it — handle, header,
+  // or over the member rows — dismisses it, matching MediaViewerModal.
+  //
+  // The member list is a vertical ScrollView, so dismiss and scroll share the
+  // same axis and can't be split by direction alone (unlike PreviewScreen's
+  // outer-vertical vs inner-horizontal swipe). Instead we only claim the
+  // gesture for a downward drag once the list is already scrolled to the top —
+  // mirroring native iOS overscroll-to-dismiss.
+  //
+  // We use the *capture* move variant, not the bubble-phase
+  // onMoveShouldSetPanResponder: capture is evaluated top-down before the
+  // touch reaches the ScrollView's own native scroll recognizer, which is
+  // necessary to win against it once it's already scrolling — a bubble-phase
+  // callback is asked too late. onStartShouldSetPanResponder stays false (no
+  // capture variant is set either) so a stationary touch is never
+  // intercepted — only real movement past the threshold escalates into this
+  // responder, which is what lets a plain tap still reach the nested close
+  // (X) button and each member row's TouchableOpacity.
+  const membersSheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_, g) =>
+        membersScrollY.current <= 0 && g.dy > 4 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) membersSheetTranslateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 120 || g.vy > 1.5) {
+          setShowMembersSheet(false);
+        } else {
+          Animated.spring(membersSheetTranslateY, { toValue: 0, useNativeDriver: false, bounciness: 6 }).start();
+        }
+      },
+      // Once a dismiss drag is underway, don't let the ScrollView reclaim the
+      // responder mid-gesture.
+      onPanResponderTerminationRequest: () => false,
+    })
+  ).current;
   const [uploading, setUploading] = useState(false);
   const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
   const [showPickerOptions, setShowPickerOptions] = useState(false);
@@ -1754,10 +1824,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       )}
 
       {/* Members bottom sheet */}
+      {membersSheetMounted && (
       <Modal
-        visible={showMembersSheet}
+        visible={membersSheetMounted}
         transparent
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowMembersSheet(false)}
       >
         <SafeAreaProvider>
@@ -1766,16 +1837,26 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             activeOpacity={1}
             onPress={() => setShowMembersSheet(false)}
           />
-          <SafeAreaView style={styles.sheetContainer} edges={['bottom']}>
+          <Animated.View
+            style={[styles.sheetContainer, { transform: [{ translateY: membersSheetTranslateY }] }]}
+            {...membersSheetPanResponder.panHandlers}
+          >
+          <SafeAreaView edges={['bottom']}>
             <View style={styles.sheetCard}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Members</Text>
-                <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8}>
-                  <Ionicons name="close" size={22} color="#888888" />
-                </TouchableOpacity>
+              <View>
+                <View style={styles.sheetHandle} />
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Members</Text>
+                  <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8}>
+                    <Ionicons name="close" size={22} color="#888888" />
+                  </TouchableOpacity>
+                </View>
               </View>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={(e) => { membersScrollY.current = e.nativeEvent.contentOffset.y; }}
+              >
                 {members.map((m, i) => (
                   <TouchableOpacity
                     key={i}
@@ -1805,8 +1886,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </ScrollView>
             </View>
           </SafeAreaView>
+          </Animated.View>
         </SafeAreaProvider>
       </Modal>
+      )}
 
       {showInvite && (
         <InviteModal
@@ -1926,7 +2009,13 @@ const styles = StyleSheet.create({
   // Members bottom sheet
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheetContainer: { backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  sheetCard: { paddingHorizontal: 20, paddingBottom: 24, maxHeight: 480 },
+  // paddingTop matters more than it looks: it's what makes the sheet's real
+  // touchable/draggable area (the Animated.View that owns the swipe-to-close
+  // PanResponder) start meaningfully above the tiny 4px handle pill. Without
+  // it, a touch aimed at "the top of the sheet" easily lands a few px high on
+  // the backdrop TouchableOpacity instead — a sibling, not an ancestor, of the
+  // sheet, so the swipe gesture is never even asked and nothing happens.
+  sheetCard: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, maxHeight: 480 },
   sheetHandle: { width: 36, height: 4, backgroundColor: '#3A3A3A', borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
   sheetTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
