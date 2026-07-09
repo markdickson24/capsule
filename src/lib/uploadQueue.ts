@@ -5,6 +5,7 @@ import { sessionStore } from './sessionStore';
 import { randomUUID } from './uuid';
 import { cache } from './cache';
 import { toast } from './toast';
+import { resizeForUpload } from './imageResize';
 
 // Background media-upload queue. The optimistic-UI backbone: callers enqueue
 // and navigate away immediately; screens render pending tasks as local-URI
@@ -87,20 +88,37 @@ async function uploadFile(storageKey: string, uri: string, mimeType: string): Pr
   return fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
 }
 
+// Library/share-intent photos otherwise upload at full device resolution —
+// 5-10x the bytes of the in-app camera path for no visual gain at display
+// size. Resize output is always JPEG when it actually runs (ImageManipulator's
+// default save format), so the mimeType is bumped alongside the uri; if the
+// photo is already small enough, resizeForUpload is a no-op and the original
+// mimeType is kept. Video is left untouched (out of scope here).
+async function prepareForUpload(
+  uri: string, mediaType: 'photo' | 'video', mimeType: string
+): Promise<{ uri: string; mimeType: string }> {
+  if (mediaType !== 'photo') return { uri, mimeType };
+  const resizedUri = await resizeForUpload(uri);
+  if (resizedUri === uri) return { uri, mimeType };
+  return { uri: resizedUri, mimeType: 'image/jpeg' };
+}
+
 async function runTask(task: UploadTask): Promise<void> {
   const session = sessionStore.get();
   if (!session) throw new Error('Not signed in');
 
-  const ext = task.mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
+  const main = await prepareForUpload(task.uri, task.mediaType, task.mimeType);
+  const ext = main.mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
   const storageKey = `${task.capsuleId}/${randomUUID()}.${ext}`;
-  const sizeBytes = await uploadFile(storageKey, task.uri, task.mimeType);
+  const sizeBytes = await uploadFile(storageKey, main.uri, main.mimeType);
 
   // Dual (PiP) swap variant — best-effort: if it fails, keep the main photo.
   let altStorageKey: string | null = null;
   if (task.altUri && task.mediaType === 'photo') {
     const key = `${task.capsuleId}/${randomUUID()}.jpg`;
     try {
-      await uploadFile(key, task.altUri, 'image/jpeg');
+      const alt = await prepareForUpload(task.altUri, 'photo', 'image/jpeg');
+      await uploadFile(key, alt.uri, alt.mimeType);
       altStorageKey = key;
     } catch {
       altStorageKey = null;

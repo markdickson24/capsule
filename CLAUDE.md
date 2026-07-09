@@ -257,7 +257,7 @@ Defined in `supabase-schema.sql`.
 - **Zoom deadzone:** horizontal movement ≥ 20px (`LOCK_DEADZONE_X`) suppresses vertical zoom to prevent accidental zooming while starting a rightward lock-swipe.
 - **Flip camera mid-recording (single-camera only):** tap the reverse button (top-right) or double-tap the viewfinder while recording to switch front↔back. Implemented as a **multi-segment recording loop** in `startRecording`: each call to `recordAsync` is one segment; `flipCameraDuringRecording()` sets `pendingFlipRef`, stops the current segment, calls `setCameraMode`, and a `useEffect([facing])` resolves the loop's await once the `CameraView` re-renders. After all segments are collected, they are stitched into one MP4 via `stitchVideos()` from `modules/expo-video-stitcher` before navigating to Preview. The 30s cap is shared across all segments (`recordSecondsRef`). Dual-camera mode is excluded (both lenses already active).
   - **iOS orientation gotcha:** `ExpoVideoStitcherModule.stitch()` (iOS) builds an `AVMutableComposition` with a single shared video track spanning all segments — that track has exactly **one** `preferredTransform` for its whole timeline, so it can't represent front and back camera segments having different orientations (which they commonly do). Naively concatenating without accounting for this renders every segment with the same transform regardless of which camera captured it, showing up as one segment (often whichever isn't closest to identity) compressed/stretched into the wrong aspect ratio. Fixed by building an explicit `AVMutableVideoComposition` with one instruction per segment, each applying that segment's own `preferredTransform` (re-anchored at the origin, scaled/centered into a shared render canvas — also guards against front/back recording at slightly different native resolutions). Android has the analogous bug (`MediaMuxer`'s single video track can likewise only carry one orientation, and `stitch()` there only registers the first segment's rotation) but needs a fundamentally different fix — a real decode/rotate/encode transcode, not a metadata change — and is not yet fixed.
-- Photos: resized to 1920px wide via `expo-image-manipulator`, compress 0.82, quality 0.88
+- Photos: resized to 1920px wide via `resizeForUpload()` (`src/lib/imageResize.ts`, shared with the upload queue — see below), compress 0.82, quality 0.88
 - Front camera photos: flipped horizontally via `FlipType.Horizontal`
 - Use `useIsFocused()` to stop camera rendering when tab is not active
 - Navigates to `Preview` with `{ uri, mediaType, facing }`
@@ -662,8 +662,24 @@ Callers `uploadQueue.enqueue(entries)` and move on; the queue uploads one task
 at a time (web: arrayBuffer + `supabase.storage.upload`; native:
 `FileSystem.uploadAsync` via `getFreshAccessToken()`), inserts the `media` row
 (including dual-photo `alt_storage_key`, best-effort), and invalidates
-`capsules` + `capsule:`/`media:`/`signedUrls:` per success. Failures stay in
-the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
+`capsules` + `capsule:`/`media:`/`signedUrls:` per success.
+
+**Resize before upload:** `runTask`'s `prepareForUpload` step runs every photo
+(main + `altUri`) through `resizeForUpload()` (`src/lib/imageResize.ts`) before
+`uploadFile`. This is the one place all photo uploads converge — library
+picker, share-intent, and camera — so it's also where `CameraScreen.processPhoto`
+delegates to the same helper. `resizeForUpload` checks width via `Image.getSize`
+(a header read, not a decode) and only resizes down to 1920px/compress 0.82 if
+the source is wider; it never upscales and is a no-op for already-camera-sized
+images. Without this, library-picked photos uploaded at full device
+resolution — 5–10x the bytes of the in-app camera path for no visual gain at
+display size. When the resize actually runs, the output is always JPEG
+(`ImageManipulator`'s default save format), so `prepareForUpload` also bumps
+the task's `mimeType`/extension to `image/jpeg` in that case — otherwise the
+original mimeType from the picker/share-intent asset is kept as-is. Video is
+untouched.
+
+Failures stay in the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
 as retryable tiles by `CapsuleDetailScreen`. `useUploadTasks(capsuleId)`
 (`src/hooks/useUploadTasks.ts`) is the reactive subscription;
 `getProgress(capsuleId)` returns per-capsule `{done,total}` since that
