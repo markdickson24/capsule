@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as VideoThumbnails from 'expo-video-thumbnails';
 import { supabase, getFreshAccessToken } from './supabase';
 import { sessionStore } from './sessionStore';
 import { randomUUID } from './uuid';
@@ -125,11 +126,29 @@ async function runTask(task: UploadTask): Promise<void> {
     }
   }
 
+  // Video thumbnail generated from the LOCAL file (no network) so every
+  // member's device doesn't have to download+decode the remote video just to
+  // draw a grid cell. Native only — VideoThumbnails has no web implementation.
+  // Best-effort: a failure here just means this row falls back to the
+  // client-side on-device generation in fetchPhotos, same as pre-existing rows.
+  let thumbnailKey: string | null = null;
+  if (task.mediaType === 'video' && Platform.OS !== 'web') {
+    try {
+      const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 });
+      const key = `${task.capsuleId}/${randomUUID()}_thumb.jpg`;
+      await uploadFile(key, thumbUri, 'image/jpeg');
+      thumbnailKey = key;
+    } catch {
+      thumbnailKey = null;
+    }
+  }
+
   const { error } = await supabase.from('media').insert({
     capsule_id: task.capsuleId,
     uploader_id: session.user.id,
     storage_key: storageKey,
     alt_storage_key: altStorageKey,
+    thumbnail_key: thumbnailKey,
     media_type: task.mediaType,
     size_bytes: sizeBytes,
     caption: task.caption?.trim() || null,

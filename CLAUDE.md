@@ -370,8 +370,10 @@ Large file (~2200 lines). Key sub-components and patterns:
 
 **`fetchPhotos(force?)`** caches three things, each independently:
 - `media:${capsuleId}` (3min TTL) — the raw `media` row list itself, so a cache hit skips the DB read entirely, not just the signing step. `force=true` (used by pull-to-refresh) always bypasses it, since another member's upload wouldn't trigger this client's own `cache.invalidate`.
-- `signedUrls:${capsuleId}` (50min TTL, under the 1hr signed-URL validity) — batches main + alt keys into one `createSignedUrls()` call.
-- `videoThumb:${mediaId}` (6hr TTL) — the locally-generated `expo-video-thumbnails` frame URI, so re-entering the screen doesn't re-decode every video.
+- `signedUrls:${capsuleId}` (50min TTL, under the 1hr signed-URL validity) — batches main + alt **+ thumbnail** keys into one `createSignedUrls()` call.
+- `videoThumb:${mediaId}` (6hr TTL) — **fallback only**, for videos with no `thumbnail_key` (uploaded before the upload-time thumbnail existed): the locally-generated `expo-video-thumbnails` frame URI (decoded from the remote `signedUrl`), so re-entering the screen doesn't re-decode every video.
+
+**Video thumbnails are generated at upload time, not display time.** `uploadQueue.runTask` (`src/lib/uploadQueue.ts`) runs `VideoThumbnails.getThumbnailAsync` on the **local** file (no network) right after upload, stores the JPEG at `media.thumbnail_key`, and is best-effort — a failure just leaves `thumbnail_key` null. `fetchPhotos` signs `thumbnail_key` alongside the main/alt keys and sets `MediaItem.thumbnailUri` directly from `transformMediaUrl(signedThumbUrl, GRID_THUMB_PX)` for any row that has one; the client-side `VideoThumbnails.getThumbnailAsync(item.signedUrl, …)` loop only runs for items where `thumbnailUri` is still unset (old rows). This means every member's device no longer has to download+decode the full remote video just to draw a grid cell, and web (previously blank for videos, since the client-side generation is native-only) now gets a real thumbnail whenever `thumbnail_key` is present. Included in the same delete-time storage cleanup as `storage_key`/`alt_storage_key` (`confirmDelete`).
 
 **Grid/preview thumbnails use `transformMediaUrl()`** (`src/lib/mediaUrl.ts`), not the full-res `signedUrl` — `MediaItem.thumbSignedUrl` is derived from the already-signed URL with no extra signing round-trip (see "Media URL Transforms" below). The full-screen viewer and `VoteSheet`'s media-voting grid both still fall back to `signedUrl` for anything without a `thumbSignedUrl` (videos use `thumbnailUri` instead).
 
@@ -661,8 +663,20 @@ Module-level sequential upload worker — the optimistic-UI backbone for media.
 Callers `uploadQueue.enqueue(entries)` and move on; the queue uploads one task
 at a time (web: arrayBuffer + `supabase.storage.upload`; native:
 `FileSystem.uploadAsync` via `getFreshAccessToken()`), inserts the `media` row
-(including dual-photo `alt_storage_key`, best-effort), and invalidates
+(including dual-photo `alt_storage_key` and, for video, `thumbnail_key` — see
+below — both best-effort), and invalidates
 `capsules` + `capsule:`/`media:`/`signedUrls:` per success.
+
+**Video thumbnail at upload time:** for `mediaType === 'video'` (native only —
+`expo-video-thumbnails` has no web implementation), `runTask` grabs a frame
+from the **local** file via `VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 })`
+right after the main upload, uploads that JPEG to `${capsuleId}/${uuid}_thumb.jpg`,
+and sets it as `media.thumbnail_key`. Best-effort — on failure `thumbnail_key`
+stays null and `fetchPhotos` falls back to its old client-side
+generation-from-`signedUrl` path for that row (see CapsuleDetailScreen section
+below). This is the fix for the pre-existing "every member's device downloads
+and decodes the whole remote video just to draw a grid cell" pathology, and
+incidentally gives web capsules with videos a real thumbnail for the first time.
 
 **Resize before upload:** `runTask`'s `prepareForUpload` step runs every photo
 (main + `altUri`) through `resizeForUpload()` (`src/lib/imageResize.ts`) before

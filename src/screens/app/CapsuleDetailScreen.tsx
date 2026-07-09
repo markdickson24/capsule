@@ -1171,7 +1171,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (!mediaData) {
       const { data } = await supabase
         .from('media')
-        .select('id, storage_key, alt_storage_key, uploader_id, uploaded_at, media_type, caption')
+        .select('id, storage_key, alt_storage_key, thumbnail_key, uploader_id, uploaded_at, media_type, caption')
         .eq('capsule_id', capsuleId)
         .order('uploaded_at', { ascending: false });
       mediaData = data ?? [];
@@ -1190,7 +1190,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     const URL_TTL = 50 * 60 * 1000;
     const mainKeys = visibleMedia.map((m: any) => m.storage_key as string);
     const altKeys = visibleMedia.map((m: any) => m.alt_storage_key as string | null).filter(Boolean) as string[];
-    const allKeysToSign = [...mainKeys, ...altKeys];
+    const thumbKeys = visibleMedia.map((m: any) => m.thumbnail_key as string | null).filter(Boolean) as string[];
+    const allKeysToSign = [...mainKeys, ...altKeys, ...thumbKeys];
 
     let signedUrlMap = cache.get<Record<string, string>>(urlCacheKey, URL_TTL);
     if (!signedUrlMap || allKeysToSign.some(k => !signedUrlMap![k])) {
@@ -1207,6 +1208,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     const items: MediaItem[] = visibleMedia.map((m: any) => {
       const signedUrl = signedUrlMap![m.storage_key] ?? '';
+      // Uploaded-at-upload-time thumbnail (see uploadQueue.runTask) — a small
+      // JPEG generated from the local video file, no remote decode needed.
+      // Older rows have no thumbnail_key and fall back to the client-side
+      // generation loop below.
+      const uploadedThumbUrl = m.thumbnail_key ? signedUrlMap![m.thumbnail_key] : undefined;
       return {
         id: m.id,
         storage_key: m.storage_key,
@@ -1216,6 +1222,9 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         signedUrl,
         // Derived from the already-signed URL — no extra signing round-trip.
         thumbSignedUrl: m.media_type === 'photo' ? (transformMediaUrl(signedUrl, GRID_THUMB_PX) ?? undefined) : undefined,
+        thumbnailUri: m.media_type === 'video' && uploadedThumbUrl
+          ? (transformMediaUrl(uploadedThumbUrl, GRID_THUMB_PX) ?? undefined)
+          : undefined,
         altSignedUrl: m.alt_storage_key ? signedUrlMap![m.alt_storage_key] : undefined,
         caption: m.caption ?? null,
       };
@@ -1223,12 +1232,14 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     setPhotos(items);
 
-    // Generate thumbnails for videos in background — memoized per media id so
+    // Fallback for videos uploaded before thumbnail_key existed: generate
+    // from the remote signedUrl on-device, memoized per media id so
     // re-entering the screen within the same app session doesn't re-decode
-    // every video to grab a frame again.
+    // every video to grab a frame again. Native only — matches the existing
+    // limitation of VideoThumbnails.getThumbnailAsync.
     if (Platform.OS !== 'web') {
       for (const item of items) {
-        if (item.mediaType === 'video' && item.signedUrl) {
+        if (item.mediaType === 'video' && item.signedUrl && !item.thumbnailUri) {
           const thumbCacheKey = `videoThumb:${item.id}`;
           // Longer TTL than the default 15min — the generated frame is a
           // local file with no server-side expiry, only OS temp-dir cleanup
