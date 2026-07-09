@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
+import ProgressBar from '../../components/ProgressBar';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   FlatList, Platform, TextInput, KeyboardAvoidingView,
@@ -351,6 +352,13 @@ export default function PreviewScreen({ route, navigation }: Props) {
           )}
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
+
+          {uploading && (
+            <ProgressBar
+              progress={uploadProgress.total > 0 ? uploadProgress.done / uploadProgress.total : 0}
+              color={accentColor}
+            />
+          )}
 
           {capsules.length === 0 ? (
             <TouchableOpacity

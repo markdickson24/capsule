@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
+import ProgressBar from '../../components/ProgressBar';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
   TouchableOpacity, Modal, TextInput, KeyboardAvoidingView,
@@ -1711,11 +1712,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             {uploadError ? <Text style={styles.uploadError}>{uploadError}</Text> : null}
 
             {uploading ? (
-              <View style={styles.uploadingRow}>
-                <LoadingBrand size="medium" color={accentColor} />
-                <Text style={styles.uploadingText}>
-                  Uploading {uploadCount.done}/{uploadCount.total}…
-                </Text>
+              <View style={styles.uploadingCol}>
+                <View style={styles.uploadingRow}>
+                  <LoadingBrand size="medium" color={accentColor} />
+                  <Text style={styles.uploadingText}>
+                    Uploading {uploadCount.done}/{uploadCount.total}…
+                  </Text>
+                </View>
+                <ProgressBar
+                  progress={uploadCount.total > 0 ? uploadCount.done / uploadCount.total : 0}
+                  color={accentColor}
+                />
               </View>
             ) : showPickerOptions ? (
               <View style={styles.pickerOptions}>
@@ -2053,6 +2060,7 @@ const styles = StyleSheet.create({
   lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  uploadingCol: { gap: 10, alignSelf: 'stretch' },
   uploadingText: { color: '#888888', fontSize: 15 },
   uploadError: { color: '#FF3B30', fontSize: 14 },
   pickerOptions: { gap: 10 },

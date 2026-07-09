@@ -85,6 +85,30 @@ export default function OnboardingScreen({ navigation }: Props) {
   const [countdownText, setCountdownText] = useState('');
   const sealAnim = useRef(new Animated.Value(0)).current;
 
+  // Direction-aware step transition: fade + slide out toward the "leaving"
+  // side, swap content, spring in from the "entering" side. Both values are
+  // native-driver (opacity/transform only).
+  const stepOpacity = useRef(new Animated.Value(1)).current;
+  const stepTranslate = useRef(new Animated.Value(0)).current;
+  const transitioningRef = useRef(false);
+
+  function transitionToStep(next: Step) {
+    if (next === step || transitioningRef.current) return;
+    transitioningRef.current = true;
+    const dir = next > step ? 1 : -1;
+    Animated.parallel([
+      Animated.timing(stepOpacity, { toValue: 0, duration: 110, useNativeDriver: true }),
+      Animated.timing(stepTranslate, { toValue: -28 * dir, duration: 110, useNativeDriver: true }),
+    ]).start(() => {
+      setStep(next);
+      stepTranslate.setValue(28 * dir);
+      Animated.parallel([
+        Animated.timing(stepOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.spring(stepTranslate, { toValue: 0, friction: 9, tension: 80, useNativeDriver: true }),
+      ]).start(() => { transitioningRef.current = false; });
+    });
+  }
+
   const firstName = displayName.trim().split(/\s+/)[0] || '';
 
   // ── Screen 5: seal ceremony + live countdown ──────────────────────────────
@@ -203,7 +227,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     if (!displayName.trim()) { setError('Please enter a display name.'); return; }
     if (displayName.trim().length > 30) { setError('Display name must be 30 characters or less.'); return; }
     setError('');
-    setStep(2);
+    transitionToStep(2);
   }
 
   function enterStep3(m: Moment, text: string) {
@@ -214,7 +238,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     setSelectedChip(0);
     setCustomDateOpen(false);
     setError('');
-    setStep(3);
+    transitionToStep(3);
   }
 
   function selectMomentCard(m: Moment) {
@@ -299,7 +323,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     setCreatedCapsuleId(capsuleId);
     setTitle(finalTitle);
     setSaving(false);
-    setStep(4);
+    transitionToStep(4);
   }
 
   // ── Screen 4: notification primer ─────────────────────────────────────────
@@ -312,7 +336,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     }
     setSaving(false);
     haptics.light();
-    setStep(5);
+    transitionToStep(5);
   }
 
   function primerLater() {
@@ -320,7 +344,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     if (session) {
       AsyncStorage.setItem(`${NOTIF_REPRIME_PREFIX}${session.user.id}`, '1').catch(() => {});
     }
-    setStep(5);
+    transitionToStep(5);
   }
 
   // ── Screen 5 actions ──────────────────────────────────────────────────────
@@ -662,7 +686,7 @@ export default function OnboardingScreen({ navigation }: Props) {
           <View style={styles.footer}>
             {step > 1 && (
               <TouchableOpacity
-                onPress={() => { setError(''); setStep((step - 1) as Step); }}
+                onPress={() => { setError(''); transitionToStep((step - 1) as Step); }}
                 style={styles.footerSecondary}
                 disabled={saving}
               >
