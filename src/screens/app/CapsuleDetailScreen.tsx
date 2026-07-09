@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import ProgressBar from '../../components/ProgressBar';
+import { uploadQueue } from '../../lib/uploadQueue';
+import { useUploadTasks } from '../../hooks/useUploadTasks';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
   TouchableOpacity, Modal, TextInput, KeyboardAvoidingView,
@@ -18,7 +20,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { supabase, getFreshAccessToken } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { transformMediaUrl } from '../../lib/mediaUrl';
@@ -40,7 +42,6 @@ import RetryPrompt from '../../components/RetryPrompt';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { fetchAwardsData } from '../../lib/awardsData';
-import { toast } from '../../lib/toast';
 import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
@@ -1097,8 +1098,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       onPanResponderTerminationRequest: () => false,
     })
   ).current;
-  const [uploading, setUploading] = useState(false);
-  const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
+  // Optimistic uploads: the background queue owns all upload state. Pending
+  // items render as local-URI tiles in the grid; this screen just reflects
+  // the queue.
+  const uploadTasks = useUploadTasks(capsuleId);
+  const uploading = uploadTasks.some(t => t.status === 'uploading');
+  const uploadProgress = uploadQueue.getProgress(capsuleId);
+  const prevTaskCountRef = useRef(0);
   const [showPickerOptions, setShowPickerOptions] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1322,79 +1328,33 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     return () => { supabase.removeChannel(channel); };
   }, [capsuleId]);
 
-  async function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
-    setUploading(true);
+  // Optimistic: enqueue and return immediately — the picked photos appear in
+  // the grid as pending tiles at once, upload in the background, and the
+  // task-count effect below refetches as each one lands. Failures stay as
+  // retryable tiles (rollback = dismiss).
+  function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
     setUploadError('');
-    setUploadCount({ done: 0, total: assets.length });
-
-    try {
-      const session = sessionStore.get();
-      if (!session) { setUploading(false); return; }
-
-      let failed = 0;
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        const mimeType = asset.mimeType ?? 'image/jpeg';
-        const ext = mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
-        const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
-
-        try {
-          let sizeBytes = 0;
-
-          if (Platform.OS === 'web') {
-            const response = await fetch(asset.uri);
-            const arrayBuffer = await response.arrayBuffer();
-            sizeBytes = arrayBuffer.byteLength;
-            const { error: uploadErr } = await supabase.storage
-              .from('capsule-media')
-              .upload(storageKey, arrayBuffer, { contentType: mimeType });
-            if (uploadErr) throw new Error(uploadErr.message);
-          } else {
-            const fileInfo = await FileSystem.getInfoAsync(asset.uri);
-            sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
-            const accessToken = await getFreshAccessToken();
-            const result = await FileSystem.uploadAsync(
-              `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
-              asset.uri,
-              {
-                httpMethod: 'POST',
-                uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-                  'Content-Type': mimeType,
-                },
-              }
-            );
-            if (result.status < 200 || result.status >= 300) throw new Error(`${result.status}`);
-          }
-
-          await supabase.from('media').insert({
-            capsule_id: capsuleId,
-            uploader_id: session.user.id,
-            storage_key: storageKey,
-            media_type: 'photo',
-            size_bytes: sizeBytes,
-          });
-        } catch {
-          failed++;
-        }
-
-        setUploadCount({ done: i + 1, total: assets.length });
-      }
-
-      if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
-      const added = assets.length - failed;
-      if (added > 0) toast.show(`${added} photo${added > 1 ? 's' : ''} added`);
-    } catch {
-      setUploadError('Upload failed. Try again.');
-    }
-
-    setUploading(false);
+    uploadQueue.enqueue(
+      assets.map(asset => ({
+        capsuleId,
+        uri: asset.uri,
+        mediaType: 'photo' as const,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+      }))
+    );
     setShowPickerOptions(false);
-    cache.invalidate(`signedUrls:${capsuleId}`, `media:${capsuleId}`);
-    await fetchPhotos();
   }
+
+  // A queue task finishing (success removes it; dismiss too) means there may
+  // be a fresh media row — the queue already invalidated this capsule's
+  // caches, so fetchPhotos reads through to the DB.
+  useEffect(() => {
+    if (uploadTasks.length < prevTaskCountRef.current) {
+      fetchPhotos();
+    }
+    prevTaskCountRef.current = uploadTasks.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadTasks.length]);
 
   async function pickFromLibrary() {
     // No permission prompt: launchImageLibraryAsync uses the iOS PHPicker (and the
@@ -1643,6 +1603,45 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           )}
         </View>
 
+        {canSeePhotos && uploadTasks.length > 0 && (
+          <View style={styles.pendingGrid}>
+            {uploadTasks.map(t => (
+              <View key={t.id} style={styles.pendingThumb}>
+                {t.mediaType === 'photo' ? (
+                  <Image source={t.uri} style={StyleSheet.absoluteFill} contentFit="cover" />
+                ) : (
+                  <View style={[StyleSheet.absoluteFill, styles.pendingVideoBg]}>
+                    <Ionicons name="videocam" size={20} color="#666666" />
+                  </View>
+                )}
+                {t.status === 'uploading' ? (
+                  <View style={styles.pendingOverlay}>
+                    <LoadingBrand size="small" color="#FFFFFF" />
+                  </View>
+                ) : (
+                  <View style={[styles.pendingOverlay, styles.failedOverlay]}>
+                    <TouchableOpacity
+                      style={styles.failedRetry}
+                      onPress={() => uploadQueue.retry(t.id)}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="refresh" size={18} color="#FFFFFF" />
+                      <Text style={styles.failedRetryText}>Retry</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.failedDismiss}
+                      onPress={() => uploadQueue.dismiss(t.id)}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close" size={13} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         {canSeePhotos ? (
           photos.length > 0 ? (
             <>
@@ -1687,12 +1686,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               )}
             </>
-          ) : (
+          ) : uploadTasks.length === 0 ? (
             <View style={styles.emptyPhotos}>
               <Ionicons name="camera-outline" size={32} color="#555555" />
               <Text style={styles.emptyPhotosText}>No media yet</Text>
             </View>
-          )
+          ) : null
         ) : (
           <View style={styles.lockedBox}>
             <Ionicons name="lock-closed-outline" size={32} color="#555555" />
@@ -1702,6 +1701,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             )}
             {mediaCount > 0 && (
               <Text style={[styles.lockedCount, { color: accentColor }]}>{mediaCount} {mediaCount === 1 ? 'memory' : 'memories'} waiting</Text>
+            )}
+            {uploadTasks.length > 0 && (
+              <Text style={styles.lockedUploading}>
+                {uploadTasks.length} uploading…
+              </Text>
             )}
           </View>
         )}
@@ -1716,11 +1720,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 <View style={styles.uploadingRow}>
                   <LoadingBrand size="medium" color={accentColor} />
                   <Text style={styles.uploadingText}>
-                    Uploading {uploadCount.done}/{uploadCount.total}…
+                    Uploading {uploadProgress.done}/{uploadProgress.total}…
                   </Text>
                 </View>
                 <ProgressBar
-                  progress={uploadCount.total > 0 ? uploadCount.done / uploadCount.total : 0}
+                  progress={uploadProgress.total > 0 ? uploadProgress.done / uploadProgress.total : 0}
                   color={accentColor}
                 />
               </View>
@@ -2061,6 +2065,26 @@ const styles = StyleSheet.create({
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   uploadingCol: { gap: 10, alignSelf: 'stretch' },
+  // Optimistic upload tiles — fixed size (not flex thirds) so a row of 1–2
+  // pending items doesn't balloon.
+  pendingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  pendingThumb: { width: 92, height: 92, borderRadius: 10, overflow: 'hidden', backgroundColor: '#1A1A1A' },
+  pendingVideoBg: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#141414' },
+  pendingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  failedOverlay: { backgroundColor: 'rgba(0,0,0,0.65)', borderWidth: 1, borderColor: '#FF3B30', borderRadius: 10 },
+  failedRetry: { alignItems: 'center', gap: 2 },
+  failedRetryText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  failedDismiss: {
+    position: 'absolute', top: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  lockedUploading: { color: '#888888', fontSize: 13, marginTop: 2 },
   uploadingText: { color: '#888888', fontSize: 15 },
   uploadError: { color: '#FF3B30', fontSize: 14 },
   pickerOptions: { gap: 10 },
