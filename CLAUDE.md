@@ -335,6 +335,7 @@ Receives photos/videos shared from other apps (Photos, Files, Messages, Instagra
 - Notification display config: `showAlert`, `playSound`, `showBanner`, `showList` all true
 - Invite push notifications are sent by the `send-invite-push` edge function. `CapsuleDetailScreen.sendInviteNotification()` calls it via `supabase.functions.invoke()`; the function verifies the caller owns the capsule, reads the invitee's `push_token` with the service role, and posts to Expo. The in-app notification row itself is created server-side by the `notify_on_invite` trigger.
 - Reaction notifications are created server-side by the `notify_on_reaction` trigger
+- **Expo push requests are chunked to ≤100 messages** (PERFORMANCE.md #10). Expo's `exp.host` API rejects a request carrying more than 100 messages — the **whole batch** fails, so a 100+ member capsule unlocking would silently drop every push for that tick. Both cron-driven senders (`unlock-capsules`, `send-superlative-pushes`) route their `messages` array through a `sendExpoPush()` helper that slices into ≤100-message requests, posted sequentially. Byte-identical behavior for ≤100 messages. Both functions keep `verify_jwt = false` (custom `CRON_SECRET` auth — the cron sends a non-JWT bearer).
 
 ---
 
@@ -641,8 +642,8 @@ Not every cache consumer uses this hook — `CapsuleDetailScreen` and `AwardsSec
 - `videoThumb:${id}` — per-media locally-generated video thumbnail frame (6hr TTL — a local file URI, not server-expiring)
 - `awards:${id}` — per-capsule superlatives categories + winners (AwardsSection, hand-rolled, not via the hook)
 - `profile` — ProfileScreen hero card data
-- `notifications` — NotificationsScreen
-- `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section
+- `notifications` — NotificationsScreen. **The Alerts tab badge (`CustomTabBar` in `AppNavigator.tsx`) also reads this key** (PERFORMANCE.md #11): it `cache.subscribe`s to `notifications` and sets the unread count from the cached (grouped) list's length, so the badge updates the instant a notification is read/dismissed/received — no throttled per-tab-switch query, no up-to-60s stale lag (BUGS.md #10). It falls back to a lightweight `count/head` query only when the cache is empty (cold start before Alerts is visited, or right after an invalidate). Because the cached list is *grouped* (reactions collapse into one card), the badge shows the grouped-unread count, capped at "9+".
+- `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section. `listMyGroups`/`getGroup` (`src/lib/groups.ts`) fetch `memberCount` via a PostgREST embedded `group_members(count)` aggregate in the *same* query (PERFORMANCE.md #6) — one round-trip, no member-row payload, instead of a second query that pulled every member row just to count them.
 
 **Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed). Uploading/deleting media or a capsule unlocking invalidates both `signedUrls:${id}` and `media:${id}` together — invalidating only the signed-URL cache while `media:${id}` is one mutation site is not enough.
 
