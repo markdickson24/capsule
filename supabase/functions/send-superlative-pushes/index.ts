@@ -59,7 +59,11 @@ Deno.serve(async (req) => {
 
   const { data: notifs, error } = await supabase
     .from('notifications')
-    .select('id, user_id, capsule_id, type, capsules(title), users(push_token)')
+    // Disambiguate the users embed: notifications has TWO FKs to users
+    // (user_id AND actor_id, the latter added by the friends feature), so a bare
+    // `users(...)` embed is ambiguous and PostgREST errors (→ this function 500s
+    // and superlative pushes never send). Pin it to the recipient FK.
+    .select('id, user_id, capsule_id, type, capsules(title), users!notifications_user_id_fkey(push_token)')
     .is('pushed_at', null)
     .in('type', ['superlative_suggested', 'superlative_closing_soon', 'superlative_won'])
     .limit(200);
