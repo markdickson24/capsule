@@ -26,7 +26,7 @@ export type AppStackParamList = {
   PublicProfile: { userId: string };
   Preview:
     | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string }
-    | { media: PendingMedia[]; source?: 'share' | 'camera' };
+    | { media: PendingMedia[]; source?: 'share' | 'camera'; targetCapsuleId?: string };
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };
   ManageMembers: { capsuleId: string };

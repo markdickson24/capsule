@@ -68,6 +68,11 @@ export default function PreviewScreen({ route, navigation }: Props) {
     },
   })).current;
 
+  // Set when arriving from CapsuleDetailScreen's "+ Add Photos" — preselects
+  // (doesn't lock) that capsule so confirming lands back there without
+  // re-picking it from the chip list.
+  const targetCapsuleId: string | undefined = (route.params as any)?.targetCapsuleId;
+
   useEffect(() => {
     async function fetchCapsules() {
       const session = sessionStore.get();
@@ -84,10 +89,15 @@ export default function PreviewScreen({ route, navigation }: Props) {
           row => row.capsules && row.capsules.status !== 'unlocked'
         );
         setCapsules(active);
-        if (active.length === 1) setSelectedIds(new Set([active[0].capsule_id]));
+        if (targetCapsuleId) {
+          setSelectedIds(new Set([targetCapsuleId]));
+        } else if (active.length === 1) {
+          setSelectedIds(new Set([active[0].capsule_id]));
+        }
       }
     }
     fetchCapsules();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleCapsule(id: string) {

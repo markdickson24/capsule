@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Animated, Dimensions, Platform, ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resizeForUpload } from '../../lib/imageResize';
 import { haptics } from '../../lib/haptics';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -28,6 +29,8 @@ const DUAL_LAYOUTS: { value: DualCameraLayout; label: string; icon: keyof typeof
   { value: 'sideBySide', label: 'Split', icon: 'copy-outline' },
   { value: 'pip', label: 'PiP', icon: 'albums-outline' },
 ];
+
+const CAMERA_COACH_SEEN_KEY = 'cap_camera_coach_seen';
 
 const MAX_RECORD_SECONDS = 120;
 const HOLD_THRESHOLD_MS = 300;
@@ -72,6 +75,19 @@ export default function CameraScreen() {
   const [locked, setLocked] = useState(false);
   // lockArmed: finger has slid past LOCK_DRAG_X but hasn't released yet (shows affordance highlight).
   const [lockArmed, setLockArmed] = useState(false);
+  // First-run gesture coach: hold-to-record/slide-to-lock/double-tap-flip are
+  // all invisible until stumbled upon, and only the always-on hint text below
+  // the shutter currently explains any of it. Shown once per install.
+  const [showCoach, setShowCoach] = useState(false);
+  useEffect(() => {
+    AsyncStorage.getItem(CAMERA_COACH_SEEN_KEY).then(seen => {
+      if (!seen) setShowCoach(true);
+    });
+  }, []);
+  function dismissCoach() {
+    setShowCoach(false);
+    AsyncStorage.setItem(CAMERA_COACH_SEEN_KEY, '1').catch(() => {});
+  }
 
   // The single-camera CameraView only knows front/back; Dual swaps in DualCameraView.
   const facing: 'front' | 'back' = cameraMode === 'front' ? 'front' : 'back';
@@ -560,6 +576,22 @@ export default function CameraScreen() {
         </View>
       )}
 
+      {/* First-run gesture coach — tap anywhere to dismiss, shown once per install. */}
+      {showCoach && (
+        <TouchableOpacity
+          style={[StyleSheet.absoluteFill, styles.coachOverlay]}
+          activeOpacity={1}
+          onPress={dismissCoach}
+        >
+          <View style={styles.coachCard}>
+            <Text style={styles.coachLine}>Tap for photo</Text>
+            <Text style={styles.coachLine}>Hold for video</Text>
+            <Text style={styles.coachLine}>Slide right to lock</Text>
+            <Text style={styles.coachDismiss}>Tap anywhere to start</Text>
+          </View>
+        </TouchableOpacity>
+      )}
+
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         {/* Top bar */}
         <View style={styles.topBar}>
@@ -713,6 +745,15 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   processingText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  coachOverlay: {
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 30,
+  },
+  coachCard: { alignItems: 'center', gap: 12, paddingHorizontal: 32 },
+  coachLine: { color: '#FFFFFF', fontSize: 20, fontWeight: '700' },
+  coachDismiss: { color: 'rgba(255,255,255,0.6)', fontSize: 14, marginTop: 16 },
   layout: { flex: 1 },
   permContainer: {
     flex: 1, backgroundColor: '#0A0A0A',
