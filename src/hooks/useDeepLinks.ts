@@ -3,6 +3,7 @@ import { Linking } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { navigationRef } from '../lib/navigationRef';
+import { cache } from '../lib/cache';
 
 function navigateWhenReady(fn: () => void) {
   if (navigationRef.isReady()) {
@@ -47,20 +48,22 @@ async function handleUrl(url: string | null) {
     .maybeSingle();
 
   if (!existing) {
+    // Opening the link IS the consent act — join immediately (joined_at set)
+    // rather than leaving a pending invite the user has to accept a second
+    // time from Alerts. No client-side notifications insert (no INSERT
+    // policy — always errors silently); the notify_on_invite trigger already
+    // covers this.
     await supabase.from('capsule_members').insert({
       capsule_id: capsuleId,
       user_id: userId,
       role: 'contributor',
+      joined_at: new Date().toISOString(),
     });
-    await supabase.from('notifications').insert({
-      user_id: userId,
-      capsule_id: capsuleId,
-      type: 'invite',
-    });
+    cache.invalidate('capsules', 'profile');
   }
 
   navigateWhenReady(() => {
-    (navigationRef as any).navigate('Tabs', { screen: 'Notifications' });
+    (navigationRef as any).navigate('CapsuleDetail', { capsuleId });
   });
 }
 
