@@ -1,5 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
+import ProgressBar from '../../components/ProgressBar';
+import { uploadQueue } from '../../lib/uploadQueue';
+import { toast } from '../../lib/toast';
+import { useUploadTasks } from '../../hooks/useUploadTasks';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
   TouchableOpacity, Modal, TextInput, KeyboardAvoidingView,
@@ -17,7 +21,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { supabase, getFreshAccessToken } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { transformMediaUrl } from '../../lib/mediaUrl';
@@ -39,7 +43,6 @@ import RetryPrompt from '../../components/RetryPrompt';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { fetchAwardsData } from '../../lib/awardsData';
-import { toast } from '../../lib/toast';
 import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 
@@ -1026,8 +1029,83 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [currentUserId, setCurrentUserId] = useState('');
   const [showInvite, setShowInvite] = useState(false);
   const [showMembersSheet, setShowMembersSheet] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadCount, setUploadCount] = useState({ done: 0, total: 0 });
+  // Decoupled from showMembersSheet so the swipe-down-to-close animation can
+  // finish playing before the Modal actually unmounts — mirrors
+  // SuggestCategoryModal's visible/mounted split. animationType is 'none'
+  // (not the Modal's built-in 'slide') because we drive the whole open/close
+  // transform ourselves via membersSheetTranslateY, so a mid-drag position can
+  // continue smoothly into the close animation instead of snapping first.
+  const [membersSheetMounted, setMembersSheetMounted] = useState(false);
+  // A persistent (component-lifetime) useRef value, unlike MediaViewerModal's
+  // which remounts fresh every open — so every animation touching it MUST use
+  // useNativeDriver: false. React Native's native driver permanently latches a
+  // value the first time useNativeDriver:true runs on it; a later JS-driven
+  // .setValue() (our drag) on a native-latched value silently stops updating.
+  // Mixing drivers on a value that's only ever created once would work on the
+  // first open/close cycle and then regress on the second.
+  const membersSheetTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  useEffect(() => {
+    if (showMembersSheet) {
+      setMembersSheetMounted(true);
+      membersSheetTranslateY.setValue(SCREEN_HEIGHT);
+      Animated.timing(membersSheetTranslateY, { toValue: 0, duration: 260, useNativeDriver: false }).start();
+    } else if (membersSheetMounted) {
+      Animated.timing(membersSheetTranslateY, { toValue: SCREEN_HEIGHT, duration: 220, useNativeDriver: false })
+        .start(() => setMembersSheetMounted(false));
+    }
+    // membersSheetMounted intentionally omitted — including it would re-fire
+    // this effect right after the close animation's own setMembersSheetMounted(false).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showMembersSheet]);
+  // Scroll position of the member list, tracked via a ref (not state) so
+  // reading it inside the PanResponder callbacks never triggers a re-render.
+  const membersScrollY = useRef(0);
+  // Swipe-down-to-dismiss, attached to the whole sheet (see the outer
+  // Animated.View below) so a downward drag anywhere on it — handle, header,
+  // or over the member rows — dismisses it, matching MediaViewerModal.
+  //
+  // The member list is a vertical ScrollView, so dismiss and scroll share the
+  // same axis and can't be split by direction alone (unlike PreviewScreen's
+  // outer-vertical vs inner-horizontal swipe). Instead we only claim the
+  // gesture for a downward drag once the list is already scrolled to the top —
+  // mirroring native iOS overscroll-to-dismiss.
+  //
+  // We use the *capture* move variant, not the bubble-phase
+  // onMoveShouldSetPanResponder: capture is evaluated top-down before the
+  // touch reaches the ScrollView's own native scroll recognizer, which is
+  // necessary to win against it once it's already scrolling — a bubble-phase
+  // callback is asked too late. onStartShouldSetPanResponder stays false (no
+  // capture variant is set either) so a stationary touch is never
+  // intercepted — only real movement past the threshold escalates into this
+  // responder, which is what lets a plain tap still reach the nested close
+  // (X) button and each member row's TouchableOpacity.
+  const membersSheetPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: (_, g) =>
+        membersScrollY.current <= 0 && g.dy > 4 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) membersSheetTranslateY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 120 || g.vy > 1.5) {
+          setShowMembersSheet(false);
+        } else {
+          Animated.spring(membersSheetTranslateY, { toValue: 0, useNativeDriver: false, bounciness: 6 }).start();
+        }
+      },
+      // Once a dismiss drag is underway, don't let the ScrollView reclaim the
+      // responder mid-gesture.
+      onPanResponderTerminationRequest: () => false,
+    })
+  ).current;
+  // Optimistic uploads: the background queue owns all upload state. Pending
+  // items render as local-URI tiles in the grid; this screen just reflects
+  // the queue.
+  const uploadTasks = useUploadTasks(capsuleId);
+  const uploading = uploadTasks.some(t => t.status === 'uploading');
+  const uploadProgress = uploadQueue.getProgress(capsuleId);
+  const prevTaskCountRef = useRef(0);
   const [showPickerOptions, setShowPickerOptions] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -1251,79 +1329,33 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     return () => { supabase.removeChannel(channel); };
   }, [capsuleId]);
 
-  async function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
-    setUploading(true);
+  // Optimistic: enqueue and return immediately — the picked photos appear in
+  // the grid as pending tiles at once, upload in the background, and the
+  // task-count effect below refetches as each one lands. Failures stay as
+  // retryable tiles (rollback = dismiss).
+  function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
     setUploadError('');
-    setUploadCount({ done: 0, total: assets.length });
-
-    try {
-      const session = sessionStore.get();
-      if (!session) { setUploading(false); return; }
-
-      let failed = 0;
-      for (let i = 0; i < assets.length; i++) {
-        const asset = assets[i];
-        const mimeType = asset.mimeType ?? 'image/jpeg';
-        const ext = mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
-        const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
-
-        try {
-          let sizeBytes = 0;
-
-          if (Platform.OS === 'web') {
-            const response = await fetch(asset.uri);
-            const arrayBuffer = await response.arrayBuffer();
-            sizeBytes = arrayBuffer.byteLength;
-            const { error: uploadErr } = await supabase.storage
-              .from('capsule-media')
-              .upload(storageKey, arrayBuffer, { contentType: mimeType });
-            if (uploadErr) throw new Error(uploadErr.message);
-          } else {
-            const fileInfo = await FileSystem.getInfoAsync(asset.uri);
-            sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
-            const accessToken = await getFreshAccessToken();
-            const result = await FileSystem.uploadAsync(
-              `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
-              asset.uri,
-              {
-                httpMethod: 'POST',
-                uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-                  'Content-Type': mimeType,
-                },
-              }
-            );
-            if (result.status < 200 || result.status >= 300) throw new Error(`${result.status}`);
-          }
-
-          await supabase.from('media').insert({
-            capsule_id: capsuleId,
-            uploader_id: session.user.id,
-            storage_key: storageKey,
-            media_type: 'photo',
-            size_bytes: sizeBytes,
-          });
-        } catch {
-          failed++;
-        }
-
-        setUploadCount({ done: i + 1, total: assets.length });
-      }
-
-      if (failed > 0) setUploadError(`${failed} photo${failed > 1 ? 's' : ''} failed to upload.`);
-      const added = assets.length - failed;
-      if (added > 0) toast.show(`${added} photo${added > 1 ? 's' : ''} added`);
-    } catch {
-      setUploadError('Upload failed. Try again.');
-    }
-
-    setUploading(false);
+    uploadQueue.enqueue(
+      assets.map(asset => ({
+        capsuleId,
+        uri: asset.uri,
+        mediaType: 'photo' as const,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+      }))
+    );
     setShowPickerOptions(false);
-    cache.invalidate(`signedUrls:${capsuleId}`, `media:${capsuleId}`);
-    await fetchPhotos();
   }
+
+  // A queue task finishing (success removes it; dismiss too) means there may
+  // be a fresh media row — the queue already invalidated this capsule's
+  // caches, so fetchPhotos reads through to the DB.
+  useEffect(() => {
+    if (uploadTasks.length < prevTaskCountRef.current) {
+      fetchPhotos();
+    }
+    prevTaskCountRef.current = uploadTasks.length;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadTasks.length]);
 
   async function pickFromLibrary() {
     // No permission prompt: launchImageLibraryAsync uses the iOS PHPicker (and the
@@ -1572,6 +1604,45 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           )}
         </View>
 
+        {canSeePhotos && uploadTasks.length > 0 && (
+          <View style={styles.pendingGrid}>
+            {uploadTasks.map(t => (
+              <View key={t.id} style={styles.pendingThumb}>
+                {t.mediaType === 'photo' ? (
+                  <Image source={t.uri} style={StyleSheet.absoluteFill} contentFit="cover" />
+                ) : (
+                  <View style={[StyleSheet.absoluteFill, styles.pendingVideoBg]}>
+                    <Ionicons name="videocam" size={20} color="#666666" />
+                  </View>
+                )}
+                {t.status === 'uploading' ? (
+                  <View style={styles.pendingOverlay}>
+                    <LoadingBrand size="small" color="#FFFFFF" />
+                  </View>
+                ) : (
+                  <View style={[styles.pendingOverlay, styles.failedOverlay]}>
+                    <TouchableOpacity
+                      style={styles.failedRetry}
+                      onPress={() => uploadQueue.retry(t.id)}
+                      hitSlop={6}
+                    >
+                      <Ionicons name="refresh" size={18} color="#FFFFFF" />
+                      <Text style={styles.failedRetryText}>Retry</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.failedDismiss}
+                      onPress={() => uploadQueue.dismiss(t.id)}
+                      hitSlop={8}
+                    >
+                      <Ionicons name="close" size={13} color="#FFFFFF" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
+
         {canSeePhotos ? (
           photos.length > 0 ? (
             <>
@@ -1616,12 +1687,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               )}
             </>
-          ) : (
+          ) : uploadTasks.length === 0 ? (
             <View style={styles.emptyPhotos}>
               <Ionicons name="camera-outline" size={32} color="#555555" />
               <Text style={styles.emptyPhotosText}>No media yet</Text>
             </View>
-          )
+          ) : null
         ) : (
           <View style={styles.lockedBox}>
             <Ionicons name="lock-closed-outline" size={32} color="#555555" />
@@ -1632,6 +1703,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             {mediaCount > 0 && (
               <Text style={[styles.lockedCount, { color: accentColor }]}>{mediaCount} {mediaCount === 1 ? 'memory' : 'memories'} waiting</Text>
             )}
+            {uploadTasks.length > 0 && (
+              <Text style={styles.lockedUploading}>
+                {uploadTasks.length} uploading…
+              </Text>
+            )}
           </View>
         )}
 
@@ -1641,11 +1717,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             {uploadError ? <Text style={styles.uploadError}>{uploadError}</Text> : null}
 
             {uploading ? (
-              <View style={styles.uploadingRow}>
-                <LoadingBrand size="medium" color={accentColor} />
-                <Text style={styles.uploadingText}>
-                  Uploading {uploadCount.done}/{uploadCount.total}…
-                </Text>
+              <View style={styles.uploadingCol}>
+                <View style={styles.uploadingRow}>
+                  <LoadingBrand size="medium" color={accentColor} />
+                  <Text style={styles.uploadingText}>
+                    Uploading {uploadProgress.done}/{uploadProgress.total}…
+                  </Text>
+                </View>
+                <ProgressBar
+                  progress={uploadProgress.total > 0 ? uploadProgress.done / uploadProgress.total : 0}
+                  color={accentColor}
+                />
               </View>
             ) : showPickerOptions ? (
               <View style={styles.pickerOptions}>
@@ -1705,14 +1787,24 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             <Text style={styles.dangerLabel}>Danger Zone</Text>
             <TouchableOpacity
               style={styles.archiveBtn}
-              onPress={async () => {
+              onPress={() => {
+                // Optimistic: leave immediately, archive in the background.
+                // On failure the global toast reaches the user on Home.
                 const isArchived = !!(capsule as any).archived_at;
-                await supabase.rpc('set_capsule_archived', {
+                haptics.light();
+                navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+                supabase.rpc('set_capsule_archived', {
                   p_capsule_id: capsuleId,
                   p_archived: !isArchived,
+                }).then(({ error }) => {
+                  if (error) {
+                    toast.show(isArchived
+                      ? "Couldn't restore the capsule — try again."
+                      : "Couldn't archive the capsule — try again.");
+                  } else {
+                    cache.invalidate('capsules', 'profile');
+                  }
                 });
-                cache.invalidate('capsules', 'profile');
-                navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
               }}
             >
               <Ionicons name="archive-outline" size={18} color="#888888" />
@@ -1754,10 +1846,11 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       )}
 
       {/* Members bottom sheet */}
+      {membersSheetMounted && (
       <Modal
-        visible={showMembersSheet}
+        visible={membersSheetMounted}
         transparent
-        animationType="slide"
+        animationType="none"
         onRequestClose={() => setShowMembersSheet(false)}
       >
         <SafeAreaProvider>
@@ -1766,16 +1859,26 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             activeOpacity={1}
             onPress={() => setShowMembersSheet(false)}
           />
-          <SafeAreaView style={styles.sheetContainer} edges={['bottom']}>
+          <Animated.View
+            style={[styles.sheetContainer, { transform: [{ translateY: membersSheetTranslateY }] }]}
+            {...membersSheetPanResponder.panHandlers}
+          >
+          <SafeAreaView edges={['bottom']}>
             <View style={styles.sheetCard}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>Members</Text>
-                <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8}>
-                  <Ionicons name="close" size={22} color="#888888" />
-                </TouchableOpacity>
+              <View>
+                <View style={styles.sheetHandle} />
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Members</Text>
+                  <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8}>
+                    <Ionicons name="close" size={22} color="#888888" />
+                  </TouchableOpacity>
+                </View>
               </View>
-              <ScrollView showsVerticalScrollIndicator={false}>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={(e) => { membersScrollY.current = e.nativeEvent.contentOffset.y; }}
+              >
                 {members.map((m, i) => (
                   <TouchableOpacity
                     key={i}
@@ -1805,8 +1908,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </ScrollView>
             </View>
           </SafeAreaView>
+          </Animated.View>
         </SafeAreaProvider>
       </Modal>
+      )}
 
       {showInvite && (
         <InviteModal
@@ -1926,7 +2031,13 @@ const styles = StyleSheet.create({
   // Members bottom sheet
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheetContainer: { backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
-  sheetCard: { paddingHorizontal: 20, paddingBottom: 24, maxHeight: 480 },
+  // paddingTop matters more than it looks: it's what makes the sheet's real
+  // touchable/draggable area (the Animated.View that owns the swipe-to-close
+  // PanResponder) start meaningfully above the tiny 4px handle pill. Without
+  // it, a touch aimed at "the top of the sheet" easily lands a few px high on
+  // the backdrop TouchableOpacity instead — a sibling, not an ancestor, of the
+  // sheet, so the swipe gesture is never even asked and nothing happens.
+  sheetCard: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 24, maxHeight: 480 },
   sheetHandle: { width: 36, height: 4, backgroundColor: '#3A3A3A', borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 4 },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 14 },
   sheetTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
@@ -1964,6 +2075,27 @@ const styles = StyleSheet.create({
   lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
+  uploadingCol: { gap: 10, alignSelf: 'stretch' },
+  // Optimistic upload tiles — fixed size (not flex thirds) so a row of 1–2
+  // pending items doesn't balloon.
+  pendingGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  pendingThumb: { width: 92, height: 92, borderRadius: 10, overflow: 'hidden', backgroundColor: '#1A1A1A' },
+  pendingVideoBg: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#141414' },
+  pendingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  failedOverlay: { backgroundColor: 'rgba(0,0,0,0.65)', borderWidth: 1, borderColor: '#FF3B30', borderRadius: 10 },
+  failedRetry: { alignItems: 'center', gap: 2 },
+  failedRetryText: { color: '#FFFFFF', fontSize: 11, fontWeight: '700' },
+  failedDismiss: {
+    position: 'absolute', top: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  lockedUploading: { color: '#888888', fontSize: 13, marginTop: 2 },
   uploadingText: { color: '#888888', fontSize: 15 },
   uploadError: { color: '#FF3B30', fontSize: 14 },
   pickerOptions: { gap: 10 },

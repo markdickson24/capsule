@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import LoadingBrand from '../../components/LoadingBrand';
+import { toast } from '../../lib/toast';
 import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity,
@@ -39,7 +39,6 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
   const [members, setMembers] = useState<MemberRow[]>([]);
   const [currentUserId, setCurrentUserId] = useState('');
   const [loading, setLoading] = useState(true);
-  const [removing, setRemoving] = useState<string | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<{ userId: string; displayName: string } | null>(null);
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
@@ -66,18 +65,37 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
     setPendingRemoval({ userId, displayName });
   }
 
-  async function confirmRemove() {
+  // Optimistic: the row disappears the moment the owner confirms; the delete
+  // runs in the background and the row is restored (with a toast) on failure.
+  // Reinserts just the removed row rather than restoring a whole-list
+  // snapshot — with two removals in flight at once, restoring a stale
+  // pre-both-removals snapshot would silently undo the OTHER one's
+  // already-successful delete.
+  function confirmRemove() {
     if (!pendingRemoval) return;
-    const { userId } = pendingRemoval;
-    setRemoving(userId);
-    await supabase
+    const { userId, displayName } = pendingRemoval;
+    const removedMember = members.find(m => m.user_id === userId) ?? null;
+    setMembers(prev => prev.filter(m => m.user_id !== userId));
+    setPendingRemoval(null);
+    supabase
       .from('capsule_members')
       .delete()
       .eq('capsule_id', capsuleId)
-      .eq('user_id', userId);
-    setMembers(prev => prev.filter(m => m.user_id !== userId));
-    setRemoving(null);
-    setPendingRemoval(null);
+      .eq('user_id', userId)
+      .then(({ error }) => {
+        if (error) {
+          if (removedMember) {
+            setMembers(prev =>
+              prev.some(m => m.user_id === userId)
+                ? prev
+                : [...prev, removedMember].sort((a, b) =>
+                    (a.joined_at ?? '') < (b.joined_at ?? '') ? -1 : 1
+                  )
+            );
+          }
+          toast.show(`Couldn't remove ${displayName} — try again.`);
+        }
+      });
   }
 
   if (loading) {
@@ -147,17 +165,13 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
                 </View>
               </View>
               {!isOwner && !isSelf ? (
-                removing === item.user_id ? (
-                  <LoadingBrand size="small" color="#FF3B30" />
-                ) : (
-                  <TouchableOpacity
-                    style={styles.removeBtn}
-                    onPress={() => requestRemove(item.user_id, displayName)}
-                    hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                  >
-                    <Ionicons name="person-remove-outline" size={20} color="#FF3B30" />
-                  </TouchableOpacity>
-                )
+                <TouchableOpacity
+                  style={styles.removeBtn}
+                  onPress={() => requestRemove(item.user_id, displayName)}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                >
+                  <Ionicons name="person-remove-outline" size={20} color="#FF3B30" />
+                </TouchableOpacity>
               ) : (
                 <View style={styles.removeBtnPlaceholder} />
               )}
@@ -177,7 +191,6 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
         }
         confirmLabel="Remove"
         destructive
-        loading={removing === pendingRemoval?.userId}
         onConfirm={confirmRemove}
         onCancel={() => setPendingRemoval(null)}
       />

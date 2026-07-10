@@ -256,6 +256,7 @@ Defined in `supabase-schema.sql`.
 - **Hands-free lock:** while holding to record, slide the shutter finger **right ≥ 90px** — the lock pill (right of shutter) highlights accent-colored and pulses (`lockAnim`). Release to lock: recording continues hands-free, the shutter becomes a red stop square. Tap the stop square to end. Works for both single and dual recording. State: `locked` (React state), `lockedRef` (ref for PanResponder), `willLockRef` + `hasFiredLockHapticRef` (transient arm state). All reset in `cleanupRecording`.
 - **Zoom deadzone:** horizontal movement ≥ 20px (`LOCK_DEADZONE_X`) suppresses vertical zoom to prevent accidental zooming while starting a rightward lock-swipe.
 - **Flip camera mid-recording (single-camera only):** tap the reverse button (top-right) or double-tap the viewfinder while recording to switch front↔back. Implemented as a **multi-segment recording loop** in `startRecording`: each call to `recordAsync` is one segment; `flipCameraDuringRecording()` sets `pendingFlipRef`, stops the current segment, calls `setCameraMode`, and a `useEffect([facing])` resolves the loop's await once the `CameraView` re-renders. After all segments are collected, they are stitched into one MP4 via `stitchVideos()` from `modules/expo-video-stitcher` before navigating to Preview. The 30s cap is shared across all segments (`recordSecondsRef`). Dual-camera mode is excluded (both lenses already active).
+  - **iOS orientation gotcha:** `ExpoVideoStitcherModule.stitch()` (iOS) builds an `AVMutableComposition` with a single shared video track spanning all segments — that track has exactly **one** `preferredTransform` for its whole timeline, so it can't represent front and back camera segments having different orientations (which they commonly do). Naively concatenating without accounting for this renders every segment with the same transform regardless of which camera captured it, showing up as one segment (often whichever isn't closest to identity) compressed/stretched into the wrong aspect ratio. Fixed by building an explicit `AVMutableVideoComposition` with one instruction per segment, each applying that segment's own `preferredTransform` (re-anchored at the origin, scaled/centered into a shared render canvas — also guards against front/back recording at slightly different native resolutions). Android has the analogous bug (`MediaMuxer`'s single video track can likewise only carry one orientation, and `stitch()` there only registers the first segment's rotation) but needs a fundamentally different fix — a real decode/rotate/encode transcode, not a metadata change — and is not yet fixed.
 - Photos: resized to 1920px wide via `expo-image-manipulator`, compress 0.82, quality 0.88
 - Front camera photos: flipped horizontally via `FlipType.Horizontal`
 - Use `useIsFocused()` to stop camera rendering when tab is not active
@@ -293,8 +294,7 @@ Simultaneous front+back capture (Snapchat-style) with two **selectable layouts**
 - **Carousel for multi-item:** horizontal `FlatList` with `pagingEnabled`, page dots overlay, "N / total" counter pill in the top bar. `currentIndex` tracked via `onMomentumScrollEnd`
 - **Single shared `useVideoPlayer`** keyed by `currentItem.uri` — only mounts a `VideoView` for the item at `currentIndex`; other video slides show a play-icon placeholder. This avoids the rules-of-hooks problem of one player per item
 - The outer swipe-down PanResponder requires `g.dy > Math.abs(g.dx)` to start, so the horizontal `FlatList` keeps its gesture for paging
-- **Multi-select capsules** via horizontal chip scroll with `Set<string>`. After multi-upload: navigates to `CapsuleDetail` (single capsule) or `Home` (multiple)
-- **Upload loop is (capsule × media)** sequential — total progress is `selectedIds.size * items.length`
+- **Multi-select capsules** via horizontal chip scroll with `Set<string>`. "Add to Capsule" is **optimistic**: it enqueues every (capsule × media) pair on the background upload queue (see "Background Upload Queue" below) and navigates immediately — `CapsuleDetail` (single capsule) or `Home` (multiple). There is no blocking upload UI on this screen anymore.
 - **Empty state:** when no active capsules exist, shows "No active capsules yet" with a "Create Capsule" button. This navigates to Create tab with `pendingMedia: PendingMedia[]` — the media auto-uploads after capsule creation
 - Swipe down > 100px triggers discard confirmation modal
 - Upload: web uses `arrayBuffer`, native uses `FileSystem.uploadAsync`
@@ -330,7 +330,7 @@ Receives photos/videos shared from other apps (Photos, Files, Messages, Instagra
 ## Push Notifications (`usePushNotifications.ts`)
 
 - Called from `App.tsx` with `userId` from session
-- Registers Expo push token (native only) and stores in `users.push_token`
+- Registers Expo push token (native only) and stores in `users.push_token` — but **only if permission is already granted**. `registerToken` never calls `requestPermissionsAsync`; the native prompt fires exactly once, from `requestPushPermission(userId)` (exported from the same module, no-op `false` on web), which the Onboarding "Don't miss it" primer calls after the user's first capsule is created. A "maybe later" answer writes `cap_notif_reprime:<userId>` to AsyncStorage so a future contextual re-ask knows the prompt is still unspent.
 - Notification tap handler: reads `data.capsuleId` or `data.screen` from notification payload, navigates via `navigationRef`
 - Notification display config: `showAlert`, `playSound`, `showBanner`, `showList` all true
 - Invite push notifications are sent by the `send-invite-push` edge function. `CapsuleDetailScreen.sendInviteNotification()` calls it via `supabase.functions.invoke()`; the function verifies the caller owns the capsule, reads the invitee's `push_token` with the service role, and posts to Expo. The in-app notification row itself is created server-side by the `notify_on_invite` trigger.
@@ -341,7 +341,7 @@ Receives photos/videos shared from other apps (Photos, Files, Messages, Instagra
 
 ## CapsuleDetailScreen Key Patterns
 
-Large file (~1400 lines). Key sub-components and patterns:
+Large file (~2200 lines). Key sub-components and patterns:
 
 **`ProgressRing`** — pure RN circular progress indicator. Two-half-clip technique: each half uses a full ring with two adjacent border colors (orange + track) clipped to its side, rotated to reveal the correct amount.
 - Right half: `borderTopColor + borderRightColor = orange`, rest = trackColor
@@ -355,12 +355,14 @@ Large file (~1400 lines). Key sub-components and patterns:
 
 **`MediaViewerModal`** — full-screen swipe carousel. Gesture axis is locked on first movement (prevents diagonal). Vertical swipe > 120px or velocity > 1.5 closes modal. Header controls (close, page counter, download) sit inside a `LinearGradient` overlay (top 120px, `rgba(0,0,0,0.6)` → transparent) so buttons don't get lost against light images. Download button uses `expo-media-library` on native (saves to camera roll) and anchor-element download on web.
 
+**Members bottom sheet** — tap the avatar cluster to open; swipe-down-to-close on top of the usual backdrop-tap/X button. Three real bugs went into getting this gesture right, worth knowing before touching it again:
+- `membersSheetTranslateY` is a persistent (component-lifetime) `useRef` `Animated.Value`, unlike `MediaViewerModal`'s (which remounts fresh every open) — so **every** animation on it (open, close, release-cancel spring) must use `useNativeDriver: false`. React Native's native driver permanently latches a value the first time `useNativeDriver: true` runs on it; mixing drivers on a value that's only ever created once works on the first open/close cycle and silently stops responding to drags on the second.
+- The `PanResponder` is attached to the *whole* sheet (the outer `Animated.View` carrying the transform), not just the handle/header strip — a drag starting anywhere on the sheet, including over the member rows, should dismiss it. Since the member list is a vertical `ScrollView` sharing the same axis as the dismiss gesture, `onMoveShouldSetPanResponderCapture` (not the bubble-phase variant) is gated on `membersScrollY.current <= 0 && dy > dx` — only claims a downward drag once the list is already scrolled to the top, mirroring native iOS overscroll-to-dismiss. Capture (not bubble) is required to win against the ScrollView's own native pan recognizer before it starts scrolling. `onStartShouldSetPanResponder` stays `false` (no capture variant either) so plain taps still reach the nested X button and member rows.
+- `sheetCard` needs real `paddingTop` (not just the handle's own `marginTop`) — the backdrop `TouchableOpacity` is a *sibling* of the sheet in the render tree, not an ancestor, so a touch that lands even a few px above the sheet's actual top edge is grabbed by the backdrop's `Pressability` at touch-down and never reaches the sheet's `PanResponder` at all (a subsequent drag just cancels the backdrop's pending tap — net effect: nothing happens). With a 4px handle pill and no top padding, "aim for the top of the sheet" reliably misses. Generous top padding fixes it without touching the gesture logic at all.
+
 **Real-time:** `supabase.channel('capsule-${capsuleId}')` listens for `UPDATE` on `capsules` table. On status → 'unlocked': triggers reveal animation, invalidates `signedUrls:${capsuleId}` **and** `media:${capsuleId}` (a surprise-mode owner's pre-unlock cache may have cached an RLS-empty media list), then refetches media.
 
-**Upload flow:**
-- Web: `fetch(uri) → arrayBuffer → supabase.storage.upload()`
-- Native: `FileSystem.uploadAsync` with `Authorization` + `apikey` headers
-- After all uploads: invalidates `signedUrls:${capsuleId}` and `media:${capsuleId}`, then refetches media via `fetchPhotos()`
+**Upload flow:** all media uploads (Add Photos picker, camera, and everything arriving from PreviewScreen) go through the **background upload queue** (`src/lib/uploadQueue.ts`). `uploadPhotos` just enqueues and returns; `useUploadTasks(capsuleId)` renders the queue as local-URI **pending tiles** above the photo grid (spinner overlay while uploading; failed tiles get Retry + dismiss). A surprise-mode locked box shows an "N uploading…" line instead of tiles. An effect watches the task count and calls `fetchPhotos()` as each task lands (the queue has already invalidated `media:`/`signedUrls:`/`capsule:` for the capsule). The aggregate "Uploading n/N" row + `ProgressBar` is driven by `uploadQueue.getProgress(capsuleId)`.
 
 **Reactions:** `addReaction()` generates the reaction ID client-side via `randomUUID()` — never chain `.select()` after `.insert()` on the `reactions` table (the SELECT RLS policy may fail even though the insert succeeded, causing the optimistic reaction to disappear). If the user already has a reaction on the media, the existing row is updated (emoji swap) instead of inserting a duplicate — respects the `unique(media_id, user_id)` constraint.
 
@@ -405,6 +407,11 @@ const { accentColor, setAccentColor, homeLayout, setHomeLayout } = useTheme();
 
 `ThemeProvider` wraps `NavigationContainer` in `App.tsx`. It loads `users.accent_color` **and `users.home_layout`** from Supabase on login (one query) and resets both to defaults on logout. `setAccentColor` / `setHomeLayout` update state instantly and persist to Supabase in the background.
 
+**No flash of default orange on launch.** `accentColor`/`homeLayout` used to start at their hardcoded defaults and only update once the Supabase fetch resolved inside a `useEffect` (which runs after first paint) — so every launch briefly rendered the wrong color. Fixed with a persistent per-user cache (`cap_theme_v1:<userId>`), mirroring `sessionStore.ts`'s `readWebSessionSync` pattern:
+- **Web:** a synchronous `localStorage` read feeds the `accentColor`/`homeLayout` `useState` lazy initializers directly — since `sessionStore.get()` is already synchronously populated at module load on web, this seeds the real cached color before the very first render, so there's no flash at all.
+- **Native:** session restore is async, so the user ID isn't known that early. `loadPrefs` instead does a fast local `AsyncStorage` read (no network, single-digit ms) before the Supabase fetch, applying the cached color almost immediately rather than waiting on the network round-trip.
+- `setAccentColor`/`setHomeLayout` write through to this cache too, so a manual change is also available instantly on the next launch. Only fixes it from the *second* launch onward per user — the very first launch after a fresh sign-in has nothing cached yet.
+
 **Home layout preference** (`homeLayout: 'list' | 'grid'`, default `'list'`) — `HomeScreen` renders its capsule `FlatList` as one-column comfortable cards (`list`) or two-column compact cards (`grid`), chosen via a small list/grid toggle in the Home header. The `FlatList` takes `key={homeLayout}` (forces remount when `numColumns` changes) and `columnWrapperStyle` only in grid. `CapsuleCard` takes a `variant` prop; the grid variant drops the description and shrinks. Per-user, synced like `accent_color`.
 
 **Auth screens (LoginScreen, SignUpScreen, WelcomeScreen) keep the static `#FF6B35`** — no user is loaded at that point.
@@ -444,20 +451,21 @@ All of the following are owner-only and silently no-op / navigate away if not ow
 
 ## Onboarding (`OnboardingScreen`)
 
-A 4-step wizard that runs after new sign-ups. Gated by `users.onboarded_at`:
+A 5-step personalized flow ("Onboarding v2" — full design rationale in `designs/ONBOARDING_V2.md`) that runs after new sign-ups. Gated by `users.onboarded_at`:
 - AppNavigator first checks a **local flag** (`sessionStore.wasOnboarded(userId)`, an `AsyncStorage` boolean keyed per user — see `markOnboarded`/`wasOnboarded` in `src/lib/sessionStore.ts`). If set, routes straight to `'Tabs'` with **no network round-trip** — this used to block first paint on every launch behind a `users.onboarded_at` query (up to a 5s timeout). The flag is written the moment a `users.onboarded_at` query confirms `true`, and again when the wizard itself completes.
 - If the local flag isn't set (first launch, fresh install, or genuinely not yet onboarded), falls back to the original behavior: queries `users.onboarded_at`. If null → `initialRouteName = 'Onboarding'`. Otherwise → `'Tabs'` (and the local flag gets written for next launch). On query error or 5s timeout, falls through to Tabs (don't strand the user).
 - `users.onboarded_at` remains the server source of truth — the local flag only exists to skip the round-trip for returning users; nothing in the app currently un-sets `onboarded_at`, so a stale-true local flag isn't a real-world risk.
-- The wizard writes `display_name`, optionally `avatar_url` / `bio` / `accent_color`, and sets `onboarded_at = now()` in a single update on completion, then calls `sessionStore.markOnboarded(userId)`.
-- Final step uses `navigation.replace('Tabs', { screen: 'Home' })` (no back stack to the wizard).
+- `saveProfile()` writes `display_name` + optionally `avatar_url` and stamps `onboarded_at = now()`, then calls `sessionStore.markOnboarded(userId)`. It runs at the end of step 3 (both "Create my capsule" and every skip-to-Home path) — so a user killed mid-wizard before step 3 correctly re-enters it, and one who completed step 3 never does.
+- Exits use `navigation.replace('Tabs', …)` (no back stack to the wizard). Bio and accent color are **not** collected here anymore — they live in Edit Profile and Settings.
 
-Steps:
-1. **Name + avatar.** Display name required (max 30). Avatar via `expo-image-picker` → resize to 400px → upload to `avatars/${userId}/avatar.jpg` (web: arrayBuffer; native: FileSystem.uploadAsync).
-2. **Accent color.** Reuses the shared `<ColorPicker>` component (`src/components/ColorPicker.tsx`). On completion, also calls `ThemeContext.setAccentColor` so the change is reflected everywhere immediately.
-3. **Bio.** 80-char free-text (mirrors the DB `check (char_length(bio) <= 80)` constraint).
-4. **First-capsule preset.** Four cards (Vacation memories, Baby's first year, Wedding day, Year in review) — tapping one calls `navigation.replace('Tabs', { screen: 'Create', params: { presetTitle, presetDescription } })`, which CreateScreen reads via `useRoute()` to prefill the form. "Skip & finish" goes straight to Home.
+Steps (state machine inside the one screen; dynamic copy comes from `src/lib/onboardingMoments.ts` — the `MOMENTS` matrix keyed on `OccasionKey`, exporting title seeds, date chips, flavor lines, and invite nudges per occasion):
+1. **Name + avatar.** Display name required (max 30). Avatar upload **starts in the background the moment it's picked** (`avatarUrlPromise` ref) so a failure isn't discovered at finish-time; `resolveAvatarUrl()` awaits it, retries once, and degrades to a toast (never blocks completion). A live member-row preview chip renders the name/avatar as they type.
+2. **"What are you waiting for?"** Six moment cards (mapping 1:1 to `capsules.occasion`) + an optional 60-char free-text line. Tapping a card advances immediately; typed free text **becomes the capsule title verbatim** (always beats the seed — never rewrite the user's words). Skip → `skipToHome()`.
+3. **First capsule, pre-built.** A capsule card with inline-editable title, occasion-aware date chips (first chip pre-selected) + "Pick my own date" (expands the shared `DatePickerField`), and a surprise-mode promise line. "Create my capsule" runs `saveProfile()` then the standard RLS-safe create (client UUID → `capsules` insert without `.select()` → owner `capsule_members` row → `set_default_superlatives` best-effort). Always `owner_preview_locked: true`, `unlock_mode: 'time'`, 48h voting.
+4. **Notification primer** (forward-only, reached only when a capsule was created). Names the user's capsule + date; "Yes, notify me" calls `requestPushPermission` (the app's only native-prompt call site); "maybe later" sets the `cap_notif_reprime:<userId>` AsyncStorage flag. On web the button is copy-only ("Sounds good").
+5. **Sealed ceremony** (forward-only). Lock scale-in + `haptics.success()` + live countdown (30s tick). Actions: **Invite people** (`Share.share` of the `capsule://join/<id>` link; on failure/web falls back to navigating into the capsule where the full invite UI lives), **Add the first photo** (→ Camera tab), or "take me home".
 
-Footer renders only the buttons that apply for the current step. Step 1: just `Next`. Steps 2–3: `Back | Skip | Next`. Step 4: `Back | Skip & finish` (preset cards are themselves the primary action). Don't render placeholder `<View>`s for missing buttons or they'll consume row width.
+Footer only exists for steps 1–3 (`Back` from 2–3; contextual `Next`/skip). Steps 4–5 render their own primary actions in-body. Don't render placeholder `<View>`s for missing footer buttons or they'll consume row width.
 
 ## Settings Screen (`SettingsScreen`)
 
@@ -646,6 +654,31 @@ Not every cache consumer uses this hook — `CapsuleDetailScreen` and `AwardsSec
 - `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section. `listMyGroups`/`getGroup` (`src/lib/groups.ts`) fetch `memberCount` via a PostgREST embedded `group_members(count)` aggregate in the *same* query (PERFORMANCE.md #6) — one round-trip, no member-row payload, instead of a second query that pulled every member row just to count them.
 
 **Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed). Uploading/deleting media or a capsule unlocking invalidates both `signedUrls:${id}` and `media:${id}` together — invalidating only the signed-URL cache while `media:${id}` is one mutation site is not enough.
+
+## Background Upload Queue (`src/lib/uploadQueue.ts`)
+
+Module-level sequential upload worker — the optimistic-UI backbone for media.
+Callers `uploadQueue.enqueue(entries)` and move on; the queue uploads one task
+at a time (web: arrayBuffer + `supabase.storage.upload`; native:
+`FileSystem.uploadAsync` via `getFreshAccessToken()`), inserts the `media` row
+(including dual-photo `alt_storage_key`, best-effort), and invalidates
+`capsules` + `capsule:`/`media:`/`signedUrls:` per success. Failures stay in
+the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
+as retryable tiles by `CapsuleDetailScreen`. `useUploadTasks(capsuleId)`
+(`src/hooks/useUploadTasks.ts`) is the reactive subscription;
+`getProgress(capsuleId)` returns per-capsule `{done,total}` since that
+capsule's queue was last empty. When the whole queue drains it fires one toast
+("N items added" / "· M failed") through the global ToastHost, so completion
+reaches the user wherever they navigated. In-memory only: uploads do not
+survive an app kill (the failed/pending tiles vanish with the process).
+
+**Optimistic-action pattern** (used by NotificationsScreen accept/decline,
+ManageMembersScreen remove, HomeScreen restore, CapsuleDetail archive): snapshot
+the current state → apply the state change / navigate immediately → fire the
+write with `.then(({ error }) => …)` → on error restore the snapshot and
+`toast.show(...)`. For invite accepts, `read_at` is persisted only **after**
+the membership write commits — persisting it up front on a failed accept would
+orphan the invite.
 
 ## Retry on slow loads (`useLoadingTimeout` + `RetryPrompt`)
 
