@@ -13,6 +13,8 @@ import { supabase } from '../../lib/supabase';
 import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { haptics } from '../../lib/haptics';
+import { toast } from '../../lib/toast';
+import { cache } from '../../lib/cache';
 import { AppStackParamList } from '../../types/navigation';
 
 type Nav = NativeStackNavigationProp<AppStackParamList>;
@@ -38,6 +40,17 @@ export default function QRScannerScreen() {
   const [joining, setJoining] = useState(false);
   const [scanError, setScanError] = useState('');
 
+  // On error paths where no confirmation sheet renders, `scanned` would
+  // otherwise stay true forever — onBarcodeScanned becomes undefined and the
+  // camera can never scan again, despite the hint text inviting a retry.
+  // Re-arm after a couple seconds so "Try again" is actually true.
+  function rearmAfterError() {
+    setLoading(false);
+    setTimeout(() => {
+      setScanned(prev => (prev ? false : prev));
+    }, 2000);
+  }
+
   const handleScan = useCallback(async ({ data }: { data: string }) => {
     if (scanned) return;
     setScanned(true);
@@ -46,6 +59,7 @@ export default function QRScannerScreen() {
     const match = data.match(/capsule:\/\/join\/([a-zA-Z0-9-]+)/);
     if (!match) {
       setScanError('Not a valid Capsule invite. Try again.');
+      rearmAfterError();
       return;
     }
 
@@ -63,7 +77,7 @@ export default function QRScannerScreen() {
 
       if (error || !row) {
         setScanError("This capsule doesn't exist or the invite has expired.");
-        setLoading(false);
+        rearmAfterError();
         return;
       }
 
@@ -75,10 +89,11 @@ export default function QRScannerScreen() {
         memberCount: Number(row.member_count) || 0,
         alreadyMember: !!row.already_member,
       });
+      setLoading(false);
     } catch {
       setScanError('Something went wrong. Please try again.');
+      rearmAfterError();
     }
-    setLoading(false);
   }, [scanned]);
 
   async function joinCapsule() {
@@ -89,21 +104,25 @@ export default function QRScannerScreen() {
     setJoining(true);
     try {
       if (!preview.alreadyMember) {
-        await supabase.from('capsule_members').insert({
+        // Scanning a QR in person IS the consent act — join immediately
+        // (joined_at set), don't leave a pending invite the user has to
+        // accept a second time from Alerts. The notify_on_invite trigger
+        // already fires off this insert; no client-side notifications
+        // insert is needed (and it has no INSERT policy — it always errors).
+        const { error } = await supabase.from('capsule_members').insert({
           capsule_id: preview.id,
           user_id: session.user.id,
           role: 'contributor',
+          joined_at: new Date().toISOString(),
         });
-        await supabase.from('notifications').insert({
-          user_id: session.user.id,
-          capsule_id: preview.id,
-          type: 'invite',
-        });
+        if (error) throw error;
+        cache.invalidate('capsules', 'profile');
       }
       haptics.success();
-      navigation.navigate('Tabs', { screen: 'Notifications' });
+      navigation.replace('CapsuleDetail', { capsuleId: preview.id });
     } catch {
       setScanError('Could not join. Please try again.');
+      toast.show("Couldn't join — try again.");
       setJoining(false);
     }
   }

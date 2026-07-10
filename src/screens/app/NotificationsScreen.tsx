@@ -234,6 +234,40 @@ export default function NotificationsScreen() {
       });
   }
 
+  // Decline a pending invite: delete the pending capsule_members row so it
+  // doesn't linger forever as the invite's only entry point (dismiss/mark-read
+  // used to be the only "no", which left the row — and the owner's ghost
+  // "pending" member in ManageMembers — orphaned with no way to ever act on
+  // it again). Mirrors declineFriend's optimistic-remove + rollback pattern.
+  function declineInvite(item: DisplayNotification) {
+    const capsuleId = item.capsule_id;
+    if (!capsuleId) return;
+    const memberId = pendingMap[capsuleId];
+    if (!memberId) return;
+
+    haptics.light();
+    setNotifications(prev => prev.filter(n => n.id !== item.id));
+    setPendingMap(prev => {
+      const next = { ...prev };
+      delete next[capsuleId];
+      return next;
+    });
+
+    supabase
+      .from('capsule_members')
+      .delete()
+      .eq('id', memberId)
+      .then(({ error }) => {
+        if (error) {
+          reinsertNotification(item);
+          setPendingMap(prev => ({ ...prev, [capsuleId]: memberId }));
+          toast.show("Couldn't decline the invite — try again.");
+        } else {
+          void persistRead(item);
+        }
+      });
+  }
+
   function acceptFriend(item: DisplayNotification) {
     if (!item.actor_id) return;
     haptics.success();
@@ -434,14 +468,24 @@ export default function NotificationsScreen() {
                 </View>
 
                 {item.type === 'invite' && isPending && (
-                  <TouchableOpacity
-                    style={[styles.acceptBtn, { backgroundColor: accentColor }]}
-                    onPress={() => accept(item)}
-                  >
-                    <Text style={styles.acceptBtnText}>
-                      Accept
-                    </Text>
-                  </TouchableOpacity>
+                  <View style={styles.friendActions}>
+                    <TouchableOpacity
+                      style={[styles.acceptBtn, { backgroundColor: accentColor }]}
+                      onPress={() => accept(item)}
+                    >
+                      <Text style={styles.acceptBtnText}>
+                        Accept
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.declineBtn}
+                      onPress={() => declineInvite(item)}
+                      accessibilityLabel="Decline invite"
+                      accessibilityRole="button"
+                    >
+                      <Ionicons name="close" size={18} color="#888888" />
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 {item.type === 'invite' && isAccepted && (
