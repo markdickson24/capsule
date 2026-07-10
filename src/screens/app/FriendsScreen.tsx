@@ -105,7 +105,13 @@ export default function FriendsScreen({ navigation }: Props) {
                     >
                       <Text style={styles.acceptText}>{busy === p.id ? '…' : 'Accept'}</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.declineBtn} onPress={() => decline(p.id)} disabled={busy === p.id}>
+                    <TouchableOpacity
+                      style={styles.declineBtn}
+                      onPress={() => decline(p.id)}
+                      disabled={busy === p.id}
+                      accessibilityRole="button"
+                      accessibilityLabel="Decline friend request"
+                    >
                       <Ionicons name="close" size={20} color="#888888" />
                     </TouchableOpacity>
                   </View>
@@ -162,7 +168,7 @@ const styles = StyleSheet.create({
   },
   rowMain: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   name: { fontSize: 16, color: '#FFFFFF', fontWeight: '600' },
-  requestsEmpty: { fontSize: 14, color: '#555555', paddingVertical: 8 },
+  requestsEmpty: { fontSize: 14, color: '#888888', paddingVertical: 8 },
   requestActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acceptBtn: { borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
   acceptText: { color: '#FFFFFF', fontWeight: '700', fontSize: 14 },

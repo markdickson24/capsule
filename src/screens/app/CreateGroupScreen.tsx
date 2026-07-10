@@ -105,7 +105,7 @@ export default function CreateGroupScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
           <Ionicons name="close" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>New Group</Text>
@@ -276,7 +276,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, gap: 28, paddingBottom: 48 },
   section: { gap: 10 },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: '#555555', textTransform: 'uppercase', letterSpacing: 0.5 },
-  sectionHint: { fontSize: 13, color: '#555555', marginTop: -4 },
+  sectionHint: { fontSize: 13, color: '#888888', marginTop: -4 },
   nameInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 16, color: '#FFFFFF', borderWidth: 1, borderColor: '#2A2A2A',

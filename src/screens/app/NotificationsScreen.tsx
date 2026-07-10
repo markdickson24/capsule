@@ -178,6 +178,7 @@ export default function NotificationsScreen() {
     const { error } = await query;
     if (error) {
       console.warn('Failed to mark notification read:', error.message);
+      toast.show("Couldn't sync — the card may reappear.");
       return;
     }
     cache.invalidate('notifications');
@@ -346,7 +347,7 @@ export default function NotificationsScreen() {
           <Text style={styles.title}>Notifications</Text>
           {pendingCount > 0 && (
             <View style={[styles.badge, { backgroundColor: accentColor }]}>
-              <Text style={styles.badgeText}>{pendingCount}</Text>
+              <Text style={styles.badgeText} maxFontSizeMultiplier={1.3}>{pendingCount}</Text>
             </View>
           )}
         </Animated.View>
@@ -502,7 +503,12 @@ export default function NotificationsScreen() {
                       >
                       <Text style={styles.acceptBtnText}>Accept</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.declineBtn} onPress={() => declineFriend(item)}>
+                    <TouchableOpacity
+                      style={styles.declineBtn}
+                      onPress={() => declineFriend(item)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Decline friend request"
+                    >
                       <Ionicons name="close" size={18} color="#888888" />
                     </TouchableOpacity>
                   </View>
@@ -553,7 +559,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, gap: 4 },
   cardText: { fontSize: 14, color: '#CCCCCC', lineHeight: 20 },
   cardCapsuleTitle: { color: '#FFFFFF', fontWeight: '700' },
-  cardDate: { fontSize: 12, color: '#555555' },
+  cardDate: { fontSize: 12, color: '#888888' },
   acceptBtn: {
     backgroundColor: '#FF6B35', borderRadius: 10,
     paddingHorizontal: 16, paddingVertical: 9,

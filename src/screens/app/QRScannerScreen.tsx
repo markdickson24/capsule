@@ -139,7 +139,7 @@ export default function QRScannerScreen() {
     return (
       <View style={s.bg}>
         <SafeAreaView style={s.permBox} edges={['top', 'bottom']}>
-          <TouchableOpacity style={s.closeBtn} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={s.closeBtn} onPress={() => navigation.goBack()} accessibilityRole="button" accessibilityLabel="Close">
             <Ionicons name="close" size={26} color="#fff" />
           </TouchableOpacity>
           <Ionicons name="camera-outline" size={52} color="#666" />
@@ -181,7 +181,7 @@ export default function QRScannerScreen() {
 
       {/* Header */}
       <SafeAreaView style={s.header} edges={['top']} pointerEvents="box-none">
-        <TouchableOpacity style={s.closeBtn} onPress={() => navigation.goBack()} hitSlop={8}>
+        <TouchableOpacity style={s.closeBtn} onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close scanner">
           <Ionicons name="close" size={26} color="#fff" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Scan to Join</Text>

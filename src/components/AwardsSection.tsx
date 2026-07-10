@@ -369,6 +369,8 @@ function PendingCard({
           ]}
           onPress={onToggleUpvote}
           disabled={busy}
+          accessibilityRole="button"
+          accessibilityLabel={category.i_upvoted ? `Remove upvote for "${category.label}"` : `Upvote "${category.label}"`}
         >
           <Ionicons
             name={category.i_upvoted ? 'checkmark' : 'arrow-up-outline'}
@@ -598,7 +600,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111', borderRadius: 14,
   },
   emptyText: { color: '#888888', fontSize: 14, fontWeight: '600' },
-  emptySubtext: { color: '#555555', fontSize: 12, paddingHorizontal: 20, textAlign: 'center' },
+  emptySubtext: { color: '#888888', fontSize: 12, paddingHorizontal: 20, textAlign: 'center' },
   list: { gap: 10 },
   groupLabel: {
     fontSize: 11, color: '#666',
@@ -695,7 +697,7 @@ const styles = StyleSheet.create({
   winnerCategoryLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
   tieLabel: { fontSize: 11, fontWeight: '700', marginTop: 2, letterSpacing: 0.5 },
   noVotesBox: { paddingVertical: 12, alignItems: 'center' },
-  noVotesText: { color: '#555', fontSize: 13 },
+  noVotesText: { color: '#888888', fontSize: 13 },
   winnersList: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   winnerEntry: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   winnerAvatar: {

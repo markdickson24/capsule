@@ -137,6 +137,8 @@ export default function SuggestCategoryModal({ visible, capsuleId, onClose, onSu
                 onPress={requestClose}
                 disabled={submitting}
                 hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
               >
                 <Ionicons name="close" size={20} color="#FFFFFF" />
               </TouchableOpacity>
@@ -219,7 +221,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF', fontSize: 16,
     borderWidth: 1, borderColor: '#2A2A2A',
   },
-  charCount: { fontSize: 11, color: '#555', textAlign: 'right' },
+  charCount: { fontSize: 11, color: '#888888', textAlign: 'right' },
   toggle: { flexDirection: 'row', gap: 8 },
   toggleBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

@@ -333,7 +333,7 @@ const cs = StyleSheet.create({
   monthLabelBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   monthLabel: { fontSize: 16, fontWeight: '700', color: '#FFFFFF' },
   weekdayRow: { flexDirection: 'row', paddingBottom: 4 },
-  weekdayText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '600', color: '#555' },
+  weekdayText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '600', color: '#888888' },
   weekRow: { flexDirection: 'row' },
   dayCell: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
   dayInner: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },

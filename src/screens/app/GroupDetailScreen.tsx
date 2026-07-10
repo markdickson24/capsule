@@ -365,6 +365,6 @@ const styles = StyleSheet.create({
   capsuleRowTitle: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   capsuleRowDate: { fontSize: 12, color: '#666666' },
   empty: { alignItems: 'center', paddingTop: 48, paddingHorizontal: 40, gap: 12 },
-  emptyText: { fontSize: 17, fontWeight: '700', color: '#555555', textAlign: 'center' },
+  emptyText: { fontSize: 17, fontWeight: '700', color: '#888888', textAlign: 'center' },
   emptySubtext: { fontSize: 14, color: '#444444', textAlign: 'center', lineHeight: 20 },
 });

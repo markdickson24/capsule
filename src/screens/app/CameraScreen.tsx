@@ -595,7 +595,12 @@ export default function CameraScreen() {
       <SafeAreaView edges={['top', 'bottom']} style={styles.layout}>
         {/* Top bar */}
         <View style={styles.topBar}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setFlash(f => f === 'off' ? 'on' : 'off')}>
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => setFlash(f => f === 'off' ? 'on' : 'off')}
+            accessibilityRole="button"
+            accessibilityLabel={flash === 'on' ? 'Turn flash off' : 'Turn flash on'}
+          >
             <Ionicons name={flash === 'on' ? 'flash-outline' : 'flash-off-outline'} size={26} color="#FFFFFF" />
           </TouchableOpacity>
 
@@ -617,6 +622,8 @@ export default function CameraScreen() {
                 if (isRecording) flipCameraDuringRecording();
                 else setCameraMode(m => (m === 'back' ? 'front' : 'back'));
               }}
+              accessibilityRole="button"
+              accessibilityLabel="Flip camera"
             >
               <Ionicons name="camera-reverse-outline" size={26} color="#FFFFFF" />
             </TouchableOpacity>
@@ -689,13 +696,23 @@ export default function CameraScreen() {
 
             {locked ? (
               /* Locked: tap the red stop button to end recording */
-              <TouchableOpacity onPress={handleLockedStop} activeOpacity={0.8}>
+              <TouchableOpacity
+                onPress={handleLockedStop}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Stop recording"
+              >
                 <View style={[styles.shutterOuter, { borderColor: '#FF3B30' }]}>
                   <View style={styles.stopSquare} />
                 </View>
               </TouchableOpacity>
             ) : (
-              <View {...shutterResponder.panHandlers}>
+              <View
+                {...shutterResponder.panHandlers}
+                accessible
+                accessibilityRole="button"
+                accessibilityLabel="Shutter — tap for photo, hold for video"
+              >
                 <Animated.View style={[styles.shutterOuter, { borderColor: outerBorderColor }]}>
                   <Animated.View
                     style={[styles.shutterInner, {
@@ -717,6 +734,8 @@ export default function CameraScreen() {
                     transform: [{ scale: lockAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) }],
                   },
                 ]}
+                accessible
+                accessibilityLabel={locked ? 'Recording locked' : lockArmed ? 'Slide to lock — release to lock recording' : 'Slide shutter right to record hands-free'}
               >
                 <Ionicons
                   name={locked || lockArmed ? 'lock-closed' : 'lock-open-outline'}

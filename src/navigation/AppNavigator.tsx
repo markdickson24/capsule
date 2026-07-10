@@ -127,13 +127,13 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 />
                 {showBadge && (
                   <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
+                    <Text style={styles.badgeText} maxFontSizeMultiplier={1.3}>
                       {unreadCount > 9 ? '9+' : unreadCount}
                     </Text>
                   </View>
                 )}
               </View>
-              <Text style={[styles.label, isFocused && { color: accentColor }]}>
+              <Text style={[styles.label, isFocused && { color: accentColor }]} maxFontSizeMultiplier={1.3} numberOfLines={1}>
                 {config.label}
               </Text>
               {isFocused && <View style={[styles.underline, { backgroundColor: accentColor }]} />}
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    color: '#555555',
+    color: '#888888',
     fontWeight: '500',
   },
   labelActive: {

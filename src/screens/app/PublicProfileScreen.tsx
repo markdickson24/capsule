@@ -263,7 +263,13 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
           <Text style={[styles.back, { color: accentColor }]}>← Back</Text>
         </TouchableOpacity>
         {!isOwnProfile && (
-          <TouchableOpacity onPress={() => setMenuOpen(true)} hitSlop={8} style={styles.menuBtn}>
+          <TouchableOpacity
+            onPress={() => setMenuOpen(true)}
+            hitSlop={8}
+            style={styles.menuBtn}
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+          >
             <Ionicons name="ellipsis-horizontal" size={22} color="#FFFFFF" />
           </TouchableOpacity>
         )}
@@ -472,7 +478,7 @@ const styles = StyleSheet.create({
   capsuleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#1A1A1A' },
   capsuleName: { fontSize: 16, color: '#FFFFFF', fontWeight: '600' },
   capsuleStatus: { fontSize: 13, color: '#888888', textTransform: 'capitalize' },
-  empty: { fontSize: 14, color: '#555555', marginTop: 32, textAlign: 'center' },
+  empty: { fontSize: 14, color: '#888888', marginTop: 32, textAlign: 'center' },
 });
 
 const is = StyleSheet.create({
@@ -480,7 +486,7 @@ const is = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1A1A1A' },
   title: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
   done: { fontSize: 16, color: '#FF6B35', fontWeight: '600' },
-  empty: { color: '#555555', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  empty: { color: '#888888', textAlign: 'center', marginTop: 40, fontSize: 15 },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center', margin: 16 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#1A1A1A' },
   capsuleTitle: { fontSize: 16, color: '#FFFFFF', fontWeight: '600', flex: 1 },

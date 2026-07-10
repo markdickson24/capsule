@@ -35,7 +35,12 @@ export default function WelcomeScreen({ navigation }: Props) {
         <View style={styles.expiredBanner}>
           <Ionicons name="lock-closed-outline" size={16} color="#FFB020" />
           <Text style={styles.expiredText}>Your session expired. Please sign in again.</Text>
-          <TouchableOpacity onPress={() => setExpired(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <TouchableOpacity
+            onPress={() => setExpired(false)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss"
+          >
             <Ionicons name="close" size={14} color="#FFB020" />
           </TouchableOpacity>
         </View>
