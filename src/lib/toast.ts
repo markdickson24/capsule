@@ -3,7 +3,8 @@
 // navigation that happens right after an upload completes. Call toast.show(...)
 // from anywhere (including non-component code).
 
-export type Toast = { id: number; message: string };
+export type ToastAction = { label: string; onPress: () => void };
+export type Toast = { id: number; message: string; action?: ToastAction };
 
 let current: Toast | null = null;
 let seq = 0;
@@ -16,9 +17,13 @@ function notify() {
 export const toast = {
   get: (): Toast | null => current,
 
-  /** Show a transient confirmation. The host animates it in and auto-dismisses. */
-  show(message: string) {
-    current = { id: ++seq, message };
+  /**
+   * Show a transient confirmation. The host animates it in and auto-dismisses.
+   * Pass `action` (e.g. { label: 'Undo', onPress }) for a tappable next step —
+   * tapping it dismisses the toast immediately, same as the auto-dismiss.
+   */
+  show(message: string, action?: ToastAction) {
+    current = { id: ++seq, message, action };
     notify();
   },
 

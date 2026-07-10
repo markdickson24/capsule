@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Platform, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
@@ -46,9 +46,20 @@ export default function ToastHost() {
 
   if (!active) return null;
 
+  function dismissNow() {
+    if (timer.current) clearTimeout(timer.current);
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 12, duration: 200, useNativeDriver: true }),
+    ]).start(() => toast.clear());
+  }
+
   return (
-    <View pointerEvents="none" style={[styles.wrap, { bottom: insets.bottom + 80 }]}>
+    // box-none: the toast's own footprint shouldn't eat touches on the rest of
+    // the screen, but the action button (e.g. "Undo") inside it still needs to be tappable.
+    <View pointerEvents="box-none" style={[styles.wrap, { bottom: insets.bottom + 80 }]}>
       <Animated.View
+        pointerEvents="box-none"
         style={[
           styles.pill,
           Platform.select({
@@ -60,6 +71,17 @@ export default function ToastHost() {
       >
         <Ionicons name="checkmark-circle" size={19} color={accentColor} />
         <Text style={styles.text}>{active.message}</Text>
+        {active.action && (
+          <TouchableOpacity
+            onPress={() => {
+              active.action!.onPress();
+              dismissNow();
+            }}
+            hitSlop={8}
+          >
+            <Text style={[styles.actionText, { color: accentColor }]}>{active.action.label}</Text>
+          </TouchableOpacity>
+        )}
       </Animated.View>
     </View>
   );
@@ -90,5 +112,11 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14.5,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  actionText: {
+    fontSize: 14.5,
+    fontWeight: '700',
+    marginLeft: 4,
   },
 });

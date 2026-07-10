@@ -63,7 +63,22 @@ export default function AwardsSection({
 
   const threshold = Math.max(1, Math.ceil(joinedMemberCount / 2));
   const isFinalized = !!votingFinalizedAt;
-  const isClosed = !!votingClosesAt && new Date(votingClosesAt).getTime() <= Date.now();
+  // isClosed derives from `nowTick`, not a bare Date.now() read at render time,
+  // so the one-shot timer below can actually force the open->"Tallying…"
+  // transition live instead of waiting for some other event (realtime
+  // message, refocus, manual refresh) to trigger a re-render.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const isClosed = !!votingClosesAt && new Date(votingClosesAt).getTime() <= nowTick;
+
+  useEffect(() => {
+    if (!votingClosesAt) return;
+    const msUntilClose = new Date(votingClosesAt).getTime() - Date.now();
+    if (msUntilClose <= 0) return; // already closed — isClosed is already true
+    // setTimeout's delay is a 32-bit signed int (~24.8 days); cap it so a
+    // long voting window (up to 720h) can't overflow into an immediate fire.
+    const timer = setTimeout(() => setNowTick(Date.now()), Math.min(msUntilClose + 250, 2_000_000_000));
+    return () => clearTimeout(timer);
+  }, [votingClosesAt]);
 
   // Thin wrapper — the actual fetch/shape/cache-write logic lives in
   // fetchAwardsData (src/lib/awardsData.ts) so CapsuleDetailScreen can also
