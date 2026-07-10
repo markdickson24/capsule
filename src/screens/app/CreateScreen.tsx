@@ -17,13 +17,12 @@ import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
-import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { uploadQueue } from '../../lib/uploadQueue';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 import { getGroupMembers } from '../../lib/groups';
-import { OCCASIONS, OccasionKey, PresetAward, pickDefaults } from '../../lib/awardPool';
+import { OCCASIONS, OccasionKey, pickDefaults } from '../../lib/awardPool';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -67,12 +66,13 @@ export default function CreateScreen() {
   const [votingHours, setVotingHours] = useState(48);
   const [hideFromMe, setHideFromMe] = useState(true);
   const [occasion, setOccasion] = useState<OccasionKey>('general');
-  const [defaultAwards, setDefaultAwards] = useState<PresetAward[]>(() => pickDefaults('general'));
   const [loading, setLoading] = useState(false);
-  // Uploads deadline / voting window / occasion+awards are all pre-defaulted
-  // and editable later (voting window, awards pre-unlock) — collapsing them
-  // behind a disclosure costs a new user nothing but removes 3 of the 8
-  // decisions from the critical path to "Lock Capsule".
+  // Everything except Name and the unlock date is pre-defaulted and editable
+  // later, so it all collapses behind "More options" — a new user only faces
+  // two decisions before "Lock Capsule". Default awards are seeded from the
+  // occasion at submit time (see handleCreate) and managed post-create on the
+  // capsule's own DefaultAwardsCard(mode="manage"), so there's no live preview
+  // to hold state for here.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   type FieldErrors = {
     title?: string; description?: string; unlockDate?: string;
@@ -97,15 +97,8 @@ export default function CreateScreen() {
     });
   }
 
-  function selectOccasion(next: OccasionKey) {
-    setOccasion(next);
-    // Re-seed the preview whenever the occasion changes so the 4 preview
-    // chips match the newly-selected theme rather than staying stale.
-    setDefaultAwards(pickDefaults(next));
-  }
-
   const occasionLabel = OCCASIONS.find(o => o.key === occasion)?.label ?? 'General';
-  const advancedSummary = `${occasionLabel} · ${votingHours}h voting · ${defaultAwards.length} award${defaultAwards.length === 1 ? '' : 's'}`;
+  const advancedSummary = `${occasionLabel} · ${votingHours}h voting · Surprise ${hideFromMe ? 'on' : 'off'}`;
 
   async function handleCreate() {
     setErrors({});
@@ -121,6 +114,7 @@ export default function CreateScreen() {
       return;
     }
     if (description.trim().length > 500) {
+      setAdvancedOpen(true);
       setErrors({ description: 'Description must be 500 characters or less.' });
       scrollToField('description');
       return;
@@ -194,6 +188,10 @@ export default function CreateScreen() {
       return;
     }
 
+    // Seed the 4 themed default awards from the chosen occasion. Computed here
+    // (not held as live-preview state) since the owner reviews/regenerates them
+    // on the capsule's own DefaultAwardsCard(mode="manage") pre-unlock.
+    const defaultAwards = pickDefaults(occasion);
     if (defaultAwards.length > 0) {
       try {
         const { error: awardsError } = await supabase.rpc('set_default_superlatives', {
@@ -321,43 +319,6 @@ export default function CreateScreen() {
           {errors.title ? <Text style={styles.fieldError}>{errors.title}</Text> : null}
         </View>
 
-        <View style={styles.section} onLayout={recordFieldY('description')}>
-          <Text style={styles.label}>Description <Text style={styles.optional}>(optional)</Text></Text>
-          <TextInput
-            style={[styles.input, styles.textarea, errors.description && styles.inputError]}
-            placeholder="What's inside this capsule?"
-            placeholderTextColor="#555"
-            value={description}
-            onChangeText={(t) => { setDescription(t); if (errors.description) setErrors(e => ({ ...e, description: undefined })); }}
-            multiline
-            numberOfLines={3}
-            maxLength={500}
-          />
-          {errors.description ? <Text style={styles.fieldError}>{errors.description}</Text> : null}
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>Unlock When</Text>
-            <InfoTooltip
-              title="Unlock Mode"
-              body={"Date — opens automatically at the date and time you pick.\n\nTogether — opens when all members tap 'Check In' from the same location (within ~100 meters of each other).\n\nBoth — requires the date to have passed AND everyone to be physically together."}
-            />
-          </View>
-          <View style={styles.toggle}>
-            {UNLOCK_MODES.map(({ mode, label }) => (
-              <TouchableOpacity
-                key={mode}
-                style={[styles.toggleOption, unlockMode === mode && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
-                onPress={() => setUnlockMode(mode)}
-              >
-                <Text style={[styles.toggleText, unlockMode === mode && [styles.toggleTextActive, { color: accentColor }]]}>{label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-          <Text style={styles.modeHint}>{unlockModeHint(unlockMode)}</Text>
-        </View>
-
         {unlockMode !== 'proximity' && (
           <View onLayout={recordFieldY('unlockDate')}>
             <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
@@ -370,10 +331,10 @@ export default function CreateScreen() {
             style={styles.advancedToggle}
             onPress={() => setAdvancedOpen(o => !o)}
             accessibilityRole="button"
-            accessibilityLabel={advancedOpen ? 'Collapse awards & advanced options' : 'Expand awards & advanced options'}
+            accessibilityLabel={advancedOpen ? 'Collapse more options' : 'Expand more options'}
           >
             <View style={{ flex: 1 }}>
-              <Text style={styles.label}>Awards & Advanced</Text>
+              <Text style={styles.label}>More options</Text>
               {!advancedOpen && <Text style={styles.advancedSummary}>{advancedSummary}</Text>}
             </View>
             <Ionicons name={advancedOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#888888" />
@@ -381,6 +342,43 @@ export default function CreateScreen() {
 
           {advancedOpen && (
             <View style={{ gap: 24, marginTop: 20 }}>
+              <View onLayout={recordFieldY('description')}>
+                <Text style={styles.label}>Description <Text style={styles.optional}>(optional)</Text></Text>
+                <TextInput
+                  style={[styles.input, styles.textarea, errors.description && styles.inputError, { marginTop: 8 }]}
+                  placeholder="What's inside this capsule?"
+                  placeholderTextColor="#555"
+                  value={description}
+                  onChangeText={(t) => { setDescription(t); if (errors.description) setErrors(e => ({ ...e, description: undefined })); }}
+                  multiline
+                  numberOfLines={3}
+                  maxLength={500}
+                />
+                {errors.description ? <Text style={styles.fieldError}>{errors.description}</Text> : null}
+              </View>
+
+              <View style={styles.section}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Unlock When</Text>
+                  <InfoTooltip
+                    title="Unlock Mode"
+                    body={"Date — opens automatically at the date and time you pick.\n\nTogether — opens when all members tap 'Check In' from the same location (within ~100 meters of each other).\n\nBoth — requires the date to have passed AND everyone to be physically together."}
+                  />
+                </View>
+                <View style={styles.toggle}>
+                  {UNLOCK_MODES.map(({ mode, label }) => (
+                    <TouchableOpacity
+                      key={mode}
+                      style={[styles.toggleOption, unlockMode === mode && [styles.toggleActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }]]}
+                      onPress={() => setUnlockMode(mode)}
+                    >
+                      <Text style={[styles.toggleText, unlockMode === mode && [styles.toggleTextActive, { color: accentColor }]]}>{label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={styles.modeHint}>{unlockModeHint(unlockMode)}</Text>
+              </View>
+
               <View onLayout={recordFieldY('contribLockDate')}>
                 <DatePickerField
                   label="Uploads Deadline"
@@ -406,7 +404,7 @@ export default function CreateScreen() {
                   <Text style={styles.label}>Occasion</Text>
                   <InfoTooltip
                     title="Occasion"
-                    body={"Picks the theme for this capsule's 4 automatic awards — e.g. sentimental for a wedding, playful for a trip. You can shuffle, swap, or remove any of them below, and members can still suggest their own after unlock."}
+                    body={"Picks the theme for this capsule's 4 automatic awards — e.g. sentimental for a wedding, playful for a trip. You can review, shuffle, or swap them from the capsule page before it unlocks, and members can still suggest their own after unlock."}
                   />
                 </View>
                 <View style={styles.occasionGrid}>
@@ -421,7 +419,7 @@ export default function CreateScreen() {
                               styles.occasionChip,
                               selected && [styles.occasionChipActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }],
                             ]}
-                            onPress={() => selectOccasion(key)}
+                            onPress={() => setOccasion(key)}
                           >
                             <Ionicons name={icon as any} size={18} color={selected ? accentColor : '#888'} />
                             <Text
@@ -436,36 +434,30 @@ export default function CreateScreen() {
                     </View>
                   ))}
                 </View>
-                <DefaultAwardsCard
-                  mode="preview"
-                  occasion={occasion}
-                  awards={defaultAwards}
-                  onChange={setDefaultAwards}
-                />
+              </View>
+
+              <View style={styles.section}>
+                <Text style={styles.label}>Keep it a surprise</Text>
+                <View style={styles.surpriseRow}>
+                  <View style={styles.surpriseTextWrap}>
+                    <Text style={styles.surpriseTitle}>Hide contents from me too</Text>
+                    <Text style={styles.surpriseSub}>
+                      {hideFromMe
+                        ? "You won't see any photos — even your own — until it unlocks for everyone."
+                        : "You can preview photos as they're added before unlock."}
+                    </Text>
+                  </View>
+                  <Switch
+                    value={hideFromMe}
+                    onValueChange={setHideFromMe}
+                    trackColor={{ false: '#2A2A2A', true: accentColor }}
+                    thumbColor="#FFFFFF"
+                    ios_backgroundColor="#2A2A2A"
+                  />
+                </View>
               </View>
             </View>
           )}
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.label}>Keep it a surprise</Text>
-          <View style={styles.surpriseRow}>
-            <View style={styles.surpriseTextWrap}>
-              <Text style={styles.surpriseTitle}>Hide contents from me too</Text>
-              <Text style={styles.surpriseSub}>
-                {hideFromMe
-                  ? "You won't see any photos — even your own — until it unlocks for everyone."
-                  : "You can preview photos as they're added before unlock."}
-              </Text>
-            </View>
-            <Switch
-              value={hideFromMe}
-              onValueChange={setHideFromMe}
-              trackColor={{ false: '#2A2A2A', true: accentColor }}
-              thumbColor="#FFFFFF"
-              ios_backgroundColor="#2A2A2A"
-            />
-          </View>
         </View>
 
         {errors.general ? <Text style={styles.error}>{errors.general}</Text> : null}
