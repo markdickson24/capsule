@@ -17,6 +17,7 @@ import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
+import SealCeremony from '../../components/SealCeremony';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { uploadQueue } from '../../lib/uploadQueue';
@@ -74,6 +75,10 @@ export default function CreateScreen() {
   // capsule's own DefaultAwardsCard(mode="manage"), so there's no live preview
   // to hold state for here.
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  // Set when a capsule is created — drives the full-screen seal ceremony
+  // (SealCeremony); its onDone navigates into the capsule. Holds everything
+  // the ceremony + the CapsuleDetail handoff need.
+  const [sealed, setSealed] = useState<{ capsuleId: string; subtitle: string; userId: string } | null>(null);
   type FieldErrors = {
     title?: string; description?: string; unlockDate?: string;
     contribLockDate?: string; votingHours?: string; general?: string;
@@ -264,7 +269,19 @@ export default function CreateScreen() {
 
     setLoading(false);
     cache.invalidate('capsules', 'profile');
-    navigation.navigate('CapsuleDetail', { capsuleId, justCreated: true });
+
+    // The signature moment: seal ceremony first, then land on the capsule.
+    // Proximity has no meaningful unlock date, so its subtitle says so.
+    const sealSubtitle = unlockMode === 'proximity'
+      ? "opens when you're all together"
+      : `opens ${(unlockDate ?? defaultUnlockDate()).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    setSealed({ capsuleId, subtitle: sealSubtitle, userId: user.id });
+  }
+
+  function onSealDone() {
+    const target = sealed;
+    setSealed(null);
+    if (target) navigation.navigate('CapsuleDetail', { capsuleId: target.capsuleId, justCreated: true });
   }
 
   const headerAnim = useFadeIn(0, 300);
@@ -472,6 +489,14 @@ export default function CreateScreen() {
         </TouchableOpacity>
         </Animated.View>
       </ScrollView>
+
+      {sealed && (
+        <SealCeremony
+          subtitle={sealed.subtitle}
+          userId={sealed.userId}
+          onDone={onSealDone}
+        />
+      )}
     </SafeAreaView>
   );
 }
