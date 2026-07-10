@@ -98,6 +98,19 @@ async function registerToken(userId: string) {
 }
 
 /**
+ * Read-only permission status, so a contextual primer can decide whether to
+ * show a soft ask *before* the native dialog. Never prompts. 'unavailable' on
+ * web (the stub) so callers can treat it as "don't show a primer."
+ */
+export async function getPushPermissionStatus(): Promise<'granted' | 'denied' | 'undetermined' | 'unavailable'> {
+  if (Platform.OS === 'web') return 'unavailable';
+  const { status } = await Notifications.getPermissionsAsync();
+  if (status === 'granted') return 'granted';
+  if (status === 'undetermined') return 'undetermined';
+  return 'denied';
+}
+
+/**
  * The one place the native permission prompt is allowed to fire. Called from
  * the Onboarding "Don't miss it" primer (and any future contextual re-ask).
  * Returns whether pushes ended up enabled; registers the token on grant.
