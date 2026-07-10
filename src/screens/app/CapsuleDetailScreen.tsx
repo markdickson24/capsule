@@ -1036,9 +1036,15 @@ const chk = StyleSheet.create({
 
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const { accentColor } = useTheme();
-  const { capsuleId } = route.params;
+  const { capsuleId, justCreated } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
+  // Post-create invite nudge (UX.md 2.2): a brand-new capsule with just its
+  // owner is a failed core loop — nothing to anticipate, no reveal, no award
+  // voting. Only worth surfacing on the landing that immediately follows
+  // creation (route param, not persisted), and only until the user acts on
+  // it or dismisses it.
+  const [inviteNudgeDismissed, setInviteNudgeDismissed] = useState(false);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1644,6 +1650,31 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           </Text>
         </TouchableOpacity>
 
+        {justCreated && !inviteNudgeDismissed && members.length === 1 && (
+          <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+            <Ionicons name="people-outline" size={22} color={accentColor} />
+            <View style={styles.inviteNudgeTextWrap}>
+              <Text style={styles.inviteNudgeTitle}>Invite people</Text>
+              <Text style={styles.inviteNudgeSub}>Capsules are better together — nothing to unlock alone.</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
+              onPress={() => setShowInvite(true)}
+            >
+              <Text style={styles.inviteNudgeBtnText}>Invite</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.inviteNudgeClose}
+              onPress={() => setInviteNudgeDismissed(true)}
+              accessibilityLabel="Dismiss invite prompt"
+              accessibilityRole="button"
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={16} color="#888888" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Media */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Media</Text>
@@ -2079,6 +2110,16 @@ const styles = StyleSheet.create({
   },
   memberOverflowText: { fontSize: 11, fontWeight: '700', color: '#888888' },
   memberCountLabel: { fontSize: 14, color: '#666666', marginLeft: 18 },
+  inviteNudge: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14,
+  },
+  inviteNudgeTextWrap: { flex: 1, gap: 2 },
+  inviteNudgeTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  inviteNudgeSub: { fontSize: 12, color: '#AAAAAA', lineHeight: 16 },
+  inviteNudgeBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  inviteNudgeBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  inviteNudgeClose: { padding: 2 },
   // Members bottom sheet
   sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' },
   sheetContainer: { backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20 },

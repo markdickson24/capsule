@@ -138,7 +138,9 @@ RootNavigator (App.tsx)
     Onboarding        (no params — 4-step wizard, animation: 'fade')
 ```
 
-Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is a `PendingMedia[]` set by `PreviewScreen` when creating a new capsule from the camera/share flow — every item auto-uploads sequentially after the capsule is created.
+Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }` route params. `presetTitle`/`presetDescription` are used by Onboarding step 4 preset cards. `pendingMedia` is a `PendingMedia[]` set by `PreviewScreen` when creating a new capsule from the camera/share flow — enqueued onto the background `uploadQueue` (see "Background Upload Queue") right after the capsule row is created, so the new capsule's screen shows the same pending tiles / `Uploading n/N` / truthful drain toast as any other upload, and a per-item failure is retryable instead of silently swallowed. `CapsuleDetail` is opened with `justCreated: true` in this navigation so it can show the post-create invite nudge (below).
+
+**`CreateScreen` progressive disclosure** — only **Name, Unlock When/date, and "Keep it a surprise"** are always visible. **Uploads Deadline, Voting window, and Occasion + the default-awards preview** live behind an "Awards & Advanced" disclosure (collapsed by default), showing a one-line summary of current values (e.g. `General · 48h voting · 4 awards`) when collapsed. All three have working defaults, so leaving it collapsed costs a new user nothing. Validation is per-field (`errors: { title?, description?, unlockDate?, contribLockDate?, votingHours?, general? }`, an `inputError` red border on the failing `TextInput`, inline text under the field) rather than one message at the bottom — on a failing submit, `scrollToField` auto-expands the advanced section first if the invalid field lives there, then scrolls it into view. `general` is still a single bottom-of-form slot, reserved for account/system-level failures (not signed in, capsule insert failed) that aren't tied to one input.
 
 **`navigationRef`** (`src/lib/navigationRef.ts`) — a `NavigationContainerRef` used for imperative navigation from outside components (e.g. push notification tap handler, deep link handler). Poll `navigationRef.isReady()` before calling `.navigate()`.
 
@@ -358,6 +360,8 @@ Large file (~2200 lines). Key sub-components and patterns:
 **`CountdownRing`** — wraps `ProgressRing` with lock icon, countdown text, unlock date. Updates every 60s via `setInterval`. Progress = `timeRemaining / (unlock_at - created_at)`, falls back to 1-year total if `created_at` unavailable.
 
 **`InviteModal`** — user search with 300ms debounce (min 2 chars), sends push notification to invited user client-side.
+
+**Post-create invite nudge** — when `route.params.justCreated` is true (set by `CreateScreen` on navigation right after a capsule is made) and `members.length === 1`, a dismissible callout ("Invite people — capsules are better together") renders above the Media section, with an Invite button opening the same `InviteModal`. A single-member capsule is a failed core loop (no reveal, no award voting to anticipate), so this is the one moment worth nudging; it's gone once another member joins or the user dismisses it, and never reappears on a later visit (the param isn't persisted).
 
 **`MediaViewerModal`** — full-screen swipe carousel. Gesture axis is locked on first movement (prevents diagonal). Vertical swipe > 120px or velocity > 1.5 closes modal. Header controls (close, page counter, download) sit inside a `LinearGradient` overlay (top 120px, `rgba(0,0,0,0.6)` → transparent) so buttons don't get lost against light images. Download button uses `expo-media-library` on native (saves to camera roll) and anchor-element download on web.
 
