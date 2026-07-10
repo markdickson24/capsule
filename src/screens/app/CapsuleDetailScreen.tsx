@@ -1383,21 +1383,20 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     return () => { supabase.removeChannel(channel); };
   }, [capsuleId]);
 
-  // Optimistic: enqueue and return immediately — the picked photos appear in
-  // the grid as pending tiles at once, upload in the background, and the
-  // task-count effect below refetches as each one lands. Failures stay as
-  // retryable tiles (rollback = dismiss).
-  function uploadPhotos(assets: ImagePicker.ImagePickerAsset[]) {
+  // Route picks through the same Preview carousel camera/share uploads use —
+  // gives library/camera adds here per-item captions and the shared resize
+  // pipeline, instead of enqueuing straight to the upload queue with neither.
+  // targetCapsuleId preselects (not locks) this capsule in Preview's chip
+  // list, so confirming lands back here without the user re-picking it.
+  function goToPreview(assets: ImagePicker.ImagePickerAsset[]) {
+    if (assets.length === 0) return;
     setUploadError('');
-    uploadQueue.enqueue(
-      assets.map(asset => ({
-        capsuleId,
-        uri: asset.uri,
-        mediaType: 'photo' as const,
-        mimeType: asset.mimeType ?? 'image/jpeg',
-      }))
-    );
     setShowPickerOptions(false);
+    navigation.navigate('Preview', {
+      media: assets.map(a => ({ uri: a.uri, mediaType: 'photo' as const })),
+      source: 'camera',
+      targetCapsuleId: capsuleId,
+    });
   }
 
   // A queue task finishing (success removes it; dismiss too) means there may
@@ -1422,7 +1421,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       allowsMultipleSelection: true,
       quality: 0.8,
     });
-    if (!result.canceled) await uploadPhotos(result.assets);
+    if (!result.canceled) goToPreview(result.assets);
   }
 
   async function pickFromCamera() {
@@ -1435,7 +1434,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 0.8,
     });
-    if (!result.canceled) await uploadPhotos(result.assets);
+    if (!result.canceled) goToPreview(result.assets);
   }
 
   if (loading) {
