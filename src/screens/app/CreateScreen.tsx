@@ -1,15 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import InfoTooltip from '../../components/InfoTooltip';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput, Animated,
-  TouchableOpacity, ScrollView, Platform, Switch,
+  TouchableOpacity, ScrollView, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import * as FileSystem from 'expo-file-system/legacy';
-import { supabase, getFreshAccessToken } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,7 +19,7 @@ import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import { cache } from '../../lib/cache';
-import { toast } from '../../lib/toast';
+import { uploadQueue } from '../../lib/uploadQueue';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 import { getGroupMembers } from '../../lib/groups';
 import { OCCASIONS, OccasionKey, PresetAward, pickDefaults } from '../../lib/awardPool';
@@ -43,51 +42,6 @@ function defaultUnlockDate() {
   return d;
 }
 
-
-async function uploadMedia(capsuleId: string, media: PendingMedia): Promise<void> {
-  const session = sessionStore.get();
-  if (!session) return;
-
-  const mimeType = media.mediaType === 'video' ? 'video/mp4' : 'image/jpeg';
-  const ext = media.mediaType === 'video' ? 'mp4' : 'jpg';
-  const storageKey = `${capsuleId}/${randomUUID()}.${ext}`;
-  let sizeBytes = 0;
-
-  if (Platform.OS === 'web') {
-    const response = await fetch(media.uri);
-    const arrayBuffer = await response.arrayBuffer();
-    sizeBytes = arrayBuffer.byteLength;
-    await supabase.storage
-      .from('capsule-media')
-      .upload(storageKey, arrayBuffer, { contentType: mimeType });
-  } else {
-    const fileInfo = await FileSystem.getInfoAsync(media.uri);
-    sizeBytes = fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
-    const accessToken = await getFreshAccessToken();
-    await FileSystem.uploadAsync(
-      `${process.env.EXPO_PUBLIC_SUPABASE_URL}/storage/v1/object/capsule-media/${storageKey}`,
-      media.uri,
-      {
-        httpMethod: 'POST',
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          apikey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!,
-          'Content-Type': mimeType,
-        },
-      }
-    );
-  }
-
-  await supabase.from('media').insert({
-    capsule_id: capsuleId,
-    uploader_id: session.user.id,
-    storage_key: storageKey,
-    media_type: media.mediaType,
-    size_bytes: sizeBytes,
-    caption: media.caption?.trim() || null,
-  });
-}
 
 export default function CreateScreen() {
   const { accentColor } = useTheme();
@@ -114,7 +68,33 @@ export default function CreateScreen() {
   const [occasion, setOccasion] = useState<OccasionKey>('general');
   const [defaultAwards, setDefaultAwards] = useState<PresetAward[]>(() => pickDefaults('general'));
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  // Uploads deadline / voting window / occasion+awards are all pre-defaulted
+  // and editable later (voting window, awards pre-unlock) — collapsing them
+  // behind a disclosure costs a new user nothing but removes 3 of the 8
+  // decisions from the critical path to "Lock Capsule".
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  type FieldErrors = {
+    title?: string; description?: string; unlockDate?: string;
+    contribLockDate?: string; votingHours?: string; general?: string;
+  };
+  const [errors, setErrors] = useState<FieldErrors>({});
+
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldY = useRef<Partial<Record<keyof FieldErrors, number>>>({});
+  function recordFieldY(field: keyof FieldErrors) {
+    return (e: { nativeEvent: { layout: { y: number } } }) => {
+      fieldY.current[field] = e.nativeEvent.layout.y;
+    };
+  }
+  function scrollToField(field: keyof FieldErrors) {
+    const y = fieldY.current[field];
+    if (y == null) return;
+    // requestAnimationFrame lets the advanced section (if it was just
+    // expanded to reveal this field) lay out first, so the offset is current.
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true });
+    });
+  }
 
   function selectOccasion(next: OccasionKey) {
     setOccasion(next);
@@ -123,22 +103,49 @@ export default function CreateScreen() {
     setDefaultAwards(pickDefaults(next));
   }
 
-  async function handleCreate() {
-    setError('');
+  const occasionLabel = OCCASIONS.find(o => o.key === occasion)?.label ?? 'General';
+  const advancedSummary = `${occasionLabel} · ${votingHours}h voting · ${defaultAwards.length} award${defaultAwards.length === 1 ? '' : 's'}`;
 
-    if (!title.trim()) { setError('Give your capsule a name.'); return; }
-    if (title.trim().length > 100) { setError('Name must be 100 characters or less.'); return; }
-    if (description.trim().length > 500) { setError('Description must be 500 characters or less.'); return; }
+  async function handleCreate() {
+    setErrors({});
+
+    if (!title.trim()) {
+      setErrors({ title: 'Give your capsule a name.' });
+      scrollToField('title');
+      return;
+    }
+    if (title.trim().length > 100) {
+      setErrors({ title: 'Name must be 100 characters or less.' });
+      scrollToField('title');
+      return;
+    }
+    if (description.trim().length > 500) {
+      setErrors({ description: 'Description must be 500 characters or less.' });
+      scrollToField('description');
+      return;
+    }
     if (unlockMode !== 'proximity') {
-      if (!unlockDate) { setError('Set a valid unlock date.'); return; }
-      if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
+      if (!unlockDate) {
+        setErrors({ unlockDate: 'Set a valid unlock date.' });
+        scrollToField('unlockDate');
+        return;
+      }
+      if (unlockDate <= new Date()) {
+        setErrors({ unlockDate: 'Unlock date must be in the future.' });
+        scrollToField('unlockDate');
+        return;
+      }
       if (contribLockDate && contribLockDate >= unlockDate) {
-        setError('Contribution lock must be before the unlock date.');
+        setAdvancedOpen(true);
+        setErrors({ contribLockDate: 'Uploads deadline must be before the unlock date.' });
+        scrollToField('contribLockDate');
         return;
       }
     }
     if (votingHours < 1 || votingHours > 720) {
-      setError('Voting window must be between 1 and 720 hours.');
+      setAdvancedOpen(true);
+      setErrors({ votingHours: 'Voting window must be between 1 and 720 hours.' });
+      scrollToField('votingHours');
       return;
     }
 
@@ -146,7 +153,7 @@ export default function CreateScreen() {
 
     const session = sessionStore.get();
     const user = session?.user;
-    if (!user || !session) { setLoading(false); setError('Not logged in — try signing out and back in.'); return; }
+    if (!user || !session) { setLoading(false); setErrors({ general: 'Not logged in — try signing out and back in.' }); return; }
 
     const capsuleId = randomUUID();
 
@@ -169,7 +176,7 @@ export default function CreateScreen() {
 
     if (capsuleError) {
       setLoading(false);
-      setError('Failed to create capsule. Please try again.');
+      setErrors({ general: 'Failed to create capsule. Please try again.' });
       return;
     }
 
@@ -182,7 +189,7 @@ export default function CreateScreen() {
 
     if (memberError) {
       setLoading(false);
-      setError('Capsule created but could not set owner. Please try again.');
+      setErrors({ general: 'Capsule created but could not set owner. Please try again.' });
       return;
     }
 
@@ -223,20 +230,27 @@ export default function CreateScreen() {
     }
 
     if (pendingMedia && pendingMedia.length > 0) {
-      for (const media of pendingMedia) {
-        try {
-          await uploadMedia(capsuleId, media);
-        } catch {
-          // Capsule created successfully — keep going so partial success is preserved
-        }
-      }
-      const n = pendingMedia.length;
-      toast.show(`${n} ${n === 1 ? 'photo' : 'photos'} added`);
+      // Route through the same background upload queue CapsuleDetail renders
+      // as pending tiles + a truthful "N added · M failed" drain toast —
+      // previously this uploaded sequentially inline with an empty catch per
+      // item, so a failed item just vanished while the toast still claimed
+      // every item was added. The queue makes failures visible and retryable
+      // instead of a silent, unrecoverable loss discovered at unlock months
+      // later.
+      uploadQueue.enqueue(
+        pendingMedia.map(m => ({
+          capsuleId,
+          uri: m.uri,
+          mediaType: m.mediaType,
+          altUri: m.altUri,
+          caption: m.caption,
+        }))
+      );
     }
 
     setLoading(false);
     cache.invalidate('capsules', 'profile');
-    navigation.navigate('CapsuleDetail', { capsuleId });
+    navigation.navigate('CapsuleDetail', { capsuleId, justCreated: true });
   }
 
   const headerAnim = useFadeIn(0, 300);
@@ -249,7 +263,7 @@ export default function CreateScreen() {
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       )}
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <Animated.View style={headerAnim}>
           <Text style={styles.title}>New Capsule</Text>
           <Text style={styles.subtitle}>Lock your memories until the moment is right</Text>
@@ -278,30 +292,32 @@ export default function CreateScreen() {
           </View>
         )}
 
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={recordFieldY('title')}>
           <Text style={styles.label}>Name</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, errors.title && styles.inputError]}
             placeholder="e.g. Summer Trip 2026"
             placeholderTextColor="#555"
             value={title}
-            onChangeText={setTitle}
+            onChangeText={(t) => { setTitle(t); if (errors.title) setErrors(e => ({ ...e, title: undefined })); }}
             maxLength={100}
           />
+          {errors.title ? <Text style={styles.fieldError}>{errors.title}</Text> : null}
         </View>
 
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={recordFieldY('description')}>
           <Text style={styles.label}>Description <Text style={styles.optional}>(optional)</Text></Text>
           <TextInput
-            style={[styles.input, styles.textarea]}
+            style={[styles.input, styles.textarea, errors.description && styles.inputError]}
             placeholder="What's inside this capsule?"
             placeholderTextColor="#555"
             value={description}
-            onChangeText={setDescription}
+            onChangeText={(t) => { setDescription(t); if (errors.description) setErrors(e => ({ ...e, description: undefined })); }}
             multiline
             numberOfLines={3}
             maxLength={500}
           />
+          {errors.description ? <Text style={styles.fieldError}>{errors.description}</Text> : null}
         </View>
 
         <View style={styles.section}>
@@ -327,63 +343,92 @@ export default function CreateScreen() {
         </View>
 
         {unlockMode !== 'proximity' && (
-          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
+          <View onLayout={recordFieldY('unlockDate')}>
+            <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
+            {errors.unlockDate ? <Text style={styles.fieldError}>{errors.unlockDate}</Text> : null}
+          </View>
         )}
-        <DatePickerField
-          label="Uploads Deadline"
-          optional
-          value={contribLockDate}
-          onChange={setContribLockDate}
-          contextLabel="No one can add photos after this date"
-          tooltip={{
-            title: 'Uploads Deadline',
-            body: 'After this date, no one (including you) can add new photos or videos to the capsule. The contents are then sealed until the unlock date.\n\nLeave it off if you want members to keep uploading right up until unlock.',
-          }}
-        />
-
-        <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
 
         <View style={styles.section}>
-          <View style={styles.labelRow}>
-            <Text style={styles.label}>Occasion</Text>
-            <InfoTooltip
-              title="Occasion"
-              body={"Picks the theme for this capsule's 4 automatic awards — e.g. sentimental for a wedding, playful for a trip. You can shuffle, swap, or remove any of them below, and members can still suggest their own after unlock."}
-            />
-          </View>
-          <View style={styles.occasionGrid}>
-            {[OCCASIONS.slice(0, 3), OCCASIONS.slice(3, 6)].map((row, rowIndex) => (
-              <View key={rowIndex} style={styles.occasionRow}>
-                {row.map(({ key, label, icon }) => {
-                  const selected = occasion === key;
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      style={[
-                        styles.occasionChip,
-                        selected && [styles.occasionChipActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }],
-                      ]}
-                      onPress={() => selectOccasion(key)}
-                    >
-                      <Ionicons name={icon as any} size={18} color={selected ? accentColor : '#888'} />
-                      <Text
-                        style={[styles.occasionChipText, selected && { color: accentColor }]}
-                        numberOfLines={1}
-                      >
-                        {label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+          <TouchableOpacity
+            style={styles.advancedToggle}
+            onPress={() => setAdvancedOpen(o => !o)}
+            accessibilityRole="button"
+            accessibilityLabel={advancedOpen ? 'Collapse awards & advanced options' : 'Expand awards & advanced options'}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Awards & Advanced</Text>
+              {!advancedOpen && <Text style={styles.advancedSummary}>{advancedSummary}</Text>}
+            </View>
+            <Ionicons name={advancedOpen ? 'chevron-up' : 'chevron-down'} size={20} color="#888888" />
+          </TouchableOpacity>
+
+          {advancedOpen && (
+            <View style={{ gap: 24, marginTop: 20 }}>
+              <View onLayout={recordFieldY('contribLockDate')}>
+                <DatePickerField
+                  label="Uploads Deadline"
+                  optional
+                  value={contribLockDate}
+                  onChange={setContribLockDate}
+                  contextLabel="No one can add photos after this date"
+                  tooltip={{
+                    title: 'Uploads Deadline',
+                    body: 'After this date, no one (including you) can add new photos or videos to the capsule. The contents are then sealed until the unlock date.\n\nLeave it off if you want members to keep uploading right up until unlock.',
+                  }}
+                />
+                {errors.contribLockDate ? <Text style={styles.fieldError}>{errors.contribLockDate}</Text> : null}
               </View>
-            ))}
-          </View>
-          <DefaultAwardsCard
-            mode="preview"
-            occasion={occasion}
-            awards={defaultAwards}
-            onChange={setDefaultAwards}
-          />
+
+              <View onLayout={recordFieldY('votingHours')}>
+                <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
+                {errors.votingHours ? <Text style={styles.fieldError}>{errors.votingHours}</Text> : null}
+              </View>
+
+              <View style={{ gap: 8 }}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Occasion</Text>
+                  <InfoTooltip
+                    title="Occasion"
+                    body={"Picks the theme for this capsule's 4 automatic awards — e.g. sentimental for a wedding, playful for a trip. You can shuffle, swap, or remove any of them below, and members can still suggest their own after unlock."}
+                  />
+                </View>
+                <View style={styles.occasionGrid}>
+                  {[OCCASIONS.slice(0, 3), OCCASIONS.slice(3, 6)].map((row, rowIndex) => (
+                    <View key={rowIndex} style={styles.occasionRow}>
+                      {row.map(({ key, label, icon }) => {
+                        const selected = occasion === key;
+                        return (
+                          <TouchableOpacity
+                            key={key}
+                            style={[
+                              styles.occasionChip,
+                              selected && [styles.occasionChipActive, { borderColor: accentColor, backgroundColor: `${accentColor}22` }],
+                            ]}
+                            onPress={() => selectOccasion(key)}
+                          >
+                            <Ionicons name={icon as any} size={18} color={selected ? accentColor : '#888'} />
+                            <Text
+                              style={[styles.occasionChipText, selected && { color: accentColor }]}
+                              numberOfLines={1}
+                            >
+                              {label}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  ))}
+                </View>
+                <DefaultAwardsCard
+                  mode="preview"
+                  occasion={occasion}
+                  awards={defaultAwards}
+                  onChange={setDefaultAwards}
+                />
+              </View>
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>
@@ -407,7 +452,7 @@ export default function CreateScreen() {
           </View>
         </View>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {errors.general ? <Text style={styles.error}>{errors.general}</Text> : null}
 
         <TouchableOpacity style={[styles.createButton, { backgroundColor: accentColor }]} onPress={handleCreate} disabled={loading}>
           {loading ? <LoadingBrand size="small" color="#fff" /> : (
@@ -443,6 +488,10 @@ const styles = StyleSheet.create({
     borderColor: '#2A2A2A',
   },
   textarea: { minHeight: 80, textAlignVertical: 'top' },
+  inputError: { borderColor: '#FF3B30' },
+  fieldError: { color: '#FF3B30', fontSize: 13, marginTop: 6 },
+  advancedToggle: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  advancedSummary: { fontSize: 13, color: '#888888', marginTop: 4, textTransform: 'none' },
   toggle: { flexDirection: 'row', gap: 8 },
   toggleOption: {
     flex: 1, paddingVertical: 14, borderRadius: 12,

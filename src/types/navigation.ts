@@ -22,7 +22,7 @@ export type AppTabParamList = {
 
 export type AppStackParamList = {
   Tabs: { screen: keyof AppTabParamList; params?: AppTabParamList[keyof AppTabParamList] } | undefined;
-  CapsuleDetail: { capsuleId: string };
+  CapsuleDetail: { capsuleId: string; justCreated?: boolean };
   PublicProfile: { userId: string };
   Preview:
     | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string }
@@ -42,5 +42,5 @@ export type AppStackParamList = {
 export type RootStackParamList = {
   Auth: undefined;
   App: undefined;
-  CapsuleDetail: { capsuleId: string };
+  CapsuleDetail: { capsuleId: string; justCreated?: boolean };
 };
