@@ -722,45 +722,47 @@ function MediaViewerModal({
         >
           {/* Slide row — all items side by side, moved with translateX */}
           <Animated.View style={{ flexDirection: 'row', width: SCREEN_WIDTH * items.length, flex: 1, transform: [{ translateX }] }}>
-            {items.map((item, index) =>
-              item.mediaType === 'video' ? (
-                <VideoSlide key={item.id} item={item} isActive={index === currentIndex} />
-              ) : (
-                <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                  <Image
-                    source={{
-                      uri: shownUrl(item),
-                      // Stable cacheKey (the storage path, not the signed URL) so
-                      // expo-image's disk cache survives re-signing — signed URLs
-                      // get a fresh token roughly every 50 minutes, which would
-                      // otherwise look like a brand-new image and force a re-download.
-                      cacheKey: swapped[item.id] && item.altStorageKey ? item.altStorageKey : item.storage_key,
-                    }}
-                    style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
-                    contentFit="contain"
-                    transition={150}
-                  />
-                  {/* Dual (PiP) photo — tap the corner bubble to swap which lens is the main frame. */}
-                  {item.altSignedUrl && (
-                    <TouchableOpacity
-                      style={styles.swapBubble}
-                      activeOpacity={0.8}
-                      onPress={() => setSwapped(s => ({ ...s, [item.id]: !s[item.id] }))}
-                    >
-                      <Ionicons name="sync-outline" size={16} color="#FFFFFF" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )
-            )}
+            {items.map((item, index) => (
+              <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+                {item.mediaType === 'video' ? (
+                  <VideoSlide item={item} isActive={index === currentIndex} />
+                ) : (
+                  <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
+                    <Image
+                      source={{
+                        uri: shownUrl(item),
+                        // Stable cacheKey (the storage path, not the signed URL) so
+                        // expo-image's disk cache survives re-signing — signed URLs
+                        // get a fresh token roughly every 50 minutes, which would
+                        // otherwise look like a brand-new image and force a re-download.
+                        cacheKey: swapped[item.id] && item.altStorageKey ? item.altStorageKey : item.storage_key,
+                      }}
+                      style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                      contentFit="contain"
+                      transition={150}
+                    />
+                    {/* Dual (PiP) photo — tap the corner bubble to swap which lens is the main frame. */}
+                    {item.altSignedUrl && (
+                      <TouchableOpacity
+                        style={styles.swapBubble}
+                        activeOpacity={0.8}
+                        onPress={() => setSwapped(s => ({ ...s, [item.id]: !s[item.id] }))}
+                      >
+                        <Ionicons name="sync-outline" size={16} color="#FFFFFF" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+                {/* Caption rides inside the slide cell so it moves with translateX — swiping
+                    carries each photo's caption in/out together with the photo. */}
+                {item.caption ? (
+                  <View style={styles.captionBanner} pointerEvents="none">
+                    <Text style={styles.captionBannerText}>{item.caption}</Text>
+                  </View>
+                ) : null}
+              </View>
+            ))}
           </Animated.View>
-
-          {/* Caption display */}
-          {items[currentIndex]?.caption ? (
-            <View style={styles.captionBanner} pointerEvents="none">
-              <Text style={styles.captionBannerText}>{items[currentIndex].caption}</Text>
-            </View>
-          ) : null}
 
           {/* Reactions */}
           <ReactionsBar
@@ -902,7 +904,7 @@ function MediaGalleryModal({
           renderItem={({ item, index }) => (
             <TouchableOpacity
               style={[gal.thumb, { width: thumbSize, height: thumbSize }]}
-              onPress={() => { onClose(); onSelect(index); }}
+              onPress={() => onSelect(index)}
               activeOpacity={0.8}
             >
               {(item.mediaType === 'photo' || item.thumbnailUri) && (
