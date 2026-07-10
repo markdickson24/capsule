@@ -29,7 +29,7 @@ const DUAL_LAYOUTS: { value: DualCameraLayout; label: string; icon: keyof typeof
   { value: 'pip', label: 'PiP', icon: 'albums-outline' },
 ];
 
-const MAX_RECORD_SECONDS = 30;
+const MAX_RECORD_SECONDS = 120;
 const HOLD_THRESHOLD_MS = 300;
 const DOUBLE_TAP_MS = 300;
 // Snapchat-style drag-to-zoom: dragging up ~75% of the screen height covers the
