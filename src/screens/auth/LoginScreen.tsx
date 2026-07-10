@@ -2,22 +2,22 @@ import React, { useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, Alert,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { signInWithGoogle } from '../../lib/googleAuth';
+import { mapAuthError } from '../../lib/authErrors';
 
-type Props = {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
-};
+type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
 
-export default function LoginScreen({ navigation }: Props) {
-  const [email, setEmail] = useState('');
+export default function LoginScreen({ navigation, route }: Props) {
+  const [email, setEmail] = useState(route.params?.email ?? '');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError] = useState('');
@@ -38,7 +38,7 @@ export default function LoginScreen({ navigation }: Props) {
       password,
     });
     setLoading(false);
-    if (err) setError(err.message);
+    if (err) setError(mapAuthError(err.message).message);
   }
 
   async function handleForgot() {
@@ -80,15 +80,30 @@ export default function LoginScreen({ navigation }: Props) {
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            textContentType="emailAddress"
+            autoComplete="email"
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Password"
-            placeholderTextColor="#555"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="Password"
+              placeholderTextColor="#555"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+              textContentType="password"
+              autoComplete="password"
+            />
+            <TouchableOpacity
+              style={styles.eyeBtn}
+              onPress={() => setShowPassword(s => !s)}
+              accessibilityRole="button"
+              accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+              hitSlop={8}
+            >
+              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888888" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
@@ -172,6 +187,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2A2A2A',
   },
+  passwordRow: { position: 'relative', justifyContent: 'center' },
+  passwordInput: { paddingRight: 48 },
+  eyeBtn: { position: 'absolute', right: 14, padding: 4 },
   button: {
     backgroundColor: '#FF6B35',
     borderRadius: 16,

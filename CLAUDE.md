@@ -110,6 +110,8 @@ supabase/
 
 **Always use `getSession()` instead of `getUser()`** when you just need the user ID or token. `getUser()` makes a live network request on every call (500ms–2s latency). `getSession()` reads from local storage instantly.
 
+**Email confirmation state (`SignUpScreen`)** — when `supabase.auth.signUp` succeeds with `data.session === null` (email confirmation required), the screen replaces the whole form with a dedicated confirmation state (`pendingEmail`) rather than leaving the filled-in form sitting there: shows the email, a "Resend email" button (`supabase.auth.resend({ type: 'signup', email })`, 60s cooldown), and "I've confirmed → Sign in" which navigates to `Login` with the email prefilled. `AuthStackParamList['Login']` is `{ email?: string } | undefined` for this — `LoginScreen` seeds its email state from `route.params?.email`. Auth error strings are mapped through `mapAuthError` (`src/lib/authErrors.ts`) to friendly copy; "already registered" additionally renders a tappable "Sign in instead" link (same Login-with-prefill mechanism).
+
 ---
 
 ## Navigation Structure
