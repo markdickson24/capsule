@@ -1,11 +1,13 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
+  TextInput, Modal, Keyboard, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Avatar } from './ProfileScreen';
 import LoadingBrand from '../../components/LoadingBrand';
 import RetryPrompt from '../../components/RetryPrompt';
@@ -13,10 +15,16 @@ import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { cache } from '../../lib/cache';
+import { supabase } from '../../lib/supabase';
+import { sessionStore } from '../../lib/sessionStore';
+import { transformAvatarUrl } from '../../lib/avatarUrl';
+import { blockStore } from '../../lib/blocks';
 import {
   listFriends, listIncomingRequests, acceptFriendRequest, removeFriendship,
   type FriendProfile,
 } from '../../lib/friends';
+
+type UserResult = { id: string; display_name: string | null; avatar_url: string | null };
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Friends'>;
 
@@ -27,6 +35,7 @@ export default function FriendsScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [showFind, setShowFind] = useState(false);
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
   const load = useCallback(async () => {
@@ -70,7 +79,15 @@ export default function FriendsScreen({ navigation }: Props) {
           <Text style={[styles.back, { color: accentColor }]}>← Back</Text>
         </TouchableOpacity>
         <Text style={styles.navTitle}>Friends</Text>
-        <View style={{ width: 50 }} />
+        <TouchableOpacity
+          onPress={() => setShowFind(true)}
+          hitSlop={8}
+          style={{ width: 50, alignItems: 'flex-end' }}
+          accessibilityRole="button"
+          accessibilityLabel="Find people"
+        >
+          <Ionicons name="person-add-outline" size={22} color={accentColor} />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -128,7 +145,14 @@ export default function FriendsScreen({ navigation }: Props) {
               <View style={styles.empty}>
                 <Ionicons name="people-outline" size={40} color="#555555" />
                 <Text style={styles.emptyText}>No friends yet</Text>
-                <Text style={styles.emptySub}>Add friends from their profile to see them here.</Text>
+                <Text style={styles.emptySub}>Search for people to send a friend request.</Text>
+                <TouchableOpacity
+                  style={[styles.findBtn, { backgroundColor: accentColor }]}
+                  onPress={() => setShowFind(true)}
+                >
+                  <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.findBtnText}>Find people</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               friends.map(p => (
@@ -144,7 +168,106 @@ export default function FriendsScreen({ navigation }: Props) {
           </View>
         </ScrollView>
       )}
+
+      <FindPeopleModal
+        visible={showFind}
+        accentColor={accentColor}
+        onClose={() => setShowFind(false)}
+        onSelect={(id) => { setShowFind(false); openProfile(id); }}
+      />
     </SafeAreaView>
+  );
+}
+
+// Lightweight people search — the empty state (and nav-bar +) both open it, so
+// "add friends from their profile" is no longer a dead end with no path to a
+// profile. Mirrors CreateGroupScreen's debounced `users` ilike search; a tap
+// routes to PublicProfile, where the Add Friend button lives.
+function FindPeopleModal({
+  visible, accentColor, onClose, onSelect,
+}: {
+  visible: boolean;
+  accentColor: string;
+  onClose: () => void;
+  onSelect: (userId: string) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const [results, setResults] = useState<UserResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const myId = sessionStore.get()?.user?.id ?? null;
+
+  function handleSearchChange(text: string) {
+    setSearch(text);
+    if (debounce.current) clearTimeout(debounce.current);
+    if (text.trim().length < 2) { setResults([]); setSearching(false); return; }
+    setSearching(true);
+    debounce.current = setTimeout(async () => {
+      const { data } = await supabase
+        .from('users')
+        .select('id, display_name, avatar_url')
+        .ilike('display_name', `%${text.trim()}%`)
+        .neq('id', myId ?? '')
+        .limit(15);
+      setResults((data ?? []).filter((u: UserResult) => !blockStore.has(u.id)));
+      setSearching(false);
+    }, 300);
+  }
+
+  function close() {
+    Keyboard.dismiss();
+    setSearch('');
+    setResults([]);
+    onClose();
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={close}>
+      <SafeAreaView style={styles.container}>
+        <View style={styles.navBar}>
+          <TouchableOpacity onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
+            <Ionicons name="close" size={24} color="#FFFFFF" />
+          </TouchableOpacity>
+          <Text style={styles.navTitle}>Find people</Text>
+          <View style={{ width: 50 }} />
+        </View>
+
+        <View style={styles.findBody}>
+          <View style={styles.searchBox}>
+            <Ionicons name="search-outline" size={16} color="#555555" />
+            <TextInput
+              style={styles.searchInput}
+              value={search}
+              onChangeText={handleSearchChange}
+              placeholder="Search by name"
+              placeholderTextColor="#444444"
+              autoFocus
+              autoCorrect={false}
+            />
+            {searching && <ActivityIndicator size="small" color="#555555" />}
+          </View>
+
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingTop: 8 }}>
+            {results.map(u => (
+              <TouchableOpacity key={u.id} style={styles.row} onPress={() => onSelect(u.id)}>
+                <View style={styles.rowMain}>
+                  {u.avatar_url ? (
+                    <Image source={transformAvatarUrl(u.avatar_url, 44)} style={styles.resultAvatar} contentFit="cover" />
+                  ) : (
+                    <Avatar url={null} name={u.display_name ?? '?'} size={44} />
+                  )}
+                  <Text style={styles.name}>{u.display_name ?? 'Unknown'}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#555555" />
+              </TouchableOpacity>
+            ))}
+            {search.trim().length >= 2 && !searching && results.length === 0 && (
+              <Text style={styles.findEmpty}>No one found by that name.</Text>
+            )}
+          </ScrollView>
+        </View>
+      </SafeAreaView>
+    </Modal>
   );
 }
 
@@ -179,4 +302,18 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', gap: 8, paddingVertical: 40 },
   emptyText: { fontSize: 18, fontWeight: '700', color: '#FFFFFF', marginTop: 4 },
   emptySub: { fontSize: 14, color: '#888888', textAlign: 'center' },
+  findBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    borderRadius: 14, paddingVertical: 12, paddingHorizontal: 20, marginTop: 12,
+  },
+  findBtnText: { color: '#FFFFFF', fontSize: 15, fontWeight: '700' },
+  findBody: { flex: 1, paddingHorizontal: 20 },
+  searchBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, borderColor: '#2A2A2A',
+  },
+  searchInput: { flex: 1, fontSize: 15, color: '#FFFFFF' },
+  resultAvatar: { width: 44, height: 44, borderRadius: 22 },
+  findEmpty: { fontSize: 14, color: '#888888', textAlign: 'center', marginTop: 32 },
 });

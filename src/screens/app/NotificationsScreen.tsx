@@ -304,6 +304,45 @@ export default function NotificationsScreen() {
     setRefreshing(false);
   }
 
+  // A card requires a decision (and must survive "mark all read"): a still-pending
+  // invite (dismissing it would orphan the membership — see the invite Decline
+  // pattern above) or a friend request. Everything else is informational.
+  function isActionable(n: DisplayNotification): boolean {
+    return (
+      (n.type === 'invite' && !!n.capsule_id && !!pendingMap[n.capsule_id]) ||
+      n.type === 'friend_request'
+    );
+  }
+
+  // Clear the informational backlog in one tap after an unlock-day pile-up
+  // (reactions + award results + unlock alerts). Leaves actionable cards alone —
+  // the DB update excludes invite/friend_request types so nothing gets orphaned.
+  function markAllRead() {
+    const session = sessionStore.get();
+    if (!session) return;
+    const toClear = notifications.filter(n => !isActionable(n));
+    if (toClear.length === 0) return;
+
+    haptics.light();
+    const snapshot = notifications;
+    setNotifications(prev => prev.filter(isActionable));
+    supabase
+      .from('notifications')
+      .update({ read_at: new Date().toISOString() })
+      .eq('user_id', session.user.id)
+      .is('read_at', null)
+      .neq('type', 'invite')
+      .neq('type', 'friend_request')
+      .then(({ error }) => {
+        if (error) {
+          setNotifications(snapshot);
+          toast.show("Couldn't mark all read — try again.");
+        } else {
+          cache.invalidate('notifications');
+        }
+      });
+  }
+
   function formatDate(iso: string) {
     return new Date(iso).toLocaleDateString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
@@ -311,6 +350,7 @@ export default function NotificationsScreen() {
   }
 
   const pendingCount = Object.keys(pendingMap).length;
+  const clearableCount = notifications.filter(n => !isActionable(n)).length;
 
   if (loading) {
     if (timedOut) {
@@ -349,6 +389,17 @@ export default function NotificationsScreen() {
             <View style={[styles.badge, { backgroundColor: accentColor }]}>
               <Text style={styles.badgeText} maxFontSizeMultiplier={1.3}>{pendingCount}</Text>
             </View>
+          )}
+          {clearableCount > 1 && (
+            <TouchableOpacity
+              style={styles.markAllBtn}
+              onPress={markAllRead}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Mark all notifications read"
+            >
+              <Text style={[styles.markAllText, { color: accentColor }]}>Mark all read</Text>
+            </TouchableOpacity>
           )}
         </Animated.View>
         {notifications.length === 0 ? (
@@ -540,6 +591,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 2,
   },
   badgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  markAllBtn: { marginLeft: 'auto' },
+  markAllText: { fontSize: 14, fontWeight: '600' },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40, paddingBottom: 80 },
   emptyIconWrap: {
     width: 88, height: 88, borderRadius: 44, backgroundColor: '#1A1A1A',

@@ -4,20 +4,15 @@ import {
   Animated, Platform, Switch, LayoutAnimation, UIManager,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import * as Haptics from 'expo-haptics';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { haptics } from '../lib/haptics';
 import InfoTooltip from './InfoTooltip';
 
-function haptic(style: Haptics.ImpactFeedbackStyle = Haptics.ImpactFeedbackStyle.Light) {
-  if (Platform.OS === 'web') return;
-  Haptics.impactAsync(style);
-}
-
-function hapticSelection() {
-  if (Platform.OS === 'web') return;
-  Haptics.selectionAsync();
-}
+// Delegate to the shared wrapper (web-no-op-safe) instead of calling
+// expo-haptics directly. All call sites use the light/selection defaults.
+function haptic() { haptics.light(); }
+function hapticSelection() { haptics.selection(); }
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);

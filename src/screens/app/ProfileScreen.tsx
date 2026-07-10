@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Animated,
   TextInput, Modal, Platform,
-  ScrollView, KeyboardAvoidingView, Pressable,
+  ScrollView, KeyboardAvoidingView, Pressable, RefreshControl,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
@@ -270,6 +270,7 @@ export default function ProfileScreen() {
   const [stats, setStats] = useState<Stats>({ capsuleCount: 0, unlockedCount: 0, friendCount: 0 });
   const [showEdit, setShowEdit] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const { loading, refresh } = useCachedFetch<ProfileData>(
     'profile',
@@ -336,9 +337,19 @@ export default function ProfileScreen() {
 
   const memberSince = profile?.created_at ? getMemberSince(profile.created_at) : '';
 
+  async function onRefresh() {
+    setRefreshing(true);
+    await refresh(true);
+    setRefreshing(false);
+  }
+
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
+      >
         {/* Hero Card */}
         <Animated.View style={[styles.heroCard, heroAnim]}>
           <View style={[styles.heroGlow, { backgroundColor: accentColor }]} />
