@@ -228,6 +228,12 @@ Defined in `supabase-schema.sql`.
 
 > ⚠️ **Adding a new client-readable column to `users`?** Because the grant is column-level (the table-wide SELECT grant was revoked), a new column added via `ALTER TABLE ADD COLUMN` gets **no** SELECT grant by default — `authenticated` will have INSERT/UPDATE but not SELECT. Any query selecting it then fails with `42501 permission denied` for the **entire** query (not just that column), silently breaking unrelated fields in the same `select()`. **Always `grant select (...)` the new column to `authenticated` in the same migration.** This bit `home_layout` (added in `20260610020000`, granted in `20260610210000_grant_home_layout_select.sql`): the missing grant made `ThemeContext`'s `select('accent_color, home_layout')` 403, so accent color reset to default on every sign-in.
 
+**Indexes added for actual query shapes** (`20260709120000_perf_indexes.sql`, PERFORMANCE.md #9):
+- `idx_notifications_unread` — partial `(user_id, sent_at desc) where read_at is null`, covers the Alerts list + tab-badge query (the most-frequent query in the app).
+- `idx_capsules_unlock_due` — partial `(unlock_at) where status='active' and unlock_mode='time'`, covers the `unlock-capsules` cron's per-minute filter.
+- `idx_capsules_group_id` — plain `(group_id)`, covers a group's capsule list + the `create-group-capsules` cron (was an unindexed FK per the advisors).
+- `idx_media_capsule_uploaded` — composite `(capsule_id, uploaded_at desc)`, replaces the old single-column `idx_media_capsule_id` (dropped in the same migration) so `CapsuleDetailScreen.fetchPhotos`'s `capsule_id = ? order by uploaded_at desc` doesn't sort separately every call.
+
 **Triggers:**
 - `handle_new_user()` — auto-creates `users` row on `auth.users` insert
 - `notify_on_reaction()` — inserts reaction notification (not to self)
@@ -242,7 +248,7 @@ Defined in `supabase-schema.sql`.
 
 **Pending invites:** `joined_at IS NULL` on `capsule_members` means invite not yet accepted. `joined_at` is set when the user accepts.
 
-**Notifications are soft-deleted** by setting `read_at`. Queries filter `.is('read_at', null)` to show only unread.
+**Notifications are soft-deleted** by setting `read_at`. Queries filter `.is('read_at', null)` to show only unread. `NotificationsScreen`'s main query is capped at `.limit(100)` — unread rows accumulate for passive users (nothing auto-reads reaction/suggestion notifications), so a dormant account could otherwise pull hundreds of rows plus embedded joins in one request.
 
 ---
 
@@ -257,7 +263,7 @@ Defined in `supabase-schema.sql`.
 - **Zoom deadzone:** horizontal movement ≥ 20px (`LOCK_DEADZONE_X`) suppresses vertical zoom to prevent accidental zooming while starting a rightward lock-swipe.
 - **Flip camera mid-recording (single-camera only):** tap the reverse button (top-right) or double-tap the viewfinder while recording to switch front↔back. Implemented as a **multi-segment recording loop** in `startRecording`: each call to `recordAsync` is one segment; `flipCameraDuringRecording()` sets `pendingFlipRef`, stops the current segment, calls `setCameraMode`, and a `useEffect([facing])` resolves the loop's await once the `CameraView` re-renders. After all segments are collected, they are stitched into one MP4 via `stitchVideos()` from `modules/expo-video-stitcher` before navigating to Preview. The 2-minute cap is shared across all segments (`recordSecondsRef`). Dual-camera mode is excluded (both lenses already active).
   - **iOS orientation gotcha:** `ExpoVideoStitcherModule.stitch()` (iOS) builds an `AVMutableComposition` with a single shared video track spanning all segments — that track has exactly **one** `preferredTransform` for its whole timeline, so it can't represent front and back camera segments having different orientations (which they commonly do). Naively concatenating without accounting for this renders every segment with the same transform regardless of which camera captured it, showing up as one segment (often whichever isn't closest to identity) compressed/stretched into the wrong aspect ratio. Fixed by building an explicit `AVMutableVideoComposition` with one instruction per segment, each applying that segment's own `preferredTransform` (re-anchored at the origin, scaled/centered into a shared render canvas — also guards against front/back recording at slightly different native resolutions). Android has the analogous bug (`MediaMuxer`'s single video track can likewise only carry one orientation, and `stitch()` there only registers the first segment's rotation) but needs a fundamentally different fix — a real decode/rotate/encode transcode, not a metadata change — and is not yet fixed.
-- Photos: resized to 1920px wide via `expo-image-manipulator`, compress 0.82, quality 0.88
+- Photos: resized to 1920px wide via `resizeForUpload()` (`src/lib/imageResize.ts`, shared with the upload queue — see below), compress 0.82, quality 0.88
 - Front camera photos: flipped horizontally via `FlipType.Horizontal`
 - Use `useIsFocused()` to stop camera rendering when tab is not active
 - Navigates to `Preview` with `{ uri, mediaType, facing }`
@@ -370,8 +376,10 @@ Large file (~2200 lines). Key sub-components and patterns:
 
 **`fetchPhotos(force?)`** caches three things, each independently:
 - `media:${capsuleId}` (3min TTL) — the raw `media` row list itself, so a cache hit skips the DB read entirely, not just the signing step. `force=true` (used by pull-to-refresh) always bypasses it, since another member's upload wouldn't trigger this client's own `cache.invalidate`.
-- `signedUrls:${capsuleId}` (50min TTL, under the 1hr signed-URL validity) — batches main + alt keys into one `createSignedUrls()` call.
-- `videoThumb:${mediaId}` (6hr TTL) — the locally-generated `expo-video-thumbnails` frame URI, so re-entering the screen doesn't re-decode every video.
+- `signedUrls:${capsuleId}` (50min TTL, under the 1hr signed-URL validity) — batches main + alt **+ thumbnail** keys into one `createSignedUrls()` call.
+- `videoThumb:${mediaId}` (6hr TTL) — **fallback only**, for videos with no `thumbnail_key` (uploaded before the upload-time thumbnail existed): the locally-generated `expo-video-thumbnails` frame URI (decoded from the remote `signedUrl`), so re-entering the screen doesn't re-decode every video.
+
+**Video thumbnails are generated at upload time, not display time.** `uploadQueue.runTask` (`src/lib/uploadQueue.ts`) runs `VideoThumbnails.getThumbnailAsync` on the **local** file (no network) right after upload, stores the JPEG at `media.thumbnail_key`, and is best-effort — a failure just leaves `thumbnail_key` null. `fetchPhotos` signs `thumbnail_key` alongside the main/alt keys and sets `MediaItem.thumbnailUri` directly from `transformMediaUrl(signedThumbUrl, GRID_THUMB_PX)` for any row that has one; the client-side `VideoThumbnails.getThumbnailAsync(item.signedUrl, …)` loop only runs for items where `thumbnailUri` is still unset (old rows). This means every member's device no longer has to download+decode the full remote video just to draw a grid cell, and web (previously blank for videos, since the client-side generation is native-only) now gets a real thumbnail whenever `thumbnail_key` is present. Included in the same delete-time storage cleanup as `storage_key`/`alt_storage_key` (`confirmDelete`).
 
 **Grid/preview thumbnails use `transformMediaUrl()`** (`src/lib/mediaUrl.ts`), not the full-res `signedUrl` — `MediaItem.thumbSignedUrl` is derived from the already-signed URL with no extra signing round-trip (see "Media URL Transforms" below). The full-screen viewer and `VoteSheet`'s media-voting grid both still fall back to `signedUrl` for anything without a `thumbSignedUrl` (videos use `thumbnailUri` instead).
 
@@ -490,7 +498,7 @@ Controlled component. Props: `{ visible, title, message, confirmLabel?, cancelLa
 
 Edge function that marks `status = 'active'` capsules whose `unlock_at <= now()` as `'unlocked'` and sends Expo push notifications to all joined members. Only acts on `unlock_mode = 'time'` capsules — `proximity`/`both` capsules unlock via the `check_in` RPC instead (see Proximity Unlock).
 
-- **Trigger:** `pg_cron` job `unlock-capsules` runs `* * * * *` (every minute).
+- **Trigger:** `pg_cron` job `unlock-capsules` runs `* * * * *` (every minute), gated behind an `EXISTS` check (PERFORMANCE.md #4, `20260709130000_cron_exists_gates.sql`) so the `net.http_post` — and thus the edge function cold start — only fires when `exists (select 1 from capsules where status='active' and unlock_mode='time' and unlock_at <= now() + interval '24 hours')`. The 24h window covers both an actual unlock **and** the widest (1-day) reminder tier below, so no tick that would have done work is ever skipped — this is a pure invocation-count optimization (~43K/month → near zero at idle), not a behavior change. Same pattern applied to `create-group-capsules` (gated on `groups.next_capsule_at <= now()`) and the `send-superlative-pushes` POST inside `close-superlative-windows` (gated on unpushed superlative notifications existing — evaluated after that tick's `dispatch_superlative_closing_soon()`/`close_superlative_windows()` calls, which stay unconditional since they're cheap in-database SQL). Re-registering a cron job to change its command is `select cron.unschedule(name)` then `select cron.schedule(name, schedule, command)`.
 - **Countdown reminders:** the same function also fires pre-unlock reminder pushes at three tiers — **1 day / 1 hour / 10 minutes** before `unlock_at` (`dispatchReminders`, runs every tick regardless of whether anything unlocked). For each tier it does an atomic `update({ <tier>_sent_at: now }).is(<tier>_sent_at, null).gt('unlock_at', now).lte('unlock_at', now + tier).select()` — claiming+stamping in one statement so a tier sends **at most once** per capsule (race-safe). Stamp columns: `capsules.unlock_reminder_{1d,1h,10m}_sent_at` (migration `20260616000000_unlock_reminders.sql`). It inserts durable `unlock_reminder` notification rows (new type; `pushed_at` set since it pushes inline) and posts the Expo push. Body copy is derived from *actual* remaining time (`formatRemaining`), so it reads correctly ("tomorrow" / "in about 3 hours" / "in 10 minutes") even for short-lived capsules that enter a tier late. `time`-mode only, same as unlocking. Client renders `unlock_reminder` in `NotificationsScreen` (hourglass icon, taps through to the capsule).
 - **Auth:** `Authorization: Bearer <CRON_SECRET>` required (`if (CRON_SECRET && auth !== ...)` in the function). The function's `CRON_SECRET` env var is set in Supabase Dashboard → Functions → unlock-capsules → Secrets. The matching value is also stored in Supabase Vault as `cron_unlock_capsules_secret`, and the cron command reads it at execution time via `(select decrypted_secret from vault.decrypted_secrets where name = 'cron_unlock_capsules_secret')`.
 - **Idempotency:** the `.eq('status', 'active')` filter means repeat calls within a minute don't re-unlock or re-notify. The in-memory rate-limit (`lastCallTime`) in the function is dead code on edge runtimes — it doesn't survive cold starts — but doesn't matter because the work is idempotent.
@@ -516,7 +524,7 @@ Addresses the complaint that the creator could peek at a capsule's contents befo
 - **Default ON for new capsules** (`default true`). Migration `20260618000000_owner_preview_lock.sql` backfilled all **pre-existing** capsules to `false` so their owners keep the old preview behavior.
 - **Creation-only.** `CreateScreen` has a "Keep it a surprise" `Switch` (default on) that sets the column at insert. There is **no toggle in `EditCapsuleScreen`** — by design, so an owner can't flip it off right before unlock to peek. (The DB owner-UPDATE policy still technically allows changing the column; the client just never exposes a control.)
 - **Server-side enforcement (RLS).** The `media` SELECT policy gates pre-unlock reads on `cm.role in ('owner','contributor') AND NOT c.owner_preview_locked`. So the owner genuinely can't read media rows (and thus can't obtain `storage_key`s to sign URLs) while locked — not just a client-side hide.
-- **The count comes from a SECURITY DEFINER RPC** `capsule_media_count(p_capsule_id)` (joined-member-authorized, returns 0 for non-members) because RLS now hides the rows themselves. `CapsuleDetailScreen.fetchPhotos` calls it into `mediaCount` state; the locked box renders `mediaCount` (not `photos.length`, which is empty under the lock).
+- **The count comes from a SECURITY DEFINER RPC** `capsule_media_count(p_capsule_id)` (joined-member-authorized, returns 0 for non-members) because RLS now hides the rows themselves. `CapsuleDetailScreen.fetchPhotos` only calls it when the `media` row-read comes back with **zero rows** (the one case that's ambiguous — genuinely empty vs. RLS-hidden); whenever rows are readable, `mediaCount` is set directly from the fetched row count instead, skipping the round-trip. The locked box renders `mediaCount` (not `photos.length`, which is empty under the lock).
 - **Client gate:** `canSeePhotos = !isLocked || (isOwner && !capsule.owner_preview_locked)`.
 
 ## Superlatives (Awards)
@@ -661,9 +669,58 @@ Module-level sequential upload worker — the optimistic-UI backbone for media.
 Callers `uploadQueue.enqueue(entries)` and move on; the queue uploads one task
 at a time (web: arrayBuffer + `supabase.storage.upload`; native:
 `FileSystem.uploadAsync` via `getFreshAccessToken()`), inserts the `media` row
-(including dual-photo `alt_storage_key`, best-effort), and invalidates
-`capsules` + `capsule:`/`media:`/`signedUrls:` per success. Failures stay in
-the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
+(including dual-photo `alt_storage_key` and, for video, `thumbnail_key` — see
+below — both best-effort), and invalidates
+`capsules` + `capsule:`/`media:`/`signedUrls:` per success.
+
+**Multi-capsule fan-out uploads each file once, not once per capsule.**
+`PreviewScreen`'s multi-select "Add to Capsule" enqueues one task per
+(capsule × media) pair in a single `enqueue()` call — selecting 3 capsules for
+5 photos used to mean 15 full device-to-storage uploads of the same 5 files.
+`runTask` now routes every upload (main, dual `altUri`, and video thumbnail)
+through `copyOrUpload()`, keyed by the **source local uri** in one of three
+module-level `Map`s (`mainUploadCache`/`altUploadCache`/`thumbUploadCache`).
+The first task for a given uri does the real `prepareForUpload` + `uploadFile`
+and caches the resulting `{ key, size, ext }`; every later task for the same
+uri (i.e. the same file going to another capsule) does a bucket-side
+`supabase.storage.from('capsule-media').copy(cachedKey, newKey)` instead —
+zero device bytes. The storage INSERT RLS policy validates the *destination*
+path's own capsule membership (identical check to a direct upload), so a copy
+is permitted for exactly the capsules the caller could upload to directly;
+verified against the live policy definitions rather than a device run — copy
+succeeds iff a normal upload to that destination would. The three caches are
+cleared when the queue fully drains (`work()`), so an unrelated later batch
+never copies from a stale key. Main + alt also now upload **concurrently**
+(`Promise.all`) instead of sequentially — free wall-time win on swappable
+dual photos regardless of cache hit/miss.
+
+**Video thumbnail at upload time:** for `mediaType === 'video'` (native only —
+`expo-video-thumbnails` has no web implementation), `runTask` grabs a frame
+from the **local** file via `VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 })`
+right after the main upload, uploads that JPEG to `${capsuleId}/${uuid}_thumb.jpg`,
+and sets it as `media.thumbnail_key`. Best-effort — on failure `thumbnail_key`
+stays null and `fetchPhotos` falls back to its old client-side
+generation-from-`signedUrl` path for that row (see CapsuleDetailScreen section
+below). This is the fix for the pre-existing "every member's device downloads
+and decodes the whole remote video just to draw a grid cell" pathology, and
+incidentally gives web capsules with videos a real thumbnail for the first time.
+
+**Resize before upload:** `runTask`'s `prepareForUpload` step runs every photo
+(main + `altUri`) through `resizeForUpload()` (`src/lib/imageResize.ts`) before
+`uploadFile`. This is the one place all photo uploads converge — library
+picker, share-intent, and camera — so it's also where `CameraScreen.processPhoto`
+delegates to the same helper. `resizeForUpload` checks width via `Image.getSize`
+(a header read, not a decode) and only resizes down to 1920px/compress 0.82 if
+the source is wider; it never upscales and is a no-op for already-camera-sized
+images. Without this, library-picked photos uploaded at full device
+resolution — 5–10x the bytes of the in-app camera path for no visual gain at
+display size. When the resize actually runs, the output is always JPEG
+(`ImageManipulator`'s default save format), so `prepareForUpload` also bumps
+the task's `mimeType`/extension to `image/jpeg` in that case — otherwise the
+original mimeType from the picker/share-intent asset is kept as-is. Video is
+untouched.
+
+Failures stay in the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
 as retryable tiles by `CapsuleDetailScreen`. `useUploadTasks(capsuleId)`
 (`src/hooks/useUploadTasks.ts`) is the reactive subscription;
 `getProgress(capsuleId)` returns per-capsule `{done,total}` since that

@@ -4,7 +4,7 @@ import {
   TouchableOpacity, Animated, Dimensions, Platform, ActivityIndicator,
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
-import * as ImageManipulator from 'expo-image-manipulator';
+import { resizeForUpload } from '../../lib/imageResize';
 import { haptics } from '../../lib/haptics';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -171,10 +171,7 @@ export default function CameraScreen() {
   }
 
   async function processPhoto(uri: string): Promise<string> {
-    const result = await ImageManipulator.manipulateAsync(
-      uri, [{ resize: { width: 1920 } }], { compress: 0.82 }
-    );
-    return result.uri;
+    return resizeForUpload(uri);
   }
 
   async function takePhoto() {
