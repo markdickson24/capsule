@@ -1833,28 +1833,49 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           />
         )}
 
+        {/* Archive is reversible (Undo below), so it lives outside Danger
+            Zone — that label is reserved for Delete. */}
         {canArchive && (
-          <View style={styles.dangerZone}>
-            <Text style={styles.dangerLabel}>Danger Zone</Text>
+          <View style={styles.archiveSection}>
             <TouchableOpacity
               style={styles.archiveBtn}
               onPress={() => {
-                // Optimistic: leave immediately, archive in the background.
-                // On failure the global toast reaches the user on Home.
-                const isArchived = !!(capsule as any).archived_at;
+                // Optimistic: leave immediately (goBack, not reset — the nav
+                // stack shouldn't be wiped for a reversible action), archive
+                // in the background. Success offers Undo via the same RPC in
+                // reverse; failure surfaces via the global toast wherever the
+                // user navigated to.
+                const wasArchived = !!(capsule as any).archived_at;
+                const nextArchived = !wasArchived;
                 haptics.light();
-                navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
+                navigation.goBack();
                 supabase.rpc('set_capsule_archived', {
                   p_capsule_id: capsuleId,
-                  p_archived: !isArchived,
+                  p_archived: nextArchived,
                 }).then(({ error }) => {
                   if (error) {
-                    toast.show(isArchived
-                      ? "Couldn't restore the capsule — try again."
-                      : "Couldn't archive the capsule — try again.");
-                  } else {
-                    cache.invalidate('capsules', 'profile');
+                    toast.show(nextArchived
+                      ? "Couldn't archive the capsule — try again."
+                      : "Couldn't restore the capsule — try again.");
+                    return;
                   }
+                  cache.invalidate('capsules', 'profile');
+                  toast.show(nextArchived ? 'Archived' : 'Restored', {
+                    label: 'Undo',
+                    onPress: () => {
+                      supabase.rpc('set_capsule_archived', {
+                        p_capsule_id: capsuleId,
+                        p_archived: wasArchived,
+                      }).then(({ error: undoError }) => {
+                        if (undoError) {
+                          toast.show("Couldn't undo — try again.");
+                        } else {
+                          cache.invalidate('capsules', 'profile');
+                          toast.show(wasArchived ? 'Archived' : 'Restored');
+                        }
+                      });
+                    },
+                  });
                 });
               }}
             >
@@ -1863,15 +1884,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 {(capsule as any).archived_at ? 'Restore Capsule' : 'Archive Capsule'}
               </Text>
             </TouchableOpacity>
-            {isOwner && (
-              <TouchableOpacity
-                style={styles.deleteBtn}
-                onPress={() => setShowDeleteConfirm(true)}
-              >
-                <Ionicons name="trash-outline" size={18} color="#FF3B30" />
-                <Text style={styles.deleteBtnText}>Delete Capsule</Text>
-              </TouchableOpacity>
-            )}
+          </View>
+        )}
+
+        {isOwner && (
+          <View style={styles.dangerZone}>
+            <Text style={styles.dangerLabel}>Danger Zone</Text>
+            <TouchableOpacity
+              style={styles.deleteBtn}
+              onPress={() => setShowDeleteConfirm(true)}
+            >
+              <Ionicons name="trash-outline" size={18} color="#FF3B30" />
+              <Text style={styles.deleteBtnText}>Delete Capsule</Text>
+            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -2164,6 +2189,7 @@ const styles = StyleSheet.create({
   },
   addPhotoBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
   errorText: { color: '#FF3B30', textAlign: 'center', marginTop: 40, fontSize: 15 },
+  archiveSection: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
   dangerZone: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
   dangerLabel: { fontSize: 12, fontWeight: '600', color: '#444444', textTransform: 'uppercase', letterSpacing: 0.5 },
   archiveBtn: {

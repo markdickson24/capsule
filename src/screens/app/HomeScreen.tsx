@@ -32,7 +32,7 @@ function getTimeLeft(unlockAt: string) {
   return { daysLeft, hoursLeft };
 }
 
-function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string }) {
+function CountdownBadge({ unlockAt, status, unlockMode }: { unlockAt: string; status: string; unlockMode?: string }) {
   const { accentColor } = useTheme();
   const [timeLeft, setTimeLeft] = useState(() => getTimeLeft(unlockAt));
 
@@ -48,6 +48,17 @@ function CountdownBadge({ unlockAt, status }: { unlockAt: string; status: string
       <Text style={styles.unlockedBadgeText}> Unlocked</Text>
     </View>
   );
+  // `unlock_at` is a placeholder for proximity capsules (never used to
+  // unlock them — see CLAUDE.md), so a countdown to it is a promise the app
+  // will break. `both` keeps the countdown since its date is real.
+  if (unlockMode === 'proximity') {
+    return (
+      <View style={styles.togetherBadge}>
+        <Ionicons name="people-outline" size={13} color={accentColor} />
+        <Text style={[styles.togetherBadgeText, { color: accentColor }]}> Unlocks together</Text>
+      </View>
+    );
+  }
   const { daysLeft, hoursLeft } = timeLeft;
   if (daysLeft > 0) return <Text style={[styles.countdownText, { color: accentColor }]}>{daysLeft}d {hoursLeft}h left</Text>;
   return <Text style={[styles.countdownText, { color: accentColor }]}>{hoursLeft}h left</Text>;
@@ -72,13 +83,17 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }:
             size={isGrid ? 20 : 24}
             color={isLocked ? '#888888' : '#30D158'}
           />
-          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} />
+          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} />
         </View>
         <Text style={[styles.cardTitle, isGrid && styles.cardTitleGrid]} numberOfLines={isGrid ? 2 : undefined}>{capsule.title}</Text>
         {!isGrid && capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
-        <Text style={styles.cardDate}>
-          {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-        </Text>
+        {isLocked && capsule.unlock_mode === 'proximity' ? (
+          <Text style={styles.cardDate}>Unlocks when you're all together</Text>
+        ) : (
+          <Text style={styles.cardDate}>
+            {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </Text>
+        )}
       </TouchableOpacity>
     </Animated.View>
   );
@@ -181,7 +196,7 @@ export default function HomeScreen() {
 
       const { data, error } = await supabase
         .from('capsule_members')
-        .select('capsule_id, capsules(id, owner_id, title, description, status, unlock_at, archived_at)')
+        .select('capsule_id, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode, archived_at)')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null);
 
@@ -404,6 +419,8 @@ const styles = StyleSheet.create({
   countdownText: { fontSize: 13, fontWeight: '700', color: '#FF6B35' },
   unlockedBadge: { flexDirection: 'row', alignItems: 'center' },
   unlockedBadgeText: { fontSize: 13, fontWeight: '700', color: '#30D158' },
+  togetherBadge: { flexDirection: 'row', alignItems: 'center' },
+  togetherBadgeText: { fontSize: 13, fontWeight: '700' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },
