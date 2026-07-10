@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
@@ -25,6 +25,7 @@ export default function LoginScreen({ navigation, route }: Props) {
   const [resetEmail, setResetEmail] = useState('');
   const [resetLoading, setResetLoading] = useState(false);
   const [resetSent, setResetSent] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
@@ -82,9 +83,13 @@ export default function LoginScreen({ navigation, route }: Props) {
             keyboardType="email-address"
             textContentType="emailAddress"
             autoComplete="email"
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
           <View style={styles.passwordRow}>
             <TextInput
+              ref={passwordRef}
               style={[styles.input, styles.passwordInput]}
               placeholder="Password"
               placeholderTextColor="#555"
@@ -93,6 +98,8 @@ export default function LoginScreen({ navigation, route }: Props) {
               secureTextEntry={!showPassword}
               textContentType="password"
               autoComplete="password"
+              returnKeyType="go"
+              onSubmitEditing={handleLogin}
             />
             <TouchableOpacity
               style={styles.eyeBtn}

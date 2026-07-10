@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
@@ -21,6 +21,7 @@ export default function SignUpScreen({ navigation }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const passwordRef = useRef<TextInput>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [errorAction, setErrorAction] = useState<'signIn' | undefined>(undefined);
@@ -145,9 +146,13 @@ export default function SignUpScreen({ navigation }: Props) {
             keyboardType="email-address"
             textContentType="emailAddress"
             autoComplete="email"
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => passwordRef.current?.focus()}
           />
           <View style={styles.passwordRow}>
             <TextInput
+              ref={passwordRef}
               style={[styles.input, styles.passwordInput]}
               placeholder="Password"
               placeholderTextColor="#555"
@@ -156,6 +161,8 @@ export default function SignUpScreen({ navigation }: Props) {
               secureTextEntry={!showPassword}
               textContentType="newPassword"
               autoComplete="new-password"
+              returnKeyType="go"
+              onSubmitEditing={handleSignUp}
             />
             <TouchableOpacity
               style={styles.eyeBtn}

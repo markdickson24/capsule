@@ -31,6 +31,10 @@ const DUAL_LAYOUTS: { value: DualCameraLayout; label: string; icon: keyof typeof
 ];
 
 const CAMERA_COACH_SEEN_KEY = 'cap_camera_coach_seen';
+const CAMERA_CAPTURES_KEY = 'cap_camera_captures';
+// After this many successful captures the persistent idle hint retires — great
+// for run one, chrome by run N. The recording-state copy still always shows.
+const HINT_HIDE_AFTER = 3;
 
 const MAX_RECORD_SECONDS = 120;
 const HOLD_THRESHOLD_MS = 300;
@@ -87,6 +91,25 @@ export default function CameraScreen() {
   function dismissCoach() {
     setShowCoach(false);
     AsyncStorage.setItem(CAMERA_COACH_SEEN_KEY, '1').catch(() => {});
+  }
+
+  // Persistent-hint retirement counter (see HINT_HIDE_AFTER).
+  const [captureCount, setCaptureCount] = useState(HINT_HIDE_AFTER);
+  useEffect(() => {
+    AsyncStorage.getItem(CAMERA_CAPTURES_KEY).then(v => {
+      setCaptureCount(v ? parseInt(v, 10) || 0 : 0);
+    });
+  }, []);
+  // Single chokepoint for every successful capture → Preview: counts the
+  // capture (retiring the idle hint) and navigates. Replaces all direct
+  // navigation.navigate('Preview', …) calls in the capture paths.
+  function goToPreview(params: any) {
+    setCaptureCount(c => {
+      const next = c + 1;
+      AsyncStorage.setItem(CAMERA_CAPTURES_KEY, String(next)).catch(() => {});
+      return next;
+    });
+    navigation.navigate('Preview', params);
   }
 
   // The single-camera CameraView only knows front/back; Dual swaps in DualCameraView.
@@ -199,7 +222,7 @@ export default function CameraScreen() {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.88, skipProcessing: false });
       if (!photo?.uri) return;
       const processedUri = await processPhoto(photo.uri);
-      navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo' });
+      goToPreview({ uri: processedUri, mediaType: 'photo' });
     } catch {} finally {
       setCapturing(false);
     }
@@ -216,7 +239,7 @@ export default function CameraScreen() {
       const processedUri = await processPhoto(res.uri);
       // PiP returns a swapped composite too — resize it the same way for tap-to-swap.
       const altUri = res.altUri ? await processPhoto(res.altUri) : undefined;
-      navigation.navigate('Preview', { uri: processedUri, mediaType: 'photo', altUri });
+      goToPreview({ uri: processedUri, mediaType: 'photo', altUri });
     } catch (e: any) {
       setDualError(e?.message ?? 'Dual capture failed. Try again.');
     } finally {
@@ -277,7 +300,7 @@ export default function CameraScreen() {
     const segments = segmentsRef.current;
     if (segments.length > 0) {
       if (segments.length === 1) {
-        navigation.navigate('Preview', { uri: segments[0], mediaType: 'video', facing: facingRef.current });
+        goToPreview({ uri: segments[0], mediaType: 'video', facing: facingRef.current });
       } else {
         let stitchedUri: string | null = null;
         try {
@@ -286,10 +309,10 @@ export default function CameraScreen() {
         } catch { /* native module not yet built, or stitching failed */ }
 
         if (stitchedUri) {
-          navigation.navigate('Preview', { uri: stitchedUri, mediaType: 'video', facing: facingRef.current });
+          goToPreview({ uri: stitchedUri, mediaType: 'video', facing: facingRef.current });
         } else {
           // Fallback: show all clips as a multi-item Preview so no segment is lost.
-          navigation.navigate('Preview', {
+          goToPreview({
             media: segments.map(uri => ({ uri, mediaType: 'video' as const })),
             source: 'camera',
           });
@@ -333,7 +356,7 @@ export default function CameraScreen() {
     try {
       const video = await dualRef.current.recordAsync({ maxDuration: MAX_RECORD_SECONDS });
       if (video?.uri) {
-        navigation.navigate('Preview', { uri: video.uri, mediaType: 'video' });
+        goToPreview({ uri: video.uri, mediaType: 'video' });
       }
     } catch (e: any) {
       setDualError(e?.message ?? 'Recording failed. Try again.');
@@ -686,7 +709,9 @@ export default function CameraScreen() {
           <Text style={styles.hint}>
             {isRecording
               ? (locked ? 'Tap to stop · Locked' : 'Release to stop · Slide ▶ to lock')
-              : 'Tap for photo · Hold for video'}
+              // Idle hint retires after a few captures; a space keeps the row
+              // height stable so the shutter doesn't jump when it goes.
+              : (captureCount < HINT_HIDE_AFTER ? 'Tap for photo · Hold for video' : ' ')}
           </Text>
 
           {/* Shutter row: spacer | shutter | lock pill (spacer keeps shutter centred) */}

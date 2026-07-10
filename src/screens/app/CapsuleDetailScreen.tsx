@@ -295,13 +295,15 @@ function InviteModal({
   }
 
   async function handleSaveQR() {
+    // Success and failure both go through the toast system now — the error
+    // slot is reserved for actual errors, not "saved ✓" confirmations.
     try {
       const uri = await viewShotRef.current?.capture?.();
       if (!uri) return;
       await MediaLibrary.saveToLibraryAsync(uri);
-      setError('QR code saved to camera roll ✓');
+      toast.show('QR code saved to camera roll');
     } catch {
-      setError('Could not save QR code.');
+      toast.show("Couldn't save the QR code — try again.");
     }
   }
 
