@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Animated,
-  TouchableOpacity, RefreshControl,
+  TouchableOpacity, RefreshControl, Modal, Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { haptics } from '../../lib/haptics';
@@ -19,6 +19,7 @@ import { SkeletonCard } from '../../components/Skeleton';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
+import { cache } from '../../lib/cache';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 import { listMyGroups, GroupRow, recurrenceLabel } from '../../lib/groups';
 
@@ -45,7 +46,7 @@ function CountdownBadge({ unlockAt, status, unlockMode }: { unlockAt: string; st
   if (status === 'unlocked') return (
     <View style={styles.unlockedBadge}>
       <Ionicons name="lock-open-outline" size={13} color="#30D158" />
-      <Text style={styles.unlockedBadgeText}> Unlocked</Text>
+      <Text style={styles.unlockedBadgeText} maxFontSizeMultiplier={1.3}> Unlocked</Text>
     </View>
   );
   // `unlock_at` is a placeholder for proximity capsules (never used to
@@ -60,8 +61,8 @@ function CountdownBadge({ unlockAt, status, unlockMode }: { unlockAt: string; st
     );
   }
   const { daysLeft, hoursLeft } = timeLeft;
-  if (daysLeft > 0) return <Text style={[styles.countdownText, { color: accentColor }]}>{daysLeft}d {hoursLeft}h left</Text>;
-  return <Text style={[styles.countdownText, { color: accentColor }]}>{hoursLeft}h left</Text>;
+  if (daysLeft > 0) return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{daysLeft}d {hoursLeft}h left</Text>;
+  return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{hoursLeft}h left</Text>;
 }
 
 function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number; variant?: HomeLayout }) {
@@ -179,6 +180,10 @@ export default function HomeScreen() {
   // Capsules optimistically hidden from the Archived section while their
   // restore RPC is in flight — re-shown (with a toast) if it fails.
   const [restoringIds, setRestoringIds] = useState<Set<string>>(new Set());
+  // Long-press context menu (Open / Edit / Archive) — was previously a
+  // hidden, owner-only-with-no-affordance long-press straight to EditCapsule.
+  // Any card can open it now; Edit only shows for the owner pre-unlock.
+  const [menuCapsule, setMenuCapsule] = useState<CapsuleWithCountdown | null>(null);
   const headerAnim = useFadeIn(0, 250);
 
   const userId = sessionStore.get()?.user?.id ?? null;
@@ -227,6 +232,25 @@ export default function HomeScreen() {
   // Any joined member can restore, not just the owner — a direct .update()
   // would be rejected by RLS for non-owners, so this goes through the same
   // security-definer RPC CapsuleDetailScreen uses.
+  // Every capsule in this list is already scoped to joined membership (the
+  // underlying query filters joined_at is not null), so canArchive's
+  // `isOwner || joined_at != null` is satisfied for any card shown here —
+  // no extra ownership check needed before offering Archive.
+  function archiveCapsule(capsuleId: string) {
+    setMenuCapsule(null);
+    haptics.light();
+    supabase
+      .rpc('set_capsule_archived', { p_capsule_id: capsuleId, p_archived: true })
+      .then(async ({ error }) => {
+        if (error) {
+          toast.show("Couldn't archive the capsule — try again.");
+        } else {
+          cache.invalidate('capsules', 'profile');
+          await refresh();
+        }
+      });
+  }
+
   function restoreCapsule(capsuleId: string) {
     haptics.light();
     setRestoringIds(prev => new Set(prev).add(capsuleId));
@@ -284,6 +308,9 @@ export default function HomeScreen() {
                     style={[styles.layoutBtn, active && { backgroundColor: `${accentColor}26` }]}
                     onPress={() => { haptics.selection(); setHomeLayout(opt); }}
                     hitSlop={6}
+                    accessibilityRole="button"
+                    accessibilityLabel={opt === 'list' ? 'List view' : 'Grid view'}
+                    accessibilityState={{ selected: active }}
                   >
                     <Ionicons
                       name={opt === 'list' ? 'reorder-four-outline' : 'grid-outline'}
@@ -299,6 +326,8 @@ export default function HomeScreen() {
             onPress={() => navigation.navigate('QRScanner')}
             hitSlop={8}
             style={styles.scanBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Scan QR code to join a capsule"
           >
             <Ionicons name="qr-code-outline" size={22} color="#666666" />
           </TouchableOpacity>
@@ -343,11 +372,7 @@ export default function HomeScreen() {
               index={index}
               variant={homeLayout}
               onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: item.id })}
-              onLongPress={
-                item.owner_id === userId && item.status !== 'unlocked'
-                  ? () => navigation.navigate('EditCapsule', { capsuleId: item.id })
-                  : undefined
-              }
+              onLongPress={() => { haptics.light(); setMenuCapsule(item); }}
             />
           )}
           contentContainerStyle={styles.list}
@@ -380,6 +405,52 @@ export default function HomeScreen() {
           }
         />
       )}
+
+      <Modal visible={!!menuCapsule} transparent animationType="fade" onRequestClose={() => setMenuCapsule(null)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setMenuCapsule(null)}>
+          <Pressable style={styles.menuSheet} onPress={() => {}}>
+            {menuCapsule && (
+              <>
+                <Text style={styles.menuTitle} numberOfLines={1}>{menuCapsule.title}</Text>
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    const id = menuCapsule.id;
+                    setMenuCapsule(null);
+                    navigation.navigate('CapsuleDetail', { capsuleId: id });
+                  }}
+                >
+                  <Ionicons name="open-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.menuItemText}>Open</Text>
+                </TouchableOpacity>
+                {menuCapsule.owner_id === userId && menuCapsule.status !== 'unlocked' && (
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={() => {
+                      const id = menuCapsule.id;
+                      setMenuCapsule(null);
+                      navigation.navigate('EditCapsule', { capsuleId: id });
+                    }}
+                  >
+                    <Ionicons name="create-outline" size={20} color="#FFFFFF" />
+                    <Text style={styles.menuItemText}>Edit</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => archiveCapsule(menuCapsule.id)}
+                >
+                  <Ionicons name="archive-outline" size={20} color="#FFFFFF" />
+                  <Text style={styles.menuItemText}>Archive</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.menuCancel} onPress={() => setMenuCapsule(null)}>
+                  <Text style={styles.menuCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -390,7 +461,7 @@ const styles = StyleSheet.create({
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 'auto' },
   scanBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
-  count: { fontSize: 14, color: '#555555' },
+  count: { fontSize: 14, color: '#888888' },
   layoutToggle: { flexDirection: 'row', gap: 2, backgroundColor: '#1A1A1A', borderRadius: 10, padding: 3 },
   layoutBtn: { padding: 6, borderRadius: 8 },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16, paddingHorizontal: 40 },
@@ -423,7 +494,7 @@ const styles = StyleSheet.create({
   togetherBadgeText: { fontSize: 13, fontWeight: '700' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
-  cardDate: { fontSize: 12, color: '#555555', marginTop: 4 },
+  cardDate: { fontSize: 12, color: '#888888', marginTop: 4 },
   emptyOuter: { flex: 1 },
   groupsSection: { marginBottom: 8, paddingHorizontal: 0 },
   groupsHeader: {
@@ -440,7 +511,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111', borderRadius: 12,
     borderWidth: 1, borderColor: '#1E1E1E',
   },
-  groupsEmptyText: { flex: 1, fontSize: 14, color: '#555555' },
+  groupsEmptyText: { flex: 1, fontSize: 14, color: '#888888' },
   groupCard: {
     width: 140, backgroundColor: '#1A1A1A',
     borderRadius: 14, padding: 14, gap: 8,
@@ -450,13 +521,13 @@ const styles = StyleSheet.create({
   groupCardMeta: { gap: 4 },
   groupCardBadge: { alignSelf: 'flex-start', borderRadius: 6, paddingVertical: 2, paddingHorizontal: 6 },
   groupCardBadgeText: { fontSize: 11, fontWeight: '700' },
-  groupCardCount: { fontSize: 11, color: '#555555' },
+  groupCardCount: { fontSize: 11, color: '#888888' },
   archivedSection: { marginTop: 8, marginHorizontal: 0 },
   archivedHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingVertical: 12, paddingHorizontal: 4,
   },
-  archivedHeaderText: { flex: 1, fontSize: 14, color: '#555555', fontWeight: '600' },
+  archivedHeaderText: { flex: 1, fontSize: 14, color: '#888888', fontWeight: '600' },
   archivedCard: {
     backgroundColor: '#111111',
     borderRadius: 12,
@@ -477,4 +548,20 @@ const styles = StyleSheet.create({
     borderColor: '#2A2A2A',
   },
   restoreBtnText: { color: '#AAAAAA', fontSize: 13, fontWeight: '600' },
+  menuBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  menuSheet: {
+    backgroundColor: '#1A1A1A', borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    paddingHorizontal: 20, paddingTop: 16, paddingBottom: 36, gap: 4,
+  },
+  menuTitle: {
+    fontSize: 13, color: '#888888', fontWeight: '600',
+    marginBottom: 8, paddingHorizontal: 4,
+  },
+  menuItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 14, paddingHorizontal: 4,
+  },
+  menuItemText: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  menuCancel: { paddingVertical: 14, alignItems: 'center', marginTop: 8 },
+  menuCancelText: { color: '#888888', fontSize: 16, fontWeight: '600' },
 });

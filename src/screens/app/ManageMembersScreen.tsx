@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   backBtn: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 4 },
   backText: { color: '#FF6B35', fontSize: 16, fontWeight: '600' },
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF', paddingHorizontal: 24, marginTop: 8 },
-  subtitle: { fontSize: 14, color: '#555555', paddingHorizontal: 24, marginTop: 4, marginBottom: 16 },
+  subtitle: { fontSize: 14, color: '#888888', paddingHorizontal: 24, marginTop: 4, marginBottom: 16 },
   list: { paddingHorizontal: 20, paddingBottom: 40 },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
@@ -225,7 +225,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3,
     borderWidth: 1, borderColor: '#2A2A2A',
   },
-  pendingText: { fontSize: 11, color: '#555555', fontWeight: '600' },
+  pendingText: { fontSize: 11, color: '#888888', fontWeight: '600' },
   removeBtn: { padding: 4 },
   removeBtnPlaceholder: { width: 28 },
   sep: { height: 1, backgroundColor: '#1A1A1A' },

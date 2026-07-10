@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
   },
   memberSince: {
     fontSize: 12,
-    color: '#555555',
+    color: '#888888',
   },
 
   statsRow: {
@@ -614,7 +614,7 @@ const es = StyleSheet.create({
   changePhoto: { fontSize: 14, color: '#FF6B35', fontWeight: '600' },
   labelRow: { flexDirection: 'row', justifyContent: 'space-between', alignSelf: 'stretch' },
   label: { fontSize: 13, color: '#888888', fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5, alignSelf: 'flex-start' },
-  charCount: { fontSize: 13, color: '#555555' },
+  charCount: { fontSize: 13, color: '#888888' },
   input: { alignSelf: 'stretch', borderWidth: 1, borderColor: '#2A2A2A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: '#FFFFFF', fontSize: 16, backgroundColor: '#111111' },
   error: { color: '#FF3B30', fontSize: 14, textAlign: 'center' },
 });

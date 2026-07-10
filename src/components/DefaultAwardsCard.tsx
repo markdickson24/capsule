@@ -148,6 +148,8 @@ export default function DefaultAwardsCard(props: Props) {
                 onPress={() => swapOne(i)}
                 disabled={saving}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Swap "${a.label}" for another award`}
               >
                 <Ionicons name="refresh-outline" size={15} color="#888888" />
               </TouchableOpacity>
@@ -156,6 +158,8 @@ export default function DefaultAwardsCard(props: Props) {
                 onPress={() => removeOne(i)}
                 disabled={saving}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove "${a.label}" award`}
               >
                 <Ionicons name="close" size={15} color="#888888" />
               </TouchableOpacity>

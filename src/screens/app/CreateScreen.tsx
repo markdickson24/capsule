@@ -19,6 +19,7 @@ import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { uploadQueue } from '../../lib/uploadQueue';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 import { getGroupMembers } from '../../lib/groups';
@@ -195,13 +196,17 @@ export default function CreateScreen() {
 
     if (defaultAwards.length > 0) {
       try {
-        await supabase.rpc('set_default_superlatives', {
+        const { error: awardsError } = await supabase.rpc('set_default_superlatives', {
           p_capsule_id: capsuleId,
           p_awards: defaultAwards,
         });
+        if (awardsError) throw awardsError;
       } catch {
         // Non-fatal — the capsule is already created and usable; the owner
         // can still seed/regenerate defaults from the capsule page pre-unlock.
+        // Still worth a toast: a silently-empty awards section otherwise
+        // looks like a bug rather than a one-off write failure to retry.
+        toast.show("Couldn't set up default awards — you can add them from the capsule.");
       }
     }
 
@@ -218,12 +223,23 @@ export default function CreateScreen() {
             joined_at: null,
           }))
         );
+        let notifyFailures = 0;
         for (const m of otherMembers) {
           try {
-            await supabase.functions.invoke('send-invite-push', {
+            const { error: pushError } = await supabase.functions.invoke('send-invite-push', {
               body: { capsuleId, inviteeId: m.user_id },
             });
-          } catch { /* best-effort */ }
+            if (pushError) throw pushError;
+          } catch {
+            notifyFailures += 1; // best-effort — membership itself is unaffected
+          }
+        }
+        if (notifyFailures > 0) {
+          toast.show(
+            notifyFailures === otherMembers.length
+              ? "Couldn't notify group members — they'll still see it in the app."
+              : `Couldn't notify ${notifyFailures} group member${notifyFailures === 1 ? '' : 's'} — they'll still see it in the app.`
+          );
         }
       }
       cache.invalidate('groups', `group:${groupId}`, `group-capsules:${groupId}`);

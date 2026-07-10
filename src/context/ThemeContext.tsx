@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
+import { toast } from '../lib/toast';
 
 const DEFAULT_ACCENT = '#FF6B35';
 const DEFAULT_HOME_LAYOUT: HomeLayout = 'list';
@@ -150,7 +151,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const session = sessionStore.get();
     if (session) {
       writeCachedTheme(session.user.id, { accentColor: color, homeLayout });
-      await supabase.from('users').update({ accent_color: color }).eq('id', session.user.id);
+      const { error } = await supabase.from('users').update({ accent_color: color }).eq('id', session.user.id);
+      // State/local cache already updated, so the color still looks saved on
+      // this device — but it won't survive a fresh sign-in elsewhere or a
+      // cache-miss without this toast telling the user the write didn't land.
+      if (error) toast.show("Couldn't save your color — try again.");
     }
   }
 
@@ -159,7 +164,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const session = sessionStore.get();
     if (session) {
       writeCachedTheme(session.user.id, { accentColor, homeLayout: layout });
-      await supabase.from('users').update({ home_layout: layout }).eq('id', session.user.id);
+      const { error } = await supabase.from('users').update({ home_layout: layout }).eq('id', session.user.id);
+      if (error) toast.show("Couldn't save your layout preference — try again.");
     }
   }
 

@@ -747,6 +747,8 @@ function MediaViewerModal({
                         style={styles.swapBubble}
                         activeOpacity={0.8}
                         onPress={() => setSwapped(s => ({ ...s, [item.id]: !s[item.id] }))}
+                        accessibilityRole="button"
+                        accessibilityLabel="Swap front and back photo"
                       >
                         <Ionicons name="sync-outline" size={16} color="#FFFFFF" />
                       </TouchableOpacity>
@@ -779,7 +781,7 @@ function MediaViewerModal({
             style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 120 }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 56 }}>
-              <TouchableOpacity onPress={onClose} style={{ padding: 8 }}>
+              <TouchableOpacity onPress={onClose} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Close">
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
               <View style={{ alignItems: 'center', gap: 2 }}>
@@ -885,7 +887,7 @@ function MediaGalleryModal({
         <View style={gal.header}>
           <Text style={gal.title}>All Media</Text>
           <Text style={gal.count}>{items.length}</Text>
-          <TouchableOpacity onPress={onClose} style={gal.closeBtn}>
+          <TouchableOpacity onPress={onClose} style={gal.closeBtn} accessibilityRole="button" accessibilityLabel="Close">
             <Ionicons name="close" size={22} color="#888888" />
           </TouchableOpacity>
         </View>
@@ -1711,6 +1713,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                       style={styles.failedDismiss}
                       onPress={() => uploadQueue.dismiss(t.id)}
                       hitSlop={8}
+                      accessibilityRole="button"
+                      accessibilityLabel="Dismiss failed upload"
                     >
                       <Ionicons name="close" size={13} color="#FFFFFF" />
                     </TouchableOpacity>
@@ -1975,7 +1979,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 <View style={styles.sheetHandle} />
                 <View style={styles.sheetHeader}>
                   <Text style={styles.sheetTitle}>Members</Text>
-                  <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8}>
+                  <TouchableOpacity onPress={() => setShowMembersSheet(false)} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
                     <Ionicons name="close" size={22} color="#888888" />
                   </TouchableOpacity>
                 </View>
@@ -2099,7 +2103,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between', marginTop: 8,
   },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
-  photoCount: { fontSize: 14, color: '#555555' },
+  photoCount: { fontSize: 14, color: '#888888' },
   memberActions: { flexDirection: 'row', gap: 8 },
   manageBtn: {
     backgroundColor: '#1A1A1A', borderRadius: 8,
@@ -2181,13 +2185,13 @@ const styles = StyleSheet.create({
     padding: 32, alignItems: 'center', gap: 8,
     borderWidth: 1, borderColor: '#2A2A2A',
   },
-  emptyPhotosText: { fontSize: 15, color: '#555555' },
+  emptyPhotosText: { fontSize: 15, color: '#888888' },
   lockedBox: {
     backgroundColor: '#1A1A1A', borderRadius: 16, padding: 32,
     alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#2A2A2A',
   },
   lockedText: { fontSize: 15, color: '#888888', textAlign: 'center' },
-  lockedHint: { fontSize: 12, color: '#555555', textAlign: 'center', paddingHorizontal: 12 },
+  lockedHint: { fontSize: 12, color: '#888888', textAlign: 'center', paddingHorizontal: 12 },
   lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
@@ -2222,7 +2226,7 @@ const styles = StyleSheet.create({
   },
   pickerBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
   pickerCancelBtn: { paddingVertical: 12, alignItems: 'center' },
-  pickerCancelText: { color: '#555555', fontSize: 15 },
+  pickerCancelText: { color: '#888888', fontSize: 15 },
   addPhotoBtn: {
     backgroundColor: '#FF6B35', borderRadius: 14,
     paddingVertical: 16, alignItems: 'center',
@@ -2268,7 +2272,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0A0A0A', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12,
     color: '#FFFFFF', fontSize: 15, borderWidth: 1, borderColor: '#2A2A2A',
   },
-  captionEditCount: { color: '#555', fontSize: 12, textAlign: 'right' },
+  captionEditCount: { color: '#888888', fontSize: 12, textAlign: 'right' },
   captionEditBtns: { flexDirection: 'row', gap: 10 },
   captionEditCancel: {
     flex: 1, backgroundColor: '#2A2A2A', borderRadius: 12, paddingVertical: 12, alignItems: 'center',
@@ -2295,7 +2299,7 @@ const ms = StyleSheet.create({
   tab: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
   tabText: { color: '#888888', fontWeight: '700', fontSize: 14 },
   tabTextActive: { color: '#FFFFFF' },
-  emptyTab: { color: '#555555', fontSize: 14, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+  emptyTab: { color: '#888888', fontSize: 14, textAlign: 'center', paddingVertical: 24, paddingHorizontal: 16 },
   input: {
     marginHorizontal: 24, backgroundColor: '#1A1A1A', borderRadius: 12,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
@@ -2359,7 +2363,7 @@ const gal = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 12, paddingBottom: 16, gap: 8,
   },
   title: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', flex: 1 },
-  count: { fontSize: 15, color: '#555555', fontWeight: '600' },
+  count: { fontSize: 15, color: '#888888', fontWeight: '600' },
   closeBtn: { padding: 8 },
   closeText: { color: '#FFFFFF', fontSize: 18, fontWeight: '700' },
   thumb: { overflow: 'hidden', backgroundColor: '#1A1A1A' },

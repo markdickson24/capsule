@@ -96,7 +96,7 @@ export default function ReportModal({
             <>
               <View style={styles.header}>
                 <Text style={styles.title}>{title}</Text>
-                <TouchableOpacity onPress={handleClose} disabled={submitting} hitSlop={8}>
+                <TouchableOpacity onPress={handleClose} disabled={submitting} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
                   <Ionicons name="close" size={22} color="#888888" />
                 </TouchableOpacity>
               </View>

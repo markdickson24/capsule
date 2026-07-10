@@ -193,7 +193,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
         )}
 
         <SafeAreaView edges={['top']} style={styles.topBar}>
-          <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)}>
+          <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)} accessibilityRole="button" accessibilityLabel="Discard">
             <Ionicons name="close" size={20} color="#FFFFFF" />
           </TouchableOpacity>
           {itemCount > 1 ? (
