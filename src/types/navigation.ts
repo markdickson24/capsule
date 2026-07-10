@@ -31,6 +31,7 @@ export type AppStackParamList = {
   EditCapsule: { capsuleId: string };
   ManageMembers: { capsuleId: string };
   Settings: undefined;
+  BlockedUsers: undefined;
   Onboarding: undefined;
   Friends: undefined;
   QRScanner: undefined;

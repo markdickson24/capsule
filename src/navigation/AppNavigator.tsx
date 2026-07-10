@@ -24,6 +24,7 @@ import ResetPasswordScreen from '../screens/app/ResetPasswordScreen';
 import EditCapsuleScreen from '../screens/app/EditCapsuleScreen';
 import ManageMembersScreen from '../screens/app/ManageMembersScreen';
 import SettingsScreen from '../screens/app/SettingsScreen';
+import BlockedUsersScreen from '../screens/app/BlockedUsersScreen';
 import OnboardingScreen from '../screens/app/OnboardingScreen';
 import FriendsScreen from '../screens/app/FriendsScreen';
 import QRScannerScreen from '../screens/app/QRScannerScreen';
@@ -318,6 +319,7 @@ export default function AppNavigator() {
       <Stack.Screen name="EditCapsule" component={EditCapsuleScreen} />
       <Stack.Screen name="ManageMembers" component={ManageMembersScreen} />
       <Stack.Screen name="Settings" component={SettingsScreen} options={{ animation: 'slide_from_bottom' }} />
+      <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} />
       <Stack.Screen name="Friends" component={FriendsScreen} />
       <Stack.Screen name="QRScanner" component={QRScannerScreen} options={{ animation: 'slide_from_bottom' }} />
       <Stack.Screen name="GroupDetail" component={GroupDetailScreen} />

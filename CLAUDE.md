@@ -623,6 +623,8 @@ UGC compliance for Apple App Store Guideline 1.2. Scope is **report + block**; E
 
 **Report UI** — `src/components/ReportModal.tsx`, a reusable controlled modal (reason radio list + optional ≤500-char details). Entry points: the **flag icon in `MediaViewerModal`'s header** (`targetType="media"`, passes `capsuleId`) and an **overflow `⋯` menu in `PublicProfileScreen`'s nav bar**. The `⋯` opens a small fade-in popup (tap-outside to dismiss) with **Report** and **Block/Unblock**; block goes through `ConfirmModal`. A blocked profile hides the Invite button and shows a notice.
 
+**Blocked-users management** — `BlockedUsersScreen` (`AppStack` route `BlockedUsers`, opened via a "Blocked Users" row in Settings' new "Privacy" section). Previously the *only* way to unblock someone was finding their profile again (impossible if you'd forgotten who, or if search/mutual-capsule paths no longer surface them). Resolves `blockStore`'s ID-only set into `display_name`/`avatar_url` via a `users` select (id-only `blockStore`/`useBlockedUsers` intentionally carry no profile data — this screen is the one place that needs it, so it fetches locally rather than growing the shared store). Unblock is direct (no confirm, mirroring `PublicProfileScreen`'s unblock) — optimistic remove, reinserts + toasts on failure.
+
 ---
 
 ## Friends

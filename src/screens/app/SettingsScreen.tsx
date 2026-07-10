@@ -70,6 +70,15 @@ export default function SettingsScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Privacy</Text>
+            <TouchableOpacity style={styles.row} activeOpacity={0.75} onPress={() => navigation.navigate('BlockedUsers')}>
+              <Ionicons name="shield-outline" size={18} color="#AAAAAA" />
+              <Text style={styles.rowLabel}>Blocked Users</Text>
+              <Ionicons name="chevron-forward" size={16} color="#555555" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.section}>
             <Text style={styles.sectionLabel}>Legal</Text>
             <SettingsRow
               icon="document-text-outline"

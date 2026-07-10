@@ -1310,7 +1310,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // capsule/members result, so run it in the same wave instead of
     // awaiting it afterward.
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, created_at, archived_at, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
         .select('user_id, role, joined_at, users(display_name, avatar_url)')
