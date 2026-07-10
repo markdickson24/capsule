@@ -69,6 +69,8 @@ type MediaItem = {
   thumbnailUri?: string;
   /** Dual (PiP) photos: signed URL of the swapped composite, for tap-to-swap in the viewer. */
   altSignedUrl?: string;
+  /** Storage path of the swap composite — stable cacheKey for the alt image. */
+  altStorageKey?: string;
   caption?: string | null;
 };
 
@@ -725,7 +727,19 @@ function MediaViewerModal({
                 <VideoSlide key={item.id} item={item} isActive={index === currentIndex} />
               ) : (
                 <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                  <Image source={shownUrl(item)} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} contentFit="contain" transition={150} />
+                  <Image
+                    source={{
+                      uri: shownUrl(item),
+                      // Stable cacheKey (the storage path, not the signed URL) so
+                      // expo-image's disk cache survives re-signing — signed URLs
+                      // get a fresh token roughly every 50 minutes, which would
+                      // otherwise look like a brand-new image and force a re-download.
+                      cacheKey: swapped[item.id] && item.altStorageKey ? item.altStorageKey : item.storage_key,
+                    }}
+                    style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                    contentFit="contain"
+                    transition={150}
+                  />
                   {/* Dual (PiP) photo — tap the corner bubble to swap which lens is the main frame. */}
                   {item.altSignedUrl && (
                     <TouchableOpacity
@@ -877,6 +891,14 @@ function MediaGalleryModal({
           data={items}
           numColumns={3}
           keyExtractor={item => item.id}
+          initialNumToRender={15}
+          maxToRenderPerBatch={12}
+          windowSize={5}
+          getItemLayout={(_, index) => ({
+            length: thumbSize,
+            offset: thumbSize * Math.floor(index / 3),
+            index,
+          })}
           renderItem={({ item, index }) => (
             <TouchableOpacity
               style={[gal.thumb, { width: thumbSize, height: thumbSize }]}
@@ -885,7 +907,12 @@ function MediaGalleryModal({
             >
               {(item.mediaType === 'photo' || item.thumbnailUri) && (
                 <Image
-                  source={item.mediaType === 'video' ? item.thumbnailUri : (item.thumbSignedUrl ?? item.signedUrl)}
+                  source={{
+                    uri: item.mediaType === 'video' ? item.thumbnailUri : (item.thumbSignedUrl ?? item.signedUrl),
+                    // Stable cacheKey — same rationale as the viewer above.
+                    cacheKey: item.mediaType === 'video' ? undefined : item.storage_key,
+                  }}
+                  recyclingKey={item.id}
                   style={StyleSheet.absoluteFill}
                   contentFit="cover"
                   transition={150}
@@ -1217,6 +1244,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         // Derived from the already-signed URL — no extra signing round-trip.
         thumbSignedUrl: m.media_type === 'photo' ? (transformMediaUrl(signedUrl, GRID_THUMB_PX) ?? undefined) : undefined,
         altSignedUrl: m.alt_storage_key ? signedUrlMap![m.alt_storage_key] : undefined,
+        altStorageKey: m.alt_storage_key ?? undefined,
         caption: m.caption ?? null,
       };
     });
@@ -1658,7 +1686,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                     >
                       {(p.mediaType === 'photo' || p.thumbnailUri) && (
                         <Image
-                          source={p.mediaType === 'video' ? p.thumbnailUri : (p.thumbSignedUrl ?? p.signedUrl)}
+                          source={{
+                            uri: p.mediaType === 'video' ? p.thumbnailUri : (p.thumbSignedUrl ?? p.signedUrl),
+                            cacheKey: p.mediaType === 'video' ? undefined : p.storage_key,
+                          }}
                           style={StyleSheet.absoluteFill}
                           contentFit="cover"
                           transition={200}
