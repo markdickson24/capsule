@@ -67,10 +67,14 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
 
   // Optimistic: the row disappears the moment the owner confirms; the delete
   // runs in the background and the row is restored (with a toast) on failure.
+  // Reinserts just the removed row rather than restoring a whole-list
+  // snapshot — with two removals in flight at once, restoring a stale
+  // pre-both-removals snapshot would silently undo the OTHER one's
+  // already-successful delete.
   function confirmRemove() {
     if (!pendingRemoval) return;
     const { userId, displayName } = pendingRemoval;
-    const prevMembers = members;
+    const removedMember = members.find(m => m.user_id === userId) ?? null;
     setMembers(prev => prev.filter(m => m.user_id !== userId));
     setPendingRemoval(null);
     supabase
@@ -80,7 +84,15 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
       .eq('user_id', userId)
       .then(({ error }) => {
         if (error) {
-          setMembers(prevMembers);
+          if (removedMember) {
+            setMembers(prev =>
+              prev.some(m => m.user_id === userId)
+                ? prev
+                : [...prev, removedMember].sort((a, b) =>
+                    (a.joined_at ?? '') < (b.joined_at ?? '') ? -1 : 1
+                  )
+            );
+          }
           toast.show(`Couldn't remove ${displayName} — try again.`);
         }
       });

@@ -182,6 +182,21 @@ export default function NotificationsScreen() {
     cache.invalidate('notifications');
   }
 
+  // Reinsert a single optimistically-removed notification on rollback,
+  // rather than restoring a whole-list snapshot: with two actions in flight
+  // at once (e.g. accept an invite, decline a friend request), restoring a
+  // stale full-array snapshot from before EITHER action would silently undo
+  // the other one's already-successful removal. Reinserting just this item
+  // (if it isn't already back) composes correctly regardless of what else
+  // changed in the meantime.
+  function reinsertNotification(item: DisplayNotification) {
+    setNotifications(prev =>
+      prev.some(n => n.id === item.id)
+        ? prev
+        : [...prev, item].sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1))
+    );
+  }
+
   // Optimistic accept: the card clears and the capsule opens immediately;
   // the membership write happens in the background. On failure everything is
   // rolled back and the global toast reaches the user wherever they are.
@@ -193,8 +208,6 @@ export default function NotificationsScreen() {
     const memberId = pendingMap[capsuleId];
     if (!memberId) return;
 
-    const prevNotifications = notifications;
-    const prevPendingMap = pendingMap;
     haptics.success();
     setNotifications(prev => prev.filter(n => n.id !== notif.id));
     setPendingMap(prev => {
@@ -210,8 +223,8 @@ export default function NotificationsScreen() {
       .eq('id', memberId)
       .then(({ error }) => {
         if (error) {
-          setNotifications(prevNotifications);
-          setPendingMap(prevPendingMap);
+          reinsertNotification(notif);
+          setPendingMap(prev => ({ ...prev, [capsuleId]: memberId }));
           toast.show("Couldn't accept the invite — try again.");
         } else {
           void persistRead(notif);
@@ -222,12 +235,11 @@ export default function NotificationsScreen() {
 
   function acceptFriend(item: DisplayNotification) {
     if (!item.actor_id) return;
-    const prevNotifications = notifications;
     haptics.success();
     setNotifications(prev => prev.filter(n => n.id !== item.id));
     acceptFriendRequest(item.actor_id).then(({ error }) => {
       if (error) {
-        setNotifications(prevNotifications);
+        reinsertNotification(item);
         toast.show("Couldn't accept the request — try again.");
       } else {
         void persistRead(item);
@@ -238,12 +250,11 @@ export default function NotificationsScreen() {
 
   function declineFriend(item: DisplayNotification) {
     if (!item.actor_id) return;
-    const prevNotifications = notifications;
     haptics.light();
     setNotifications(prev => prev.filter(n => n.id !== item.id));
     removeFriendship(item.actor_id).then(({ error }) => {
       if (error) {
-        setNotifications(prevNotifications);
+        reinsertNotification(item);
         toast.show("Couldn't decline — try again.");
       } else {
         void persistRead(item);
