@@ -12,6 +12,7 @@ import { supabase } from '../../lib/supabase';
 import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { useTheme } from '../../context/ThemeContext';
@@ -125,9 +126,16 @@ export default function GroupDetailScreen() {
 
   async function handleDelete() {
     setDeleting(true);
-    await deleteGroup(groupId);
-    cache.invalidate('groups');
+    // Only navigate/invalidate on success — a failed delete used to look like
+    // it worked (goBack) until the group reappeared.
+    const { error } = await deleteGroup(groupId);
     setDeleting(false);
+    if (error) {
+      setShowDeleteConfirm(false);
+      toast.show("Couldn't delete the group — try again.");
+      return;
+    }
+    cache.invalidate('groups');
     setShowDeleteConfirm(false);
     navigation.goBack();
   }
@@ -135,9 +143,14 @@ export default function GroupDetailScreen() {
   async function handleLeave() {
     if (!userId) return;
     setLeaving(true);
-    await removeGroupMember(groupId, userId);
-    cache.invalidate('groups');
+    const { error } = await removeGroupMember(groupId, userId);
     setLeaving(false);
+    if (error) {
+      setShowLeaveConfirm(false);
+      toast.show("Couldn't leave the group — try again.");
+      return;
+    }
+    cache.invalidate('groups');
     setShowLeaveConfirm(false);
     navigation.goBack();
   }
@@ -197,11 +210,31 @@ export default function GroupDetailScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>
         {isCreator ? (
-          <TouchableOpacity onPress={() => setShowDeleteConfirm(true)} hitSlop={8}>
-            <Ionicons name="trash-outline" size={22} color="#FF3B30" />
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={() => navigation.navigate('ManageGroup', { groupId })}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Manage group"
+            >
+              <Ionicons name="settings-outline" size={22} color={accentColor} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setShowDeleteConfirm(true)}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Delete group"
+            >
+              <Ionicons name="trash-outline" size={22} color="#FF3B30" />
+            </TouchableOpacity>
+          </View>
         ) : (
-          <TouchableOpacity onPress={() => setShowLeaveConfirm(true)} hitSlop={8}>
+          <TouchableOpacity
+            onPress={() => setShowLeaveConfirm(true)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Leave group"
+          >
             <Ionicons name="exit-outline" size={22} color="#FF3B30" />
           </TouchableOpacity>
         )}
@@ -312,6 +345,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingVertical: 12,
   },
   headerTitle: { flex: 1, fontSize: 20, fontWeight: '700', color: '#FFFFFF' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 18 },
   meta: {
     marginHorizontal: 20, marginTop: 8, marginBottom: 16,
     backgroundColor: '#1A1A1A', borderRadius: 16, padding: 16, gap: 12,

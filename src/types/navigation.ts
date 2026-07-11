@@ -36,6 +36,7 @@ export type AppStackParamList = {
   Friends: undefined;
   QRScanner: undefined;
   GroupDetail: { groupId: string };
+  ManageGroup: { groupId: string };
   CreateGroup: undefined;
   CreateCapsule: { groupId?: string; groupUnlockHours?: number; presetTitle?: string; presetDescription?: string; pendingMedia?: PendingMedia[] } | undefined;
 };
