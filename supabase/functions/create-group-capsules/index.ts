@@ -19,6 +19,34 @@ function monthYear(d: Date): string {
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
+// GROUPS.md #8 — group capsules have no `occasion` (that column drives the
+// wedding/vacation/etc. themed pools; groups are recurring and general-purpose),
+// so this mirrors src/lib/awardPool.ts's `general` pool verbatim. The client's
+// set_default_superlatives RPC authorizes `auth.uid() = owner_id`, which the
+// service-role cron can't satisfy — so these are inserted directly as `live`
+// rows here instead of going through that RPC.
+const GENERAL_AWARD_POOL: { label: string; target_type: 'person' | 'media' }[] = [
+  { label: 'Best photo', target_type: 'media' },
+  { label: 'Funniest moment', target_type: 'media' },
+  { label: 'Life of the group', target_type: 'person' },
+  { label: 'Best candid', target_type: 'media' },
+  { label: 'Most likely to be late', target_type: 'person' },
+  { label: 'Biggest jokester', target_type: 'person' },
+  { label: 'Best group shot', target_type: 'media' },
+  { label: 'Most photogenic', target_type: 'person' },
+  { label: 'Most memorable moment', target_type: 'media' },
+  { label: 'Best vibe', target_type: 'person' },
+];
+
+function pickDefaultAwards(count = 4) {
+  const pool = [...GENERAL_AWARD_POOL];
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  return pool.slice(0, count);
+}
+
 // Validates the Bearer token by calling a SECURITY DEFINER RPC that reads from
 // Vault — no CRON_SECRET env var required on the function itself.
 async function isAuthorized(req: Request): Promise<boolean> {
@@ -140,21 +168,25 @@ async function processGroup(group: any) {
     return;
   }
 
-  const nonOwnerMembers = groupMembers.filter((m: any) => m.user_id !== group.created_by);
-  if (nonOwnerMembers.length > 0) {
-    const { error: notifErr } = await supabase.from('notifications').insert(
-      nonOwnerMembers.map((m: any) => ({
-        user_id: m.user_id,
-        capsule_id: capsuleId,
-        actor_id: group.created_by,
-        type: 'invite',
-        pushed_at: nowIso,
-      }))
-    );
-    // Non-fatal: the capsule + membership are intact; a missing in-app row just
-    // means no Alerts entry (the push below still fires).
-    if (notifErr) console.error(`notifications insert failed for group ${group.id}:`, notifErr.message);
-  }
+  // GROUPS.md #6 — the notify_on_invite trigger (fired by the capsule_members
+  // insert above, every row already joined) now emits one `group_capsule`
+  // notification per non-owner member itself, so no separate insert here —
+  // that used to double as a fake pending "invite" card for members who were
+  // never actually pending.
+  const { error: awardsErr } = await supabase.from('superlative_categories').insert(
+    pickDefaultAwards().map(a => ({
+      capsule_id: capsuleId,
+      suggested_by: group.created_by,
+      label: a.label,
+      target_type: a.target_type,
+      status: 'live',
+      is_default: true,
+      promoted_at: nowIso,
+    }))
+  );
+  // Non-fatal: the capsule/membership are intact; the owner can still seed
+  // awards manually from the capsule's pre-unlock DefaultAwardsCard.
+  if (awardsErr) console.error(`default awards insert failed for group ${group.id}:`, awardsErr.message);
 
   const tokens: string[] = groupMembers.map((m: any) => m.users?.push_token).filter(Boolean);
   await sendPushes(tokens, group.name, capsuleId);

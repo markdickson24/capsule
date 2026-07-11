@@ -21,7 +21,7 @@ import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { uploadQueue } from '../../lib/uploadQueue';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
-import { getGroupMembers } from '../../lib/groups';
+import { getGroup, getGroupMembers, updateGroup } from '../../lib/groups';
 import { OCCASIONS, OccasionKey, pickDefaults } from '../../lib/awardPool';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
@@ -213,12 +213,17 @@ export default function CreateScreen() {
       const groupMembers = await getGroupMembers(groupId);
       const otherMembers = groupMembers.filter(m => m.user_id !== user.id);
       if (otherMembers.length > 0) {
+        // Membership in a group is standing consent to its capsules (GROUPS.md
+        // #6) — joined_at is set immediately, same as the cron path, instead
+        // of leaving these as pending invites nobody actually needs to accept.
+        // This also routes notify_on_invite to its `group_capsule` branch
+        // rather than a fake pending "invite" card.
         await supabase.from('capsule_members').insert(
           otherMembers.map(m => ({
             capsule_id: capsuleId,
             user_id: m.user_id,
             role: 'contributor',
-            joined_at: null,
+            joined_at: new Date().toISOString(),
           }))
         );
         let notifyFailures = 0;
@@ -240,6 +245,17 @@ export default function CreateScreen() {
           );
         }
       }
+
+      // GROUPS.md #12 — a manually-started capsule for a scheduled group
+      // shouldn't leave the cron free to also fire one an interval later on
+      // the group's old schedule. Push next_capsule_at out from now. Silent
+      // best-effort: worst case is one extra capsule next cycle, not worth
+      // alarming the user over on their own "Lock Capsule" tap.
+      const group = await getGroup(groupId);
+      if (group && group.recurrence_interval !== 'manual') {
+        await updateGroup(groupId, { recurrence: group.recurrence_interval });
+      }
+
       cache.invalidate('groups', `group:${groupId}`, `group-capsules:${groupId}`);
     }
 
