@@ -29,6 +29,20 @@ async function isAuthorized(req: Request): Promise<boolean> {
   return data === true;
 }
 
+// GROUPS.md #4 — Expo rejects a request carrying >100 messages and drops the
+// WHOLE batch, so a 100+ member group would silently get zero pushes. Slice
+// into ≤100-message requests, posted sequentially (matches unlock-capsules /
+// send-superlative-pushes' sendExpoPush).
+async function sendExpoPush(messages: object[]) {
+  for (let i = 0; i < messages.length; i += 100) {
+    await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify(messages.slice(i, i + 100)),
+    });
+  }
+}
+
 async function sendPushes(tokens: string[], groupName: string, capsuleId: string) {
   const messages = tokens.filter(t => t.startsWith('ExponentPushToken[')).map(to => ({
     to,
@@ -38,15 +52,43 @@ async function sendPushes(tokens: string[], groupName: string, capsuleId: string
     sound: 'default' as const,
   }));
   if (messages.length === 0) return;
-  await fetch('https://exp.host/--/api/v2/push/send', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(messages),
-  });
+  await sendExpoPush(messages);
+}
+
+// Restore a group's schedule stamps after a mid-create failure, so the capsule
+// that couldn't be built is retried on the next tick rather than silently
+// skipped (GROUPS.md #3).
+async function releaseClaim(groupId: string, prevNextAt: string | null, prevLastAt: string | null) {
+  await supabase
+    .from('groups')
+    .update({ next_capsule_at: prevNextAt, last_capsule_at: prevLastAt })
+    .eq('id', groupId);
 }
 
 async function processGroup(group: any) {
   const now = new Date();
+  const nowIso = now.toISOString();
+  const nextAt = calcNextAt(now, group.recurrence_interval as GroupRecurrence).toISOString();
+
+  // GROUPS.md #2 — CLAIM FIRST, atomically. Advancing next_capsule_at up front,
+  // gated on it still being due, means two overlapping ticks can't both create
+  // a capsule for the same cycle: the second update matches zero rows. Only
+  // proceed for groups this call actually claimed.
+  const { data: claimed, error: claimErr } = await supabase
+    .from('groups')
+    .update({ next_capsule_at: nextAt, last_capsule_at: nowIso })
+    .eq('id', group.id)
+    .lte('next_capsule_at', nowIso)
+    .select('id');
+  if (claimErr) {
+    console.error(`claim failed for group ${group.id}:`, claimErr.message);
+    return;
+  }
+  if (!claimed || claimed.length === 0) {
+    // Another tick already claimed this cycle — nothing to do.
+    return;
+  }
+
   const capsuleId = crypto.randomUUID();
   const unlockAt = new Date(now.getTime() + group.unlock_duration_hours * 3_600_000);
 
@@ -63,45 +105,56 @@ async function processGroup(group: any) {
   });
   if (capsuleErr) {
     console.error(`capsule insert failed for group ${group.id}:`, capsuleErr.message);
+    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at);
     return;
   }
 
-  const { data: groupMembers } = await supabase
+  const { data: groupMembers, error: membersErr } = await supabase
     .from('group_members')
     .select('user_id, users(push_token)')
     .eq('group_id', group.id);
 
-  if (!groupMembers || groupMembers.length === 0) return;
+  if (membersErr || !groupMembers || groupMembers.length === 0) {
+    // Can't populate the capsule — a members-less capsule is invisible to
+    // everyone (capsules SELECT is membership-gated with no owner fallback).
+    // Roll it back and release the claim so the cycle retries.
+    console.error(`members fetch empty/failed for group ${group.id}:`, membersErr?.message);
+    await supabase.from('capsules').delete().eq('id', capsuleId);
+    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at);
+    return;
+  }
 
   const capsuleMembers = groupMembers.map((m: any) => ({
     capsule_id: capsuleId,
     user_id: m.user_id,
     role: m.user_id === group.created_by ? 'owner' : 'contributor',
-    joined_at: now.toISOString(),
+    joined_at: nowIso,
   }));
-  await supabase.from('capsule_members').insert(capsuleMembers);
+  const { error: cmErr } = await supabase.from('capsule_members').insert(capsuleMembers);
+  if (cmErr) {
+    // GROUPS.md #3 — the critical rollback: without members the capsule is
+    // orphaned and unreachable even by its owner.
+    console.error(`capsule_members insert failed for group ${group.id}:`, cmErr.message);
+    await supabase.from('capsules').delete().eq('id', capsuleId);
+    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at);
+    return;
+  }
 
   const nonOwnerMembers = groupMembers.filter((m: any) => m.user_id !== group.created_by);
   if (nonOwnerMembers.length > 0) {
-    await supabase.from('notifications').insert(
+    const { error: notifErr } = await supabase.from('notifications').insert(
       nonOwnerMembers.map((m: any) => ({
         user_id: m.user_id,
         capsule_id: capsuleId,
         actor_id: group.created_by,
         type: 'invite',
-        pushed_at: now.toISOString(),
+        pushed_at: nowIso,
       }))
     );
+    // Non-fatal: the capsule + membership are intact; a missing in-app row just
+    // means no Alerts entry (the push below still fires).
+    if (notifErr) console.error(`notifications insert failed for group ${group.id}:`, notifErr.message);
   }
-
-  const nextAt = calcNextAt(now, group.recurrence_interval as GroupRecurrence);
-  await supabase
-    .from('groups')
-    .update({
-      last_capsule_at: now.toISOString(),
-      next_capsule_at: nextAt.toISOString(),
-    })
-    .eq('id', group.id);
 
   const tokens: string[] = groupMembers.map((m: any) => m.users?.push_token).filter(Boolean);
   await sendPushes(tokens, group.name, capsuleId);
@@ -116,7 +169,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: dueGroups, error } = await supabase
     .from('groups')
-    .select('id, name, created_by, recurrence_interval, unlock_duration_hours')
+    .select('id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at')
     .neq('recurrence_interval', 'manual')
     .lte('next_capsule_at', now);
 

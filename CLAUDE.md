@@ -613,6 +613,15 @@ A second, parallel path to `live` alongside the suggest→upvote flow above: eve
 
 ---
 
+## Groups
+
+Named member sets with an optional recurrence schedule that auto-creates capsules. Schema in `20260625000000_groups.sql`: `groups` (name, `created_by`, `recurrence_interval` weekly/monthly/yearly/manual, `unlock_duration_hours`, `next_capsule_at`, `last_capsule_at`) + `group_members` (unique `(group_id, user_id)`), plus `capsules.group_id` (nullable, `on delete set null`). RLS routes through `get_my_group_ids()` (SECURITY DEFINER, avoids the self-referential recursion the capsule tables once had). Data layer: `src/lib/groups.ts`. Screens: `CreateGroupScreen`, `GroupDetailScreen`, the Home groups section, and `CreateScreen`'s group branch.
+
+- **`group_members` INSERT is creator-only** (`20260710000000_groups_rls_selfinsert_fix.sql`). The original policy also had an `or user_id = auth.uid()` self-insert arm — a real privilege escalation, since the group UUID leaks via `capsules.group_id` (readable by any capsule member, including pending invites) and `get_my_capsule_ids()` doesn't filter pending, so anyone invited to a single group capsule could self-join the group and thereafter be auto-added to every future recurring capsule. No client flow self-joins a group, so creator-only is the correct model. `createGroup` (`src/lib/groups.ts`) inserts the creator's own row first (passes: creator is `created_by`), then the other members (creator adding → passes).
+- **Recurrence cron** (`create-group-capsules`, every minute, EXISTS-gated in `20260709130000_cron_exists_gates.sql`) creates a capsule owned by `created_by` (title `"{name} — {Month Year}"`, unlock = now + `unlock_duration_hours`, surprise mode on) for groups whose `next_capsule_at <= now()`. **It claims each cycle atomically** — advances `next_capsule_at`/`last_capsule_at` up front gated on the row still being due, and only proceeds for rows the update actually returned — so two overlapping ticks can't double-create. Every insert is checked; on a `capsule_members` (or capsule) failure it **deletes the capsule and restores the schedule stamps** (`releaseClaim`) so the cycle retries rather than leaving a members-less capsule that RLS hides from everyone including its owner (`capsules` SELECT is membership-gated with no owner fallback). Pushes go through the same ≤100-chunk `sendExpoPush` helper as the other cron senders. Auth is the Vault-backed `check_cron_secret` RPC (not a `CRON_SECRET` env var like the other functions).
+
+---
+
 ## Content Moderation (Report + Block)
 
 UGC compliance for Apple App Store Guideline 1.2. Scope is **report + block**; EULA-at-signup and an admin review console are deferred.
@@ -678,7 +687,7 @@ Not every cache consumer uses this hook — `CapsuleDetailScreen` and `AwardsSec
 - `awards:${id}` — per-capsule superlatives categories + winners (AwardsSection, hand-rolled, not via the hook)
 - `profile` — ProfileScreen hero card data
 - `notifications` — NotificationsScreen. **The Alerts tab badge (`CustomTabBar` in `AppNavigator.tsx`) also reads this key** (PERFORMANCE.md #11): it `cache.subscribe`s to `notifications` and sets the unread count from the cached (grouped) list's length, so the badge updates the instant a notification is read/dismissed/received — no throttled per-tab-switch query, no up-to-60s stale lag (BUGS.md #10). It falls back to a lightweight `count/head` query only when the cache is empty (cold start before Alerts is visited, or right after an invalidate). Because the cached list is *grouped* (reactions collapse into one card), the badge shows the grouped-unread count, capped at "9+".
-- `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section. `listMyGroups`/`getGroup` (`src/lib/groups.ts`) fetch `memberCount` via a PostgREST embedded `group_members(count)` aggregate in the *same* query (PERFORMANCE.md #6) — one round-trip, no member-row payload, instead of a second query that pulled every member row just to count them.
+- `group:${id}`, `group-members:${id}`, `group-capsules:${id}`, `groups` — GroupDetailScreen / HomeScreen groups section (see the **Groups** section above for the feature). `listMyGroups`/`getGroup` (`src/lib/groups.ts`) fetch `memberCount` via a PostgREST embedded `group_members(count)` aggregate in the *same* query (PERFORMANCE.md #6) — one round-trip, no member-row payload, instead of a second query that pulled every member row just to count them.
 
 **Invalidation pattern:** screens that mutate data call `cache.invalidate()` with all affected keys. Example: creating a capsule invalidates `capsules` and `profile` (stats changed). Uploading/deleting media or a capsule unlocking invalidates both `signedUrls:${id}` and `media:${id}` together — invalidating only the signed-URL cache while `media:${id}` is one mutation site is not enough.
 
