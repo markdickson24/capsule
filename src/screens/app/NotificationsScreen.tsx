@@ -36,7 +36,8 @@ type NotificationRow = {
     | 'superlative_closing_soon'
     | 'superlative_won'
     | 'friend_request'
-    | 'friend_accept';
+    | 'friend_accept'
+    | 'group_capsule';
   sent_at: string;
   read_at: string | null;
   capsules: { title: string } | null;
@@ -56,7 +57,8 @@ function isCapsuleNav(type: NotificationRow['type']) {
     type === 'reaction' ||
     type === 'superlative_suggested' ||
     type === 'superlative_closing_soon' ||
-    type === 'superlative_won'
+    type === 'superlative_won' ||
+    type === 'group_capsule'
   );
 }
 
@@ -451,6 +453,7 @@ export default function NotificationsScreen() {
                     : item.type === 'superlative_suggested' ? 'sparkles-outline'
                     : item.type === 'friend_request' ? 'person-add-outline'
                     : item.type === 'friend_accept' ? 'people'
+                    : item.type === 'group_capsule' ? 'people-circle-outline'
                     : 'cube-outline'
                   }
                   size={28}
@@ -460,6 +463,7 @@ export default function NotificationsScreen() {
                     : item.type === 'friend_accept' ? '#30D158'
                     : item.type === 'reaction' ? accentColor
                     : item.type === 'friend_request' ? accentColor
+                    : item.type === 'group_capsule' ? accentColor
                     : SUPERLATIVE_TYPES.includes(item.type) ? accentColor
                     : '#888888'
                   }
@@ -508,6 +512,11 @@ export default function NotificationsScreen() {
                       <>
                         <Text style={styles.cardCapsuleTitle}>{item.actor?.display_name ?? 'Someone'}</Text>
                         {' '}accepted your friend request
+                      </>
+                    ) : item.type === 'group_capsule' ? (
+                      <>
+                        A new capsule was started in{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'your group'}</Text>
                       </>
                     ) : (
                       <>

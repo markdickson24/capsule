@@ -12,6 +12,7 @@ import { supabase } from '../../lib/supabase';
 import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
+import { blockStore } from '../../lib/blocks';
 import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
@@ -66,7 +67,9 @@ export default function CreateGroupScreen() {
         .ilike('display_name', `%${text.trim()}%`)
         .neq('id', myId ?? '')
         .limit(10);
-      setSearchResults((data ?? []).filter((u: UserResult) => !selectedIds.has(u.id)));
+      // Exclude already-selected and blocked users (block-enforcement parity
+      // with InviteModal's search).
+      setSearchResults((data ?? []).filter((u: UserResult) => !selectedIds.has(u.id) && !blockStore.has(u.id)));
       setSearching(false);
     }, 300);
   }, [myId, selectedIds]);
