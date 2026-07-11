@@ -13,9 +13,23 @@
 -- every future recurring capsule. Drop arm (b); creator-adds-members is the
 -- only flow the app performs.
 
+-- Uses is_group_creator() (an out-of-band helper already live on this table's
+-- other policies — captured verbatim in this migration since it existed in no
+-- prior migration file) rather than the raw correlated subquery, so this
+-- policy's style matches its siblings.
 drop policy if exists "Creator can add members" on public.group_members;
 
-create policy "Creator can add members" on public.group_members
-  for insert with check (
-    (select created_by from public.groups where id = group_id) = (select auth.uid())
+create or replace function public.is_group_creator(p_group_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $function$
+  select exists(
+    select 1 from groups where id = p_group_id and created_by = (select auth.uid())
   );
+$function$;
+
+create policy "Creator can add members" on public.group_members
+  for insert with check (is_group_creator(group_id));

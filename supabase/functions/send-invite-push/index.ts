@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   // The caller must own the capsule they're inviting into.
   const { data: capsule } = await admin
     .from('capsules')
-    .select('title, owner_id')
+    .select('title, owner_id, group_id, groups(name)')
     .eq('id', capsuleId)
     .single();
   if (!capsule || capsule.owner_id !== user.id) return json({ error: 'Forbidden' }, 403);
@@ -63,13 +63,21 @@ Deno.serve(async (req) => {
   const token = invitee?.push_token;
   if (!token) return json({ sent: false }); // invitee has no push token — nothing to do
 
+  // Group-capsule members are auto-joined (standing consent), not pending
+  // invitees — the "you were invited" copy would be misleading since there's
+  // nothing to accept. groups is embedded above purely for this wording.
+  const groupName = (capsule as any).groups?.name as string | undefined;
+  const isGroupCapsule = !!capsule.group_id;
+
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({
       to: token,
-      title: 'You were invited to a Capsule!',
-      body: `${inviter?.display_name ?? 'Someone'} invited you to "${capsule.title}"`,
+      title: isGroupCapsule ? (groupName ?? 'New group capsule') : 'You were invited to a Capsule!',
+      body: isGroupCapsule
+        ? `A new capsule was started for ${groupName ?? 'your group'} — add your memories!`
+        : `${inviter?.display_name ?? 'Someone'} invited you to "${capsule.title}"`,
       data: { screen: 'Notifications' },
       sound: 'default',
     }),
