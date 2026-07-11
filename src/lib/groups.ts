@@ -31,11 +31,15 @@ export async function listMyGroups(): Promise<GroupRow[]> {
   // One round-trip: the embedded `group_members(count)` aggregate returns the
   // member count as a scalar (no member-row payload), instead of a second query
   // that fetched every member row just to count them client-side.
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('group_members')
     .select('group_id, groups(id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, created_at, group_members(count))')
     .eq('user_id', me);
 
+  // Don't swallow errors silently — a transient failure returning [] used to be
+  // indistinguishable from "no groups." (Kept as a warn rather than a throw:
+  // useCachedFetch has no error path and this runs on Home's critical path.)
+  if (error) { console.warn('listMyGroups failed:', error.message); return []; }
   if (!data || data.length === 0) return [];
 
   return data
@@ -46,12 +50,13 @@ export async function listMyGroups(): Promise<GroupRow[]> {
 
 export async function getGroup(groupId: string): Promise<GroupRow | null> {
   // One round-trip via the embedded count aggregate (see listMyGroups).
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('groups')
     .select('id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, created_at, group_members(count)')
     .eq('id', groupId)
     .single();
 
+  if (error) { console.warn('getGroup failed:', error.message); return null; }
   if (!data) return null;
 
   return {
@@ -62,10 +67,11 @@ export async function getGroup(groupId: string): Promise<GroupRow | null> {
 }
 
 export async function getGroupMembers(groupId: string): Promise<GroupMemberProfile[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('group_members')
     .select('user_id, joined_at, users(display_name, avatar_url)')
     .eq('group_id', groupId);
+  if (error) { console.warn('getGroupMembers failed:', error.message); return []; }
   return (data ?? []) as GroupMemberProfile[];
 }
 
@@ -137,8 +143,9 @@ export async function updateGroup(groupId: string, updates: {
   return error ? { error: 'Could not update group.' } : {};
 }
 
-export async function deleteGroup(groupId: string): Promise<void> {
-  await supabase.from('groups').delete().eq('id', groupId);
+export async function deleteGroup(groupId: string): Promise<{ error?: string }> {
+  const { error } = await supabase.from('groups').delete().eq('id', groupId);
+  return error ? { error: 'Could not delete group.' } : {};
 }
 
 export async function addGroupMember(groupId: string, userId: string): Promise<{ error?: string }> {
@@ -147,8 +154,9 @@ export async function addGroupMember(groupId: string, userId: string): Promise<{
   return {};
 }
 
-export async function removeGroupMember(groupId: string, userId: string): Promise<void> {
-  await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId);
+export async function removeGroupMember(groupId: string, userId: string): Promise<{ error?: string }> {
+  const { error } = await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId);
+  return error ? { error: 'Could not remove member.' } : {};
 }
 
 export function calcNextCapsuleAt(from: Date, interval: GroupRecurrence): Date {
