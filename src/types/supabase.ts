@@ -52,6 +52,7 @@ export type Database = {
       }
       capsule_members: {
         Row: {
+          archived_at: string | null
           capsule_id: string
           checkin_at: string | null
           checkin_lat: number | null
@@ -63,6 +64,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          archived_at?: string | null
           capsule_id: string
           checkin_at?: string | null
           checkin_lat?: number | null
@@ -74,6 +76,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          archived_at?: string | null
           capsule_id?: string
           checkin_at?: string | null
           checkin_lat?: number | null

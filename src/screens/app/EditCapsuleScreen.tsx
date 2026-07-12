@@ -15,6 +15,7 @@ import { useTheme } from '../../context/ThemeContext';
 import DatePickerField from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import ConfirmModal from '../../components/ConfirmModal';
 import SkeletonBox, { SkeletonFormField } from '../../components/Skeleton';
 import RetryPrompt from '../../components/RetryPrompt';
@@ -120,8 +121,18 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
   async function handleArchive() {
     setArchiving(true);
-    await supabase.from('capsules').update({ archived_at: new Date().toISOString() }).eq('id', capsuleId);
+    // Per-member archive: stamps the caller's own capsule_members.archived_at
+    // via the security-definer RPC — a direct capsules.archived_at update
+    // would hide the capsule for every member, not just this user.
+    const { error: archiveError } = await supabase.rpc('set_capsule_archived', {
+      p_capsule_id: capsuleId,
+      p_archived: true,
+    });
     setArchiving(false);
+    if (archiveError) {
+      toast.show("Couldn't archive the capsule — try again.");
+      return;
+    }
     cache.invalidate('capsules', 'profile');
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
   }
