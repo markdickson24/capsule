@@ -10,7 +10,6 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
-import { randomUUID } from '../../lib/uuid';
 import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList, AppTabParamList, PendingMedia } from '../../types/navigation';
 import { UnlockMode } from '../../types/database';
@@ -150,41 +149,28 @@ export default function CreateScreen() {
     const user = session?.user;
     if (!user || !session) { setLoading(false); setErrors({ general: 'Not logged in — try signing out and back in.' }); return; }
 
-    const capsuleId = randomUUID();
-
-    const { error: capsuleError } = await supabase
-      .from('capsules')
-      .insert({
-        id: capsuleId,
-        owner_id: user.id,
-        title: title.trim(),
-        description: description.trim() || null,
-        unlock_at: (unlockDate ?? defaultUnlockDate()).toISOString(),
-        contribution_lock_at: contribLockDate?.toISOString() ?? null,
-        unlock_mode: unlockMode,
-        superlative_voting_hours: votingHours,
-        owner_preview_locked: hideFromMe,
-        occasion,
-        status: 'active',
-        visibility: 'invite',
-      });
-
-    if (capsuleError) {
-      setLoading(false);
-      setErrors({ general: 'Failed to create capsule. Please try again.' });
-      return;
-    }
-
-    const { error: memberError } = await supabase.from('capsule_members').insert({
-      capsule_id: capsuleId,
-      user_id: user.id,
-      role: 'owner',
-      joined_at: new Date().toISOString(),
+    // Capsule + owner capsule_members row are inserted atomically inside the
+    // RPC — if either insert fails, Postgres rolls back the whole function
+    // call, so this can never leave behind a members-less orphan capsule
+    // (the old two-request flow could, and did: 10 orphans found in
+    // production, invisible forever since the capsules SELECT policy has no
+    // owner fallback).
+    const { data: capsuleId, error: capsuleError } = await supabase.rpc('create_capsule_with_owner', {
+      p_title: title.trim(),
+      p_description: description.trim() || null,
+      p_unlock_at: (unlockDate ?? defaultUnlockDate()).toISOString(),
+      p_contribution_lock_at: contribLockDate?.toISOString() ?? null,
+      p_unlock_mode: unlockMode,
+      p_superlative_voting_hours: votingHours,
+      p_owner_preview_locked: hideFromMe,
+      p_occasion: occasion,
+      p_visibility: 'invite',
+      p_group_id: groupId ?? null,
     });
 
-    if (memberError) {
+    if (capsuleError || !capsuleId) {
       setLoading(false);
-      setErrors({ general: 'Capsule created but could not set owner. Please try again.' });
+      setErrors({ general: 'Failed to create capsule. Please try again.' });
       return;
     }
 
@@ -209,7 +195,7 @@ export default function CreateScreen() {
     }
 
     if (groupId) {
-      await supabase.from('capsules').update({ group_id: groupId }).eq('id', capsuleId);
+      // group_id was already set in the create_capsule_with_owner call above.
       const groupMembers = await getGroupMembers(groupId);
       const otherMembers = groupMembers.filter(m => m.user_id !== user.id);
       if (otherMembers.length > 0) {

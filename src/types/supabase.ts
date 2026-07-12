@@ -811,6 +811,21 @@ export type Database = {
         Returns: Json
       }
       close_superlative_windows: { Args: never; Returns: undefined }
+      create_capsule_with_owner: {
+        Args: {
+          p_contribution_lock_at: string | null
+          p_description: string | null
+          p_group_id?: string | null
+          p_occasion: string
+          p_owner_preview_locked: boolean
+          p_superlative_voting_hours: number
+          p_title: string
+          p_unlock_at: string
+          p_unlock_mode: string
+          p_visibility?: string
+        }
+        Returns: string
+      }
       delete_my_account: {
         Args: { p_delete_contributions?: boolean }
         Returns: undefined

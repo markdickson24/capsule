@@ -18,7 +18,6 @@ import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import { MOMENTS, GENERAL_MOMENT, Moment } from '../../lib/onboardingMoments';
 import { pickDefaults } from '../../lib/awardPool';
-import { randomUUID } from '../../lib/uuid';
 import { cache } from '../../lib/cache';
 import { haptics } from '../../lib/haptics';
 import { toast } from '../../lib/toast';
@@ -271,42 +270,23 @@ export default function OnboardingScreen({ navigation }: Props) {
     const profileOk = await saveProfile();
     if (!profileOk) { setSaving(false); return; }
 
-    // Same RLS-safe pattern as CreateScreen: client UUID, insert WITHOUT
-    // .select() (the member row doesn't exist yet), then the owner member row.
-    const capsuleId = randomUUID();
-    const { error: capsuleError } = await supabase
-      .from('capsules')
-      .insert({
-        id: capsuleId,
-        owner_id: user.id,
-        title: finalTitle,
-        description: null,
-        unlock_at: unlockDate.toISOString(),
-        contribution_lock_at: null,
-        unlock_mode: 'time',
-        superlative_voting_hours: 48,
-        owner_preview_locked: true,
-        occasion: moment.occasion,
-        status: 'active',
-        visibility: 'invite',
-      });
-
-    if (capsuleError) {
-      setSaving(false);
-      setError('Could not create your capsule. Please try again.');
-      return;
-    }
-
-    const { error: memberError } = await supabase.from('capsule_members').insert({
-      capsule_id: capsuleId,
-      user_id: user.id,
-      role: 'owner',
-      joined_at: new Date().toISOString(),
+    // Capsule + owner capsule_members row inserted atomically — see
+    // create_capsule_with_owner in CLAUDE.md's Database Schema section.
+    const { data: capsuleId, error: capsuleError } = await supabase.rpc('create_capsule_with_owner', {
+      p_title: finalTitle,
+      p_description: null,
+      p_unlock_at: unlockDate.toISOString(),
+      p_contribution_lock_at: null,
+      p_unlock_mode: 'time',
+      p_superlative_voting_hours: 48,
+      p_owner_preview_locked: true,
+      p_occasion: moment.occasion,
+      p_visibility: 'invite',
     });
 
-    if (memberError) {
+    if (capsuleError || !capsuleId) {
       setSaving(false);
-      setError('Capsule created but could not set you as owner. Please try again.');
+      setError('Could not create your capsule. Please try again.');
       return;
     }
 
