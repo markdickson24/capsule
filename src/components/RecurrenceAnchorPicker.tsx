@@ -201,7 +201,7 @@ export default function RecurrenceAnchorPicker({ interval, anchor, onChange }: P
                     onPress={() => { haptics.selection(); onChange({ ...anchor, weekday: i }); }}
                     activeOpacity={0.6}
                   >
-                    <Text style={[s.weekdayChipText, active && s.weekdayChipTextActive]}>{label}</Text>
+                    <Text style={[s.weekdayChipText, active && s.weekdayChipTextActive]} numberOfLines={1}>{label}</Text>
                   </TouchableOpacity>
                 );
               })}
@@ -312,12 +312,15 @@ const s = StyleSheet.create({
     backgroundColor: '#111111', borderRadius: 16, borderWidth: 1, borderColor: '#1E1E1E', overflow: 'hidden',
   },
 
+  // All 7 days of the week, fixed set — same single-line-via-flex treatment
+  // as the recurrence/reminder chip rows, so it reads like one complete week
+  // at a glance rather than risking an odd day wrapping onto its own row.
   weekdayRow: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 8,
+    flexDirection: 'row', gap: 6,
     paddingHorizontal: 14, paddingTop: 14, paddingBottom: 4,
   },
   weekdayChip: {
-    paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12,
+    flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 2, borderRadius: 12,
     backgroundColor: '#1A1A1A', borderWidth: 1, borderColor: '#222',
   },
   weekdayChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },

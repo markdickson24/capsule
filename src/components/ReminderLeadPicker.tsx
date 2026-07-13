@@ -26,7 +26,7 @@ export default function ReminderLeadPicker({ value, onChange }: Props) {
             style={[styles.chip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
             onPress={() => onChange(opt.hours)}
           >
-            <Text style={[styles.chipText, active && { color: accentColor }]}>{opt.label}</Text>
+            <Text style={[styles.chipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
           </TouchableOpacity>
         );
       })}
@@ -35,10 +35,13 @@ export default function ReminderLeadPicker({ value, onChange }: Props) {
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // Always exactly 4 fixed, short-label options — same treatment as
+  // CreateGroupScreen/ManageGroupScreen's recurrence row: equal flex share
+  // per chip instead of sizing to text, so the row can't wrap.
+  row: { flexDirection: 'row', gap: 8 },
   chip: {
-    paddingVertical: 8, paddingHorizontal: 16,
+    flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4,
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
-  chipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  chipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
 });
