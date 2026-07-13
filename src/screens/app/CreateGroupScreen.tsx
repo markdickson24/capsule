@@ -234,16 +234,16 @@ export default function CreateGroupScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Schedule</Text>
           <Text style={styles.sectionHint}>Auto-create a capsule for this group on a schedule.</Text>
-          <View style={styles.optionGrid}>
+          <View style={styles.recurrenceRow}>
             {RECURRENCE_OPTIONS.map(opt => {
               const active = recurrence === opt;
               return (
                 <TouchableOpacity
                   key={opt}
-                  style={[styles.optionChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                  style={[styles.recurrenceChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
                   onPress={() => setRecurrence(opt)}
                 >
-                  <Text style={[styles.optionChipText, active && { color: accentColor }]}>
+                  <Text style={[styles.recurrenceChipText, active && { color: accentColor }]} numberOfLines={1}>
                     {recurrenceLabel(opt)}
                   </Text>
                 </TouchableOpacity>
@@ -361,6 +361,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A',
   },
   optionChipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  // Distinct from optionGrid/optionChip (used by the 5-item Duration row,
+  // which still wraps) — this row always has exactly 4 items and must fit
+  // on one line, so each chip takes an equal flex share instead of sizing to
+  // its own text and wrapping onto a second row.
+  recurrenceRow: { flexDirection: 'row', gap: 8 },
+  recurrenceChip: {
+    flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 4,
+    borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
+  },
+  recurrenceChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
   errorText: { fontSize: 14, color: '#FF3B30', textAlign: 'center' },
   createButton: {
     borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 8,
