@@ -14,6 +14,9 @@ import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { blockStore } from '../../lib/blocks';
 import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
+import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
+import ReminderLeadPicker from '../../components/ReminderLeadPicker';
+import { RecurrenceAnchor } from '../../lib/recurrence';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 
@@ -34,6 +37,18 @@ const DURATION_OPTIONS = [
   { label: '1 year', hours: 8760 },
 ];
 
+function defaultAnchor(): RecurrenceAnchor {
+  const now = new Date();
+  return {
+    weekday: now.getDay(),
+    dayOfMonth: now.getDate(),
+    month: now.getMonth() + 1,
+    day: now.getDate(),
+    hour: now.getHours(),
+    minute: now.getMinutes(),
+  };
+}
+
 export default function CreateGroupScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NavProp>();
@@ -41,6 +56,8 @@ export default function CreateGroupScreen() {
   const [name, setName] = useState('');
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
   const [unlockHours, setUnlockHours] = useState(720);
+  const [anchor, setAnchor] = useState<RecurrenceAnchor>(defaultAnchor);
+  const [reminderLeadHours, setReminderLeadHours] = useState<number | null>(24);
   const [selectedMembers, setSelectedMembers] = useState<UserResult[]>([]);
   const [search, setSearch] = useState('');
   const [searchResults, setSearchResults] = useState<UserResult[]>([]);
@@ -94,7 +111,9 @@ export default function CreateGroupScreen() {
       name: trimmedName,
       memberIds: selectedMembers.map(m => m.id),
       recurrence,
+      anchor: recurrence !== 'manual' ? anchor : undefined,
       unlockDurationHours: unlockHours,
+      reminderLeadHours: recurrence !== 'manual' ? reminderLeadHours : null,
     });
     setCreating(false);
     if (err || !groupId) {
@@ -224,6 +243,7 @@ export default function CreateGroupScreen() {
               );
             })}
           </View>
+          <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
         </View>
 
         <View style={styles.section}>
@@ -246,6 +266,14 @@ export default function CreateGroupScreen() {
             })}
           </View>
         </View>
+
+        {recurrence !== 'manual' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Remind Members</Text>
+            <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
+            <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
+          </View>
+        )}
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
