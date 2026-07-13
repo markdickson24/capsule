@@ -273,6 +273,7 @@ export default function ManageGroupScreen() {
         {recurrence !== 'manual' && (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Remind Members</Text>
+            <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
             <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
           </View>
         )}
@@ -409,6 +410,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, gap: 28, paddingBottom: 48 },
   section: { gap: 10 },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionHint: { fontSize: 13, color: '#888888', marginTop: -4 },
   nameInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 16, color: '#FFFFFF', borderWidth: 1, borderColor: '#2A2A2A',

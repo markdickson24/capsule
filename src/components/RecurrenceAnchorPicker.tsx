@@ -100,7 +100,8 @@ export default function RecurrenceAnchorPicker({ interval, anchor, onChange }: P
           );
         })}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.chipRow, styles.dayGridSpacing]}>
+      <Text style={[styles.label, styles.dayGridSpacing]}>On which day</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
         {days.map(day => {
           const active = anchor.day === day;
           return (
@@ -123,7 +124,10 @@ export default function RecurrenceAnchorPicker({ interval, anchor, onChange }: P
 
 const styles = StyleSheet.create({
   section: { gap: 10, marginTop: 4 },
-  label: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  // Regular weight, not bold — this sits directly under the parent screen's
+  // bold uppercase section eyebrow (e.g. "SCHEDULE"); giving it the same
+  // visual weight as that header made two headings compete for attention.
+  label: { fontSize: 13, fontWeight: '400', color: '#888888' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   dayGridSpacing: { marginTop: 4 },
   chip: {
