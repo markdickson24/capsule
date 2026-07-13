@@ -19,8 +19,12 @@ import ConfirmModal from '../../components/ConfirmModal';
 import { Avatar } from './ProfileScreen';
 import {
   getGroup, getGroupMembers, updateGroup, addGroupMember, removeGroupMember,
+  pauseGroupRecurrence, resumeGroupRecurrence, anchorFromGroup,
   GroupRecurrence, GroupMemberProfile, recurrenceLabel,
 } from '../../lib/groups';
+import { computeUpcomingOccurrences, RecurrenceAnchor } from '../../lib/recurrence';
+import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
+import ReminderLeadPicker from '../../components/ReminderLeadPicker';
 import { AppStackParamList } from '../../types/navigation';
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
@@ -29,6 +33,22 @@ type RoutePropType = RouteProp<AppStackParamList, 'ManageGroup'>;
 interface UserResult { id: string; display_name: string | null; avatar_url: string | null }
 
 const RECURRENCE_OPTIONS: GroupRecurrence[] = ['manual', 'weekly', 'monthly', 'yearly'];
+
+// Pre-existing groups only have the anchor sub-field for their ORIGINAL
+// recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
+// backfills just that one field per interval; the rest stay null). Switching
+// to a different interval in this screen doesn't auto-pick a day/date — the
+// picker starts with that field unset — and computeNextOccurrence/
+// computeUpcomingOccurrences throw if the interval's required field is
+// missing. Guard the preview so an unconfigured new interval shows a hint
+// instead of crashing the whole screen (real crash reproduced during manual
+// verification of this task).
+function anchorReadyFor(interval: GroupRecurrence, anchor: RecurrenceAnchor): boolean {
+  if (interval === 'weekly') return anchor.weekday !== undefined;
+  if (interval === 'monthly') return anchor.dayOfMonth !== undefined;
+  if (interval === 'yearly') return anchor.month !== undefined && anchor.day !== undefined;
+  return true;
+}
 const DURATION_OPTIONS = [
   { label: '1 week', hours: 168 },
   { label: '1 month', hours: 720 },
@@ -49,6 +69,10 @@ export default function ManageGroupScreen() {
   const [name, setName] = useState('');
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
   const [unlockHours, setUnlockHours] = useState(720);
+  const [anchor, setAnchor] = useState<RecurrenceAnchor>({ hour: 9, minute: 0 });
+  const [reminderLeadHours, setReminderLeadHours] = useState<number | null>(24);
+  const [paused, setPaused] = useState(false);
+  const [pausing, setPausing] = useState(false);
   const [members, setMembers] = useState<GroupMemberProfile[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -68,6 +92,9 @@ export default function ManageGroupScreen() {
     setName(group.name);
     setRecurrence(group.recurrence_interval);
     setUnlockHours(group.unlock_duration_hours);
+    setAnchor(anchorFromGroup(group));
+    setReminderLeadHours(group.reminder_lead_hours);
+    setPaused(group.recurrence_paused_at !== null);
     setMembers(mems);
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -85,12 +112,30 @@ export default function ManageGroupScreen() {
     const { error } = await updateGroup(groupId, {
       name: name.trim(),
       recurrence,
+      anchor: recurrence !== 'manual' ? anchor : undefined,
       unlockDurationHours: unlockHours,
+      reminderLeadHours: recurrence !== 'manual' ? reminderLeadHours : null,
     });
     setSaving(false);
     if (error) { toast.show("Couldn't save the group — try again."); return; }
     invalidate();
     navigation.goBack();
+  }
+
+  async function handleTogglePause() {
+    setPausing(true);
+    const wasPaused = paused;
+    setPaused(!wasPaused); // optimistic
+    const { error } = wasPaused
+      ? await resumeGroupRecurrence(groupId)
+      : await pauseGroupRecurrence(groupId);
+    setPausing(false);
+    if (error) {
+      setPaused(wasPaused);
+      toast.show(wasPaused ? "Couldn't resume this group — try again." : "Couldn't pause this group — try again.");
+      return;
+    }
+    invalidate();
   }
 
   const existingIds = new Set(members.map(m => m.user_id));
@@ -202,7 +247,43 @@ export default function ManageGroupScreen() {
               );
             })}
           </View>
+          <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
         </View>
+
+        {recurrence !== 'manual' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Remind Members</Text>
+            <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
+          </View>
+        )}
+
+        {recurrence !== 'manual' && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Upcoming Capsules</Text>
+            {paused ? (
+              <Text style={styles.hintText}>Paused — no capsules will be created until resumed.</Text>
+            ) : anchorReadyFor(recurrence, anchor) ? (
+              computeUpcomingOccurrences(recurrence, anchor, new Date(), 3).map((d, i) => (
+                <Text key={i} style={styles.hintText}>
+                  {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </Text>
+              ))
+            ) : (
+              <Text style={styles.hintText}>Pick a date above to preview upcoming capsules.</Text>
+            )}
+            <TouchableOpacity
+              style={[styles.pauseBtn, paused && { borderColor: accentColor }]}
+              onPress={handleTogglePause}
+              disabled={pausing}
+              accessibilityRole="button"
+              accessibilityLabel={paused ? 'Resume this group\'s schedule' : 'Pause this group\'s schedule'}
+            >
+              {pausing
+                ? <ActivityIndicator color={accentColor} size="small" />
+                : <Text style={[styles.pauseBtnText, paused && { color: accentColor }]}>{paused ? 'Resume Schedule' : 'Pause Schedule'}</Text>}
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
@@ -320,6 +401,12 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   optionChipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  hintText: { fontSize: 13, color: '#888888' },
+  pauseBtn: {
+    marginTop: 4, paddingVertical: 10, borderRadius: 12, alignItems: 'center',
+    borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
+  },
+  pauseBtnText: { fontSize: 14, fontWeight: '600', color: '#888888' },
   searchBox: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
