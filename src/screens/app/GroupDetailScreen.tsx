@@ -20,8 +20,9 @@ import ConfirmModal from '../../components/ConfirmModal';
 import RetryPrompt from '../../components/RetryPrompt';
 import {
   getGroup, getGroupMembers, deleteGroup, removeGroupMember,
-  GroupRow, GroupMemberProfile, recurrenceLabel,
+  GroupRow, GroupMemberProfile, recurrenceLabel, anchorFromGroup,
 } from '../../lib/groups';
+import { computeUpcomingOccurrences } from '../../lib/recurrence';
 import { AppStackParamList } from '../../types/navigation';
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
@@ -199,7 +200,10 @@ export default function GroupDetailScreen() {
     );
   }
 
-  const nextDate = group.next_capsule_at ? new Date(group.next_capsule_at) : null;
+  const isPaused = group.recurrence_paused_at !== null;
+  const nextDate = !isPaused && group.recurrence_interval !== 'manual'
+    ? computeUpcomingOccurrences(group.recurrence_interval, anchorFromGroup(group), new Date(), 1)[0] ?? null
+    : null;
   const memberList = members ?? [];
 
   return (
@@ -276,7 +280,12 @@ export default function GroupDetailScreen() {
                   <Ionicons name="repeat-outline" size={13} color="#888888" />
                   <Text style={styles.badgeText}>{recurrenceLabel(group.recurrence_interval)}</Text>
                 </View>
-                {nextDate && (
+                {isPaused ? (
+                  <View style={styles.badge}>
+                    <Ionicons name="pause-circle-outline" size={13} color="#888888" />
+                    <Text style={styles.badgeText}>Paused</Text>
+                  </View>
+                ) : nextDate && (
                   <View style={styles.badge}>
                     <Ionicons name="calendar-outline" size={13} color="#888888" />
                     <Text style={styles.badgeText}>
