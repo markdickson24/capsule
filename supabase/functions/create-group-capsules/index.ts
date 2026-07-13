@@ -315,12 +315,16 @@ async function processReminders() {
     if (now.getTime() < dueAt) continue; // not within this group's lead window yet
 
     // Claim atomically — an overlapping tick's claim matches zero rows here.
-    const { data: claimedRows } = await supabase
+    const { data: claimedRows, error: claimErr } = await supabase
       .from('groups')
       .update({ next_reminder_sent_at: nowIso })
       .eq('id', group.id)
       .is('next_reminder_sent_at', null)
       .select('id');
+    if (claimErr) {
+      console.error(`reminder claim failed for group ${group.id}:`, claimErr.message);
+      continue;
+    }
     if (!claimedRows || claimedRows.length === 0) continue;
 
     await sendGroupReminder(group.id, group.name);
@@ -334,7 +338,14 @@ Deno.serve(async (req: Request) => {
 
   const now = new Date().toISOString();
 
-  await processReminders();
+  // Isolated so a failure here can never block the capsule-creation path
+  // below (matches unlock-capsules' dispatchReminders try/catch — "reminders
+  // are best-effort").
+  try {
+    await processReminders();
+  } catch (_e) {
+    // swallow — reminders are best-effort
+  }
 
   const { data: dueGroups, error } = await supabase
     .from('groups')
