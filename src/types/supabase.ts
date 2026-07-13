@@ -345,33 +345,60 @@ export type Database = {
       }
       groups: {
         Row: {
+          anchor_day: number | null
+          anchor_day_of_month: number | null
+          anchor_hour: number | null
+          anchor_minute: number | null
+          anchor_month: number | null
+          anchor_weekday: number | null
           created_at: string
           created_by: string
           id: string
           last_capsule_at: string | null
           name: string
           next_capsule_at: string | null
+          next_reminder_sent_at: string | null
           recurrence_interval: string
+          recurrence_paused_at: string | null
+          reminder_lead_hours: number | null
           unlock_duration_hours: number
         }
         Insert: {
+          anchor_day?: number | null
+          anchor_day_of_month?: number | null
+          anchor_hour?: number | null
+          anchor_minute?: number | null
+          anchor_month?: number | null
+          anchor_weekday?: number | null
           created_at?: string
           created_by: string
           id?: string
           last_capsule_at?: string | null
           name: string
           next_capsule_at?: string | null
+          next_reminder_sent_at?: string | null
           recurrence_interval?: string
+          recurrence_paused_at?: string | null
+          reminder_lead_hours?: number | null
           unlock_duration_hours?: number
         }
         Update: {
+          anchor_day?: number | null
+          anchor_day_of_month?: number | null
+          anchor_hour?: number | null
+          anchor_minute?: number | null
+          anchor_month?: number | null
+          anchor_weekday?: number | null
           created_at?: string
           created_by?: string
           id?: string
           last_capsule_at?: string | null
           name?: string
           next_capsule_at?: string | null
+          next_reminder_sent_at?: string | null
           recurrence_interval?: string
+          recurrence_paused_at?: string | null
+          reminder_lead_hours?: number | null
           unlock_duration_hours?: number
         }
         Relationships: [
@@ -445,6 +472,7 @@ export type Database = {
         Row: {
           actor_id: string | null
           capsule_id: string | null
+          group_id: string | null
           id: string
           pushed_at: string | null
           read_at: string | null
@@ -455,6 +483,7 @@ export type Database = {
         Insert: {
           actor_id?: string | null
           capsule_id?: string | null
+          group_id?: string | null
           id?: string
           pushed_at?: string | null
           read_at?: string | null
@@ -465,6 +494,7 @@ export type Database = {
         Update: {
           actor_id?: string | null
           capsule_id?: string | null
+          group_id?: string | null
           id?: string
           pushed_at?: string | null
           read_at?: string | null
@@ -485,6 +515,13 @@ export type Database = {
             columns: ["capsule_id"]
             isOneToOne: false
             referencedRelation: "capsules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "notifications_group_id_fkey"
+            columns: ["group_id"]
+            isOneToOne: false
+            referencedRelation: "groups"
             referencedColumns: ["id"]
           },
           {
@@ -813,9 +850,9 @@ export type Database = {
       close_superlative_windows: { Args: never; Returns: undefined }
       create_capsule_with_owner: {
         Args: {
-          p_contribution_lock_at: string | null
-          p_description: string | null
-          p_group_id?: string | null
+          p_contribution_lock_at: string
+          p_description: string
+          p_group_id?: string
           p_occasion: string
           p_owner_preview_locked: boolean
           p_superlative_voting_hours: number
@@ -867,7 +904,7 @@ export type Database = {
 
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
-type DefaultSchema = DatabaseWithoutInternals["public"]
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
 
 export type Tables<
   DefaultSchemaTableNameOrOptions extends
