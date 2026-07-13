@@ -44,8 +44,15 @@ function defaultAnchor(): RecurrenceAnchor {
     dayOfMonth: now.getDate(),
     month: now.getMonth() + 1,
     day: now.getDate(),
-    hour: now.getHours(),
-    minute: now.getMinutes(),
+    // UTC, not local — computeNextOccurrence's Date constructor is interpreted
+    // in whatever timezone runs it (device-local here, UTC in the Deno cron
+    // that actually fires this schedule). Storing a UTC hour/minute means the
+    // cron's own interpretation of anchor_hour/anchor_minute stays correct and
+    // stable forever, since UTC is a fixed reference rather than "local to
+    // whoever's reading it." The calendar day fields above stay local, since
+    // that's what the user sees as "today" when picking a default.
+    hour: now.getUTCHours(),
+    minute: now.getUTCMinutes(),
   };
 }
 

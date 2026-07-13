@@ -10,6 +10,9 @@ type GroupRecurrence = 'weekly' | 'monthly' | 'yearly' | 'manual';
 // Duplicated verbatim from src/lib/recurrence.ts — Deno edge functions can't
 // import from src/lib (same precedent as this file's GENERAL_AWARD_POOL,
 // mirrored from src/lib/awardPool.ts). Keep in sync if either changes.
+// hour/minute are UTC — this runtime's local time already IS UTC (Supabase
+// edge functions and Postgres both run UTC), so no conversion is needed here;
+// the client side (CreateGroupScreen.defaultAnchor) is what has to convert.
 interface RecurrenceAnchor {
   weekday?: number;
   dayOfMonth?: number;

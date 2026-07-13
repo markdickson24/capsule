@@ -5,8 +5,15 @@ export interface RecurrenceAnchor {
   dayOfMonth?: number; // 1-31 — required for 'monthly'
   month?: number;      // 1-12 — required for 'yearly'
   day?: number;        // 1-31 — required for 'yearly'
-  hour: number;        // 0-23 — fixed time-of-day for every occurrence
-  minute: number;      // 0-59
+  // hour/minute are UTC, not local. The Date constructors below interpret
+  // hour/minute in whatever timezone runs this code — device-local on the
+  // client, UTC in the Deno cron that actually fires the schedule (Supabase's
+  // Postgres session is also UTC, confirmed via `show timezone`). Storing and
+  // always capturing these as UTC keeps the cron's interpretation stable and
+  // correct forever; do not switch this to local time on one side without
+  // updating the other (client capture site: CreateGroupScreen.defaultAnchor).
+  hour: number;        // 0-23, UTC
+  minute: number;      // 0-59, UTC
 }
 
 function daysInMonth(year: number, month1to12: number): number {
