@@ -33,22 +33,6 @@ type RoutePropType = RouteProp<AppStackParamList, 'ManageGroup'>;
 interface UserResult { id: string; display_name: string | null; avatar_url: string | null }
 
 const RECURRENCE_OPTIONS: GroupRecurrence[] = ['manual', 'weekly', 'monthly', 'yearly'];
-
-// Pre-existing groups only have the anchor sub-field for their ORIGINAL
-// recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
-// backfills just that one field per interval; the rest stay null). Switching
-// to a different interval in this screen doesn't auto-pick a day/date — the
-// picker starts with that field unset — and computeNextOccurrence/
-// computeUpcomingOccurrences throw if the interval's required field is
-// missing. Guard the preview so an unconfigured new interval shows a hint
-// instead of crashing the whole screen (real crash reproduced during manual
-// verification of this task).
-function anchorReadyFor(interval: GroupRecurrence, anchor: RecurrenceAnchor): boolean {
-  if (interval === 'weekly') return anchor.weekday !== undefined;
-  if (interval === 'monthly') return anchor.dayOfMonth !== undefined;
-  if (interval === 'yearly') return anchor.month !== undefined && anchor.day !== undefined;
-  return true;
-}
 const DURATION_OPTIONS = [
   { label: '1 week', hours: 168 },
   { label: '1 month', hours: 720 },
@@ -92,7 +76,24 @@ export default function ManageGroupScreen() {
     setName(group.name);
     setRecurrence(group.recurrence_interval);
     setUnlockHours(group.unlock_duration_hours);
-    setAnchor(anchorFromGroup(group));
+    // Pre-existing groups only have the anchor sub-field for their ORIGINAL
+    // recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
+    // backfills just that one field per interval; the rest are null). Fall
+    // back to today's date for whichever field wasn't populated — same
+    // approach as CreateGroupScreen.defaultAnchor() — so `anchor` always has
+    // every calendar sub-field set no matter which interval is currently
+    // selected. Without this, switching to a different interval (before the
+    // user touches the sub-picker) throws inside computeNextOccurrence, both
+    // in the upcoming-preview render and in handleSave's updateGroup call.
+    const anchorFromDb = anchorFromGroup(group);
+    const now = new Date();
+    setAnchor({
+      ...anchorFromDb,
+      weekday: anchorFromDb.weekday ?? now.getDay(),
+      dayOfMonth: anchorFromDb.dayOfMonth ?? now.getDate(),
+      month: anchorFromDb.month ?? (now.getMonth() + 1),
+      day: anchorFromDb.day ?? now.getDate(),
+    });
     setReminderLeadHours(group.reminder_lead_hours);
     setPaused(group.recurrence_paused_at !== null);
     setMembers(mems);
@@ -262,14 +263,12 @@ export default function ManageGroupScreen() {
             <Text style={styles.sectionLabel}>Upcoming Capsules</Text>
             {paused ? (
               <Text style={styles.hintText}>Paused — no capsules will be created until resumed.</Text>
-            ) : anchorReadyFor(recurrence, anchor) ? (
+            ) : (
               computeUpcomingOccurrences(recurrence, anchor, new Date(), 3).map((d, i) => (
                 <Text key={i} style={styles.hintText}>
                   {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 </Text>
               ))
-            ) : (
-              <Text style={styles.hintText}>Pick a date above to preview upcoming capsules.</Text>
             )}
             <TouchableOpacity
               style={[styles.pauseBtn, paused && { borderColor: accentColor }]}
