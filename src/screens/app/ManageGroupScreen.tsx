@@ -66,6 +66,13 @@ export default function ManageGroupScreen() {
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<{ userId: string; name: string } | null>(null);
 
+  // Snapshot of the schedule as loaded, so handleSave can tell whether the
+  // user actually changed the recurrence/anchor — passing them unconditionally
+  // makes updateGroup always re-enter its recurrence branch, which reschedules
+  // next_capsule_at and clears next_reminder_sent_at even for e.g. a pure
+  // rename, risking a duplicate reminder if a save lands inside the lead window.
+  const originalScheduleRef = useRef<{ recurrence: GroupRecurrence; anchor: RecurrenceAnchor } | null>(null);
+
   const load = useCallback(async () => {
     const [group, mems] = await Promise.all([getGroup(groupId), getGroupMembers(groupId)]);
     if (!group) { navigation.goBack(); return; }
@@ -87,13 +94,15 @@ export default function ManageGroupScreen() {
     // in the upcoming-preview render and in handleSave's updateGroup call.
     const anchorFromDb = anchorFromGroup(group);
     const now = new Date();
-    setAnchor({
+    const seededAnchor: RecurrenceAnchor = {
       ...anchorFromDb,
       weekday: anchorFromDb.weekday ?? now.getDay(),
       dayOfMonth: anchorFromDb.dayOfMonth ?? now.getDate(),
       month: anchorFromDb.month ?? (now.getMonth() + 1),
       day: anchorFromDb.day ?? now.getDate(),
-    });
+    };
+    setAnchor(seededAnchor);
+    originalScheduleRef.current = { recurrence: group.recurrence_interval, anchor: seededAnchor };
     setReminderLeadHours(group.reminder_lead_hours);
     setPaused(group.recurrence_paused_at !== null);
     setMembers(mems);
@@ -110,10 +119,20 @@ export default function ManageGroupScreen() {
   async function handleSave() {
     if (!name.trim()) { toast.show('Group name is required.'); return; }
     setSaving(true);
+    // Only pass recurrence/anchor through when the schedule actually changed
+    // — updateGroup reschedules next_capsule_at and clears
+    // next_reminder_sent_at whenever `recurrence` is present, so passing it
+    // unconditionally would re-arm that reset on every save (e.g. a pure
+    // rename), risking a duplicate reminder if the save happens to land
+    // inside the group's lead window.
+    const original = originalScheduleRef.current;
+    const scheduleChanged = !original
+      || recurrence !== original.recurrence
+      || JSON.stringify(anchor) !== JSON.stringify(original.anchor);
     const { error } = await updateGroup(groupId, {
       name: name.trim(),
-      recurrence,
-      anchor: recurrence !== 'manual' ? anchor : undefined,
+      recurrence: scheduleChanged ? recurrence : undefined,
+      anchor: scheduleChanged && recurrence !== 'manual' ? anchor : undefined,
       unlockDurationHours: unlockHours,
       reminderLeadHours: recurrence !== 'manual' ? reminderLeadHours : null,
     });
