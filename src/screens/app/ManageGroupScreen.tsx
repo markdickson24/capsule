@@ -341,25 +341,41 @@ export default function ManageGroupScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
-          <View style={styles.optionGridWrap}>
-            {DURATION_OPTIONS.map(opt => {
-              const active = !customUnlockSelected && unlockHours === opt.hours;
-              return (
-                <TouchableOpacity
-                  key={opt.hours}
-                  style={[styles.wrapChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                  onPress={() => selectDurationPreset(opt.hours)}
-                >
-                  <Text style={[styles.wrapChipText, active && { color: accentColor }]}>{opt.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[styles.wrapChip, customUnlockSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-              onPress={selectCustomDuration}
-            >
-              <Text style={[styles.wrapChipText, customUnlockSelected && { color: accentColor }]}>Custom</Text>
-            </TouchableOpacity>
+          <View style={styles.durationGrid}>
+            <View style={styles.durationGridRow}>
+              {DURATION_OPTIONS.slice(0, 3).map(opt => {
+                const active = !customUnlockSelected && unlockHours === opt.hours;
+                return (
+                  <TouchableOpacity
+                    key={opt.hours}
+                    style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                    onPress={() => selectDurationPreset(opt.hours)}
+                  >
+                    <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={styles.durationGridRow}>
+              {DURATION_OPTIONS.slice(3).map(opt => {
+                const active = !customUnlockSelected && unlockHours === opt.hours;
+                return (
+                  <TouchableOpacity
+                    key={opt.hours}
+                    style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                    onPress={() => selectDurationPreset(opt.hours)}
+                  >
+                    <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity
+                style={[styles.durationChip, customUnlockSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                onPress={selectCustomDuration}
+              >
+                <Text style={[styles.durationChipText, customUnlockSelected && { color: accentColor }]} numberOfLines={1}>Custom</Text>
+              </TouchableOpacity>
+            </View>
           </View>
           {customUnlockSelected && (
             <View style={styles.customRow}>
@@ -470,19 +486,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 16, color: '#FFFFFF', borderWidth: 1, borderColor: '#2A2A2A',
   },
-  // The Duration row now has a 6th "Custom" option alongside the 5 presets,
-  // so (unlike the recurrence/reminder/weekday rows) it wraps instead of
-  // forcing single-line — matching VotingWindowPicker's own preset+custom
-  // pattern for the closely related Awards voting window.
-  optionGridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  wrapChip: {
+  // 5 presets + Custom = exactly 6 — a clean 3-column x 2-row grid (mirrors
+  // RecurrenceAnchorPicker's month grid) where each chip takes an equal flex
+  // share, so both rows fill the full row width edge to edge instead of
+  // wrapping to whatever width each chip's own text happens to need.
+  durationGrid: { gap: 8 },
+  durationGridRow: { flexDirection: 'row', gap: 8 },
+  durationChip: {
     // paddingVertical 12 (not 8) so the tappable height clears the 44pt
-    // minimum touch target once combined with the 14px text — the 5
+    // minimum touch target once combined with the 13px text — the 5
     // presets + Custom are real actions, not decorative labels.
-    paddingVertical: 12, paddingHorizontal: 16,
+    flex: 1, alignItems: 'center', paddingVertical: 12, paddingHorizontal: 4,
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
-  wrapChipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  durationChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
   customRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
   customInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13,
