@@ -45,9 +45,46 @@ const DURATION_OPTIONS = [
   { label: '6 months', hours: 4380 },
   { label: '1 year', hours: 8760 },
 ];
-// Matches the DB CHECK constraint (unlock_duration_hours between 1 and 8760).
-const MIN_CUSTOM_DAYS = 1;
-const MAX_CUSTOM_DAYS = 365;
+type CustomDurationUnit = 'days' | 'weeks' | 'months';
+const CUSTOM_UNIT_LABELS: Record<CustomDurationUnit, string> = { days: 'Days', weeks: 'Weeks', months: 'Months' };
+const CUSTOM_UNIT_PLACEHOLDER: Record<CustomDurationUnit, string> = { days: '30', weeks: '4', months: '1' };
+// Weeks are exactly 7 days; months use a flat 30 days (same convention the
+// existing "1 month"/"3 months" presets already use — only "6 months" uses
+// the more precise 365/2 average, which a hand-typed custom value has no
+// reason to replicate).
+const CUSTOM_UNIT_HOURS_PER: Record<CustomDurationUnit, number> = { days: 24, weeks: 24 * 7, months: 24 * 30 };
+// Per-unit bounds, all comfortably within the DB CHECK constraint
+// (unlock_duration_hours between 1 and 8760, i.e. up to 365 days).
+const CUSTOM_UNIT_RANGE: Record<CustomDurationUnit, { min: number; max: number }> = {
+  days: { min: 1, max: 365 },
+  weeks: { min: 1, max: 52 },
+  months: { min: 1, max: 12 },
+};
+
+function unitValueFromHours(hours: number, unit: CustomDurationUnit): number {
+  return Math.max(1, Math.round(hours / CUSTOM_UNIT_HOURS_PER[unit]));
+}
+
+// Picks whichever unit divides `hours` evenly, so a previously-saved custom
+// duration (loaded from an existing group) displays as "6 weeks" rather
+// than always falling back to "42 days".
+function bestCustomUnitFor(hours: number): CustomDurationUnit {
+  if (hours % CUSTOM_UNIT_HOURS_PER.months === 0) return 'months';
+  if (hours % CUSTOM_UNIT_HOURS_PER.weeks === 0) return 'weeks';
+  return 'days';
+}
+
+function describeCustomDuration(n: number, unit: CustomDurationUnit): string {
+  const plural = n === 1 ? '' : 's';
+  if (unit === 'days') {
+    const approxUnit: CustomDurationUnit = n >= 60 ? 'months' : 'weeks';
+    const approxN = Math.max(1, Math.round(n / (approxUnit === 'months' ? 30 : 7)));
+    const approxPlural = approxN === 1 ? '' : 's';
+    return `Capsules unlock ${n} day${plural} after each one starts (≈ ${approxN} ${approxUnit === 'months' ? 'month' : 'week'}${approxPlural}).`;
+  }
+  const days = unit === 'weeks' ? n * 7 : n * 30;
+  return `Capsules unlock ${n} ${unit === 'weeks' ? 'week' : 'month'}${plural} after each one starts (${days} days).`;
+}
 
 export default function ManageGroupScreen() {
   const { accentColor } = useTheme();
@@ -62,7 +99,8 @@ export default function ManageGroupScreen() {
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
   const [unlockHours, setUnlockHours] = useState(720);
   const [customUnlockSelected, setCustomUnlockSelected] = useState(false);
-  const [customUnlockDays, setCustomUnlockDays] = useState('30');
+  const [customUnlockUnit, setCustomUnlockUnit] = useState<CustomDurationUnit>('days');
+  const [customUnlockValue, setCustomUnlockValue] = useState('30');
   const [anchor, setAnchor] = useState<RecurrenceAnchor>({ hour: 9, minute: 0 });
   const [reminderLeadHours, setReminderLeadHours] = useState<number | null>(24);
   const [paused, setPaused] = useState(false);
@@ -95,7 +133,11 @@ export default function ManageGroupScreen() {
     setUnlockHours(group.unlock_duration_hours);
     const isPresetDuration = DURATION_OPTIONS.some(o => o.hours === group.unlock_duration_hours);
     setCustomUnlockSelected(!isPresetDuration);
-    if (!isPresetDuration) setCustomUnlockDays(String(Math.round(group.unlock_duration_hours / 24)));
+    if (!isPresetDuration) {
+      const unit = bestCustomUnitFor(group.unlock_duration_hours);
+      setCustomUnlockUnit(unit);
+      setCustomUnlockValue(String(unitValueFromHours(group.unlock_duration_hours, unit)));
+    }
     // Pre-existing groups only have the anchor sub-field for their ORIGINAL
     // recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
     // backfills just that one field per interval; the rest are null). Fall
@@ -182,14 +224,26 @@ export default function ManageGroupScreen() {
     haptics.selection();
     LayoutAnimation.configureNext(SPRING);
     setCustomUnlockSelected(true);
-    setCustomUnlockDays(String(Math.max(MIN_CUSTOM_DAYS, Math.round(unlockHours / 24))));
+    setCustomUnlockValue(String(unitValueFromHours(unlockHours, customUnlockUnit)));
+  }
+
+  function selectCustomUnit(unit: CustomDurationUnit) {
+    haptics.selection();
+    // Re-derive the displayed number for the new unit from the current
+    // unlockHours, then snap unlockHours to match that rounded number
+    // exactly — what's shown is always what's actually stored.
+    const n = unitValueFromHours(unlockHours, unit);
+    setCustomUnlockUnit(unit);
+    setCustomUnlockValue(String(n));
+    setUnlockHours(n * CUSTOM_UNIT_HOURS_PER[unit]);
   }
 
   function handleCustomDurationChange(text: string) {
-    setCustomUnlockDays(text);
-    const days = parseInt(text, 10);
-    if (!Number.isNaN(days) && days >= MIN_CUSTOM_DAYS && days <= MAX_CUSTOM_DAYS) {
-      setUnlockHours(days * 24);
+    setCustomUnlockValue(text);
+    const n = parseInt(text, 10);
+    const range = CUSTOM_UNIT_RANGE[customUnlockUnit];
+    if (!Number.isNaN(n) && n >= range.min && n <= range.max) {
+      setUnlockHours(n * CUSTOM_UNIT_HOURS_PER[customUnlockUnit]);
     }
   }
 
@@ -339,6 +393,7 @@ export default function ManageGroupScreen() {
           </View>
         )}
 
+        {recurrence !== 'manual' && (
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
           <View style={styles.durationGrid}>
@@ -377,21 +432,50 @@ export default function ManageGroupScreen() {
               </TouchableOpacity>
             </View>
           </View>
-          {customUnlockSelected && (
-            <View style={styles.customRow}>
-              <TextInput
-                style={styles.customInput}
-                value={customUnlockDays}
-                onChangeText={handleCustomDurationChange}
-                keyboardType="number-pad"
-                maxLength={3}
-                placeholder="30"
-                placeholderTextColor="#555"
-              />
-              <Text style={styles.customLabel}>days</Text>
-            </View>
-          )}
+          {customUnlockSelected && (() => {
+            const n = parseInt(customUnlockValue, 10);
+            const range = CUSTOM_UNIT_RANGE[customUnlockUnit];
+            const valid = !Number.isNaN(n) && n >= range.min && n <= range.max;
+            return (
+              <View style={styles.customSection}>
+                <View style={styles.customUnitRow}>
+                  {(['days', 'weeks', 'months'] as CustomDurationUnit[]).map(unit => {
+                    const active = customUnlockUnit === unit;
+                    return (
+                      <TouchableOpacity
+                        key={unit}
+                        style={[styles.customUnitChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                        onPress={() => selectCustomUnit(unit)}
+                      >
+                        <Text style={[styles.customUnitChipText, active && { color: accentColor }]} numberOfLines={1}>
+                          {CUSTOM_UNIT_LABELS[unit]}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <View style={styles.customRow}>
+                  <TextInput
+                    style={[styles.customInput, !valid && styles.customInputInvalid]}
+                    value={customUnlockValue}
+                    onChangeText={handleCustomDurationChange}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                    placeholder={CUSTOM_UNIT_PLACEHOLDER[customUnlockUnit]}
+                    placeholderTextColor="#555"
+                  />
+                  <Text style={styles.customLabel}>{customUnlockUnit}</Text>
+                </View>
+                {valid ? (
+                  <Text style={styles.customPreview}>{describeCustomDuration(n, customUnlockUnit)}</Text>
+                ) : (
+                  <Text style={styles.customError}>Enter {range.min}-{range.max} {customUnlockUnit}</Text>
+                )}
+              </View>
+            );
+          })()}
         </View>
+        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Members</Text>
@@ -500,13 +584,23 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   durationChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
-  customRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
+  customSection: { gap: 8, marginTop: 2 },
+  customUnitRow: { flexDirection: 'row', gap: 8 },
+  customUnitChip: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
+    borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
+  },
+  customUnitChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  customRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   customInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13,
     color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
     width: 90, textAlign: 'center',
   },
+  customInputInvalid: { borderColor: '#FF3B30' },
   customLabel: { color: '#888888', fontSize: 15 },
+  customPreview: { fontSize: 13, color: '#888888' },
+  customError: { fontSize: 13, color: '#FF3B30' },
   // Distinct from optionGrid/optionChip (used by the 5-item Duration row,
   // which still wraps) — this row always has exactly 4 items and must fit
   // on one line, so each chip takes an equal flex share instead of sizing to
