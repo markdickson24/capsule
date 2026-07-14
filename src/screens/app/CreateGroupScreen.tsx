@@ -36,6 +36,9 @@ const DURATION_OPTIONS = [
   { label: '6 months', hours: 4380 },
   { label: '1 year', hours: 8760 },
 ];
+// Matches the DB CHECK constraint (unlock_duration_hours between 1 and 8760).
+const MIN_CUSTOM_DAYS = 1;
+const MAX_CUSTOM_DAYS = 365;
 
 function defaultAnchor(): RecurrenceAnchor {
   const now = new Date();
@@ -63,6 +66,8 @@ export default function CreateGroupScreen() {
   const [name, setName] = useState('');
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
   const [unlockHours, setUnlockHours] = useState(720);
+  const [customUnlockSelected, setCustomUnlockSelected] = useState(false);
+  const [customUnlockDays, setCustomUnlockDays] = useState('30');
   const [anchor, setAnchor] = useState<RecurrenceAnchor>(defaultAnchor);
   const [reminderLeadHours, setReminderLeadHours] = useState<number | null>(24);
   const [selectedMembers, setSelectedMembers] = useState<UserResult[]>([]);
@@ -107,6 +112,24 @@ export default function CreateGroupScreen() {
 
   function removeMember(userId: string) {
     setSelectedMembers(prev => prev.filter(m => m.id !== userId));
+  }
+
+  function selectDurationPreset(hours: number) {
+    setCustomUnlockSelected(false);
+    setUnlockHours(hours);
+  }
+
+  function selectCustomDuration() {
+    setCustomUnlockSelected(true);
+    setCustomUnlockDays(String(Math.max(MIN_CUSTOM_DAYS, Math.round(unlockHours / 24))));
+  }
+
+  function handleCustomDurationChange(text: string) {
+    setCustomUnlockDays(text);
+    const days = parseInt(text, 10);
+    if (!Number.isNaN(days) && days >= MIN_CUSTOM_DAYS && days <= MAX_CUSTOM_DAYS) {
+      setUnlockHours(days * 24);
+    }
   }
 
   async function handleCreate() {
@@ -256,22 +279,42 @@ export default function CreateGroupScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
           <Text style={styles.sectionHint}>How long until each capsule opens.</Text>
-          <View style={styles.optionGrid}>
+          <View style={styles.optionGridWrap}>
             {DURATION_OPTIONS.map(opt => {
-              const active = unlockHours === opt.hours;
+              const active = !customUnlockSelected && unlockHours === opt.hours;
               return (
                 <TouchableOpacity
                   key={opt.hours}
-                  style={[styles.optionChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                  onPress={() => setUnlockHours(opt.hours)}
+                  style={[styles.wrapChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                  onPress={() => selectDurationPreset(opt.hours)}
                 >
-                  <Text style={[styles.optionChipText, active && { color: accentColor }]} numberOfLines={1}>
+                  <Text style={[styles.wrapChipText, active && { color: accentColor }]}>
                     {opt.label}
                   </Text>
                 </TouchableOpacity>
               );
             })}
+            <TouchableOpacity
+              style={[styles.wrapChip, customUnlockSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+              onPress={selectCustomDuration}
+            >
+              <Text style={[styles.wrapChipText, customUnlockSelected && { color: accentColor }]}>Custom</Text>
+            </TouchableOpacity>
           </View>
+          {customUnlockSelected && (
+            <View style={styles.customRow}>
+              <TextInput
+                style={styles.customInput}
+                value={customUnlockDays}
+                onChangeText={handleCustomDurationChange}
+                keyboardType="number-pad"
+                maxLength={3}
+                placeholder="30"
+                placeholderTextColor="#555"
+              />
+              <Text style={styles.customLabel}>days</Text>
+            </View>
+          )}
         </View>
 
         {recurrence !== 'manual' && (
@@ -354,15 +397,24 @@ const styles = StyleSheet.create({
   },
   chipAvatarInitial: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
   chipName: { flex: 1, fontSize: 13, color: '#DDDDDD', fontWeight: '500' },
-  // Always exactly 5 fixed options — same single-line-via-flex treatment as
-  // the recurrence/reminder/weekday rows, so nothing wraps onto its own row.
-  optionGrid: { flexDirection: 'row', gap: 6 },
-  optionChip: {
-    flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 2,
+  // The Duration row now has a 6th "Custom" option alongside the 5 presets,
+  // so (unlike the recurrence/reminder/weekday rows) it wraps instead of
+  // forcing single-line — matching VotingWindowPicker's own preset+custom
+  // pattern for the closely related Awards voting window.
+  optionGridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  wrapChip: {
+    paddingVertical: 8, paddingHorizontal: 16,
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A',
     backgroundColor: '#1A1A1A',
   },
-  optionChipText: { fontSize: 12, fontWeight: '600', color: '#888888' },
+  wrapChipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  customRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
+  customInput: {
+    backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
+    width: 90, textAlign: 'center',
+  },
+  customLabel: { color: '#888888', fontSize: 15 },
   // Distinct from optionGrid/optionChip (used by the 5-item Duration row,
   // which still wraps) — this row always has exactly 4 items and must fit
   // on one line, so each chip takes an equal flex share instead of sizing to
