@@ -47,6 +47,26 @@ interface Props {
   onChange: (anchor: RecurrenceAnchor) => void;
 }
 
+// Shared with CreateGroupScreen/ManageGroupScreen's collapsed schedule
+// summaries, so the summary line can never drift from this picker's own
+// compact/preview text — both read from the same source.
+export function describeAnchor(interval: GroupRecurrence, anchor: RecurrenceAnchor): { compact: string; sentence: string } {
+  if (interval === 'weekly') {
+    const weekday = anchor.weekday ?? 0;
+    return { compact: WEEKDAY_LABELS_LONG[weekday], sentence: `Every week on ${WEEKDAY_LABELS_LONG[weekday]}` };
+  }
+  if (interval === 'monthly') {
+    const day = anchor.dayOfMonth ?? 1;
+    return { compact: `The ${ordinal(day)}`, sentence: `Every month on the ${ordinal(day)}` };
+  }
+  const month = anchor.month ?? 1;
+  const day = anchor.day ?? 1;
+  return {
+    compact: `${MONTH_LABELS[month - 1]} ${day}`,
+    sentence: `Every year on ${MONTH_LABELS_LONG[month - 1]} ${day}`,
+  };
+}
+
 // 7-column day grid — direct-inspired by DatePicker.tsx's own day grid (same
 // circle-on-select treatment), but with no weekday header or month binding:
 // a recurrence day-of-month isn't a real date, it repeats every period, so
@@ -145,22 +165,7 @@ export default function RecurrenceAnchorPicker({ interval, anchor, onChange }: P
 
   const chevronSpin = chevronRotation.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
 
-  let compact: string;
-  let preview: string;
-  if (interval === 'weekly') {
-    const weekday = anchor.weekday ?? 0;
-    compact = WEEKDAY_LABELS_LONG[weekday];
-    preview = `Every week on ${WEEKDAY_LABELS_LONG[weekday]}`;
-  } else if (interval === 'monthly') {
-    const day = anchor.dayOfMonth ?? 1;
-    compact = `The ${ordinal(day)}`;
-    preview = `Every month on the ${ordinal(day)}`;
-  } else {
-    const month = anchor.month ?? 1;
-    const day = anchor.day ?? 1;
-    compact = `${MONTH_LABELS[month - 1]} ${day}`;
-    preview = `Every year on ${MONTH_LABELS_LONG[month - 1]} ${day}`;
-  }
+  const { compact, sentence: preview } = describeAnchor(interval, anchor);
 
   function stepYearlyMonth(direction: 1 | -1) {
     haptics.selection();

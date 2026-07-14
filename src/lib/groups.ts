@@ -111,7 +111,7 @@ export async function createGroup(params: {
   anchor?: RecurrenceAnchor; // required (by the caller) for any non-'manual' recurrence
   unlockDurationHours: number;
   reminderLeadHours: number | null;
-}): Promise<{ groupId?: string; error?: string }> {
+}): Promise<{ groupId?: string; error?: string; memberError?: boolean }> {
   const me = myId();
   if (!me) return { error: 'Not signed in' };
 
@@ -149,9 +149,13 @@ export async function createGroup(params: {
   // Insert other members — is_group_creator() can now resolve correctly.
   const otherIds = params.memberIds.filter(id => id !== me);
   if (otherIds.length > 0) {
-    await supabase.from('group_members').insert(
+    const { error: memberErr } = await supabase.from('group_members').insert(
       otherIds.map(uid => ({ group_id: groupId, user_id: uid }))
     );
+    // Group + creator already exist and are usable — don't fail the whole
+    // create, but don't silently drop the picked members either. The caller
+    // surfaces this as a toast (the group itself is fine to land on).
+    if (memberErr) return { groupId, memberError: true };
   }
 
   return { groupId };

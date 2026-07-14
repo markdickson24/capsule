@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, FlatList, Keyboard,
+  ActivityIndicator, FlatList, Keyboard, Platform, LayoutAnimation, UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -12,14 +12,36 @@ import { supabase } from '../../lib/supabase';
 import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
+import { haptics } from '../../lib/haptics';
 import { blockStore } from '../../lib/blocks';
-import { createGroup, GroupRecurrence, recurrenceLabel } from '../../lib/groups';
-import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
+import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
+import RecurrenceAnchorPicker, { describeAnchor } from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
 import DatePickerField, { QuickOption } from '../../components/DatePicker';
 import { RecurrenceAnchor } from '../../lib/recurrence';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
+
+// Same LayoutAnimation setup as RecurrenceAnchorPicker/DatePicker — idempotent
+// to call again here.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+const SPRING = { duration: 220, update: { type: 'easeInEaseOut' as const }, delete: { type: 'easeInEaseOut' as const } };
+
+const REMINDER_LABELS: Record<number, string> = { 24: '1 day', 72: '3 days', 168: '1 week' };
+function reminderSummary(hours: number | null): string {
+  if (hours == null) return 'no reminder';
+  return `remind ${REMINDER_LABELS[hours] ?? `${hours}h`} before`;
+}
+
+const SCHEDULE_HINTS: Record<GroupRecurrence, string> = {
+  manual: 'No schedule — anyone in the group can start a capsule anytime.',
+  weekly: 'A new capsule is created automatically every week.',
+  monthly: 'A new capsule is created automatically every month.',
+  yearly: 'A new capsule is created automatically every year.',
+};
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
 
@@ -93,6 +115,8 @@ export default function CreateGroupScreen() {
   const [searching, setSearching] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const myId = sessionStore.get()?.user?.id ?? null;
@@ -103,10 +127,14 @@ export default function CreateGroupScreen() {
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
     if (text.trim().length < 2) {
       setSearchResults([]);
+      setSearching(false);
       return;
     }
+    // Set immediately (not inside the timeout) so the "No one found" state
+    // — gated on `!searching` — can't flash true during the 300ms debounce
+    // window before the actual query has even started.
+    setSearching(true);
     searchDebounce.current = setTimeout(async () => {
-      setSearching(true);
       const { data } = await supabase
         .from('users')
         .select('id, display_name, avatar_url')
@@ -137,12 +165,25 @@ export default function CreateGroupScreen() {
     setUnlockHours(Math.max(MIN_DURATION_HOURS, Math.min(MAX_DURATION_HOURS, hours)));
   }
 
+  function selectRecurrence(opt: GroupRecurrence) {
+    haptics.selection();
+    LayoutAnimation.configureNext(SPRING);
+    setRecurrence(opt);
+  }
+
+  function toggleDetails() {
+    haptics.selection();
+    LayoutAnimation.configureNext(SPRING);
+    setDetailsOpen(v => !v);
+  }
+
   async function handleCreate() {
     const trimmedName = name.trim();
-    if (!trimmedName) { setError('Group name is required.'); return; }
+    if (!trimmedName) { setNameError('Give your group a name.'); return; }
+    setNameError(null);
     setError(null);
     setCreating(true);
-    const { groupId, error: err } = await createGroup({
+    const { groupId, error: err, memberError } = await createGroup({
       name: trimmedName,
       memberIds: selectedMembers.map(m => m.id),
       recurrence,
@@ -155,8 +196,10 @@ export default function CreateGroupScreen() {
       setError(err ?? 'Could not create group.');
       return;
     }
+    if (memberError) toast.show("Couldn't add some members — add them from the group page.");
+    haptics.success();
     cache.invalidate('groups');
-    navigation.replace('GroupDetail', { groupId });
+    navigation.replace('GroupDetail', { groupId, justCreated: true });
   }
 
   return (
@@ -166,39 +209,30 @@ export default function CreateGroupScreen() {
           <Ionicons name="close" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>New Group</Text>
-        <TouchableOpacity
-          onPress={handleCreate}
-          disabled={creating || !name.trim()}
-          hitSlop={8}
-        >
-          {creating ? (
-            <ActivityIndicator color={accentColor} size="small" />
-          ) : (
-            <Text style={[styles.createBtn, !name.trim() && styles.createBtnDisabled, { color: accentColor }]}>
-              Create
-            </Text>
-          )}
-        </TouchableOpacity>
+        <View style={{ width: 24 }} />
       </View>
 
       <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Group Name</Text>
           <TextInput
-            style={styles.nameInput}
+            style={[styles.nameInput, nameError && styles.inputError]}
             value={name}
-            onChangeText={text => { setName(text.slice(0, 60)); setError(null); }}
+            onChangeText={text => { setName(text.slice(0, 60)); setNameError(null); }}
             placeholder="e.g. College Friends, Family, Work Team"
             placeholderTextColor="#444444"
             maxLength={60}
             returnKeyType="done"
-            autoFocus
           />
-          <Text style={styles.charCount}>{name.length}/60</Text>
+          <View style={styles.nameFooter}>
+            {nameError ? <Text style={styles.fieldError}>{nameError}</Text> : <View />}
+            <Text style={styles.charCount}>{name.length}/60</Text>
+          </View>
         </View>
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Add Members</Text>
+          <Text style={styles.sectionHint}>Optional — you can always add people later.</Text>
           <View style={styles.searchBox}>
             <Ionicons name="search-outline" size={16} color="#555555" />
             <TextInput
@@ -236,6 +270,10 @@ export default function CreateGroupScreen() {
             </View>
           )}
 
+          {!searching && search.trim().length >= 2 && searchResults.length === 0 && (
+            <Text style={styles.noResultsText}>No one found — try a different name.</Text>
+          )}
+
           {selectedMembers.length > 0 && (
             <View style={styles.selectedChips}>
               {selectedMembers.map(m => (
@@ -250,7 +288,12 @@ export default function CreateGroupScreen() {
                     </View>
                   )}
                   <Text style={styles.chipName} numberOfLines={1}>{m.display_name ?? 'Unknown'}</Text>
-                  <TouchableOpacity onPress={() => removeMember(m.id)} hitSlop={4}>
+                  <TouchableOpacity
+                    onPress={() => removeMember(m.id)}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${m.display_name ?? 'member'}`}
+                  >
                     <Ionicons name="close-circle" size={16} color="#555555" />
                   </TouchableOpacity>
                 </View>
@@ -261,7 +304,6 @@ export default function CreateGroupScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Schedule</Text>
-          <Text style={styles.sectionHint}>Auto-create a capsule for this group on a schedule.</Text>
           <View style={styles.recurrenceRow}>
             {RECURRENCE_OPTIONS.map(opt => {
               const active = recurrence === opt;
@@ -269,7 +311,7 @@ export default function CreateGroupScreen() {
                 <TouchableOpacity
                   key={opt}
                   style={[styles.recurrenceChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                  onPress={() => setRecurrence(opt)}
+                  onPress={() => selectRecurrence(opt)}
                 >
                   <Text style={[styles.recurrenceChipText, active && { color: accentColor }]} numberOfLines={1}>
                     {recurrenceLabel(opt)}
@@ -278,35 +320,57 @@ export default function CreateGroupScreen() {
               );
             })}
           </View>
-          <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
-        </View>
+          <Text style={styles.sectionHint}>{SCHEDULE_HINTS[recurrence]}</Text>
 
-        {recurrence !== 'manual' && (
-        <View style={styles.section}>
-          <DatePickerField
-            label="Default Unlock Duration"
-            value={unlockPreviewDate}
-            onChange={handleUnlockDateChange}
-            quickOptions={GROUP_DURATION_QUICK_OPTIONS}
-            contextLabel="How long each capsule stays locked after it's created"
-          />
-        </View>
-        )}
+          {recurrence !== 'manual' && (
+            <View style={styles.detailsCard}>
+              <TouchableOpacity
+                style={styles.detailsToggle}
+                onPress={toggleDetails}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={detailsOpen ? 'Collapse schedule details' : 'Expand schedule details'}
+              >
+                <View style={styles.detailsToggleTextWrap}>
+                  <Text style={styles.detailsToggleLabel}>Schedule details</Text>
+                  {!detailsOpen && (
+                    <Text style={styles.detailsSummary} numberOfLines={1}>
+                      {describeAnchor(recurrence, anchor).compact} · unlocks after {unlockDurationLabel(unlockHours)} · {reminderSummary(reminderLeadHours)}
+                    </Text>
+                  )}
+                </View>
+                <Ionicons name={detailsOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#888888" />
+              </TouchableOpacity>
 
-        {recurrence !== 'manual' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Remind Members</Text>
-            <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
-            <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
-          </View>
-        )}
+              {detailsOpen && (
+                <View style={styles.detailsBody}>
+                  <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
+
+                  <DatePickerField
+                    label="Default Unlock Duration"
+                    value={unlockPreviewDate}
+                    onChange={handleUnlockDateChange}
+                    quickOptions={GROUP_DURATION_QUICK_OPTIONS}
+                    contextLabel="How long each capsule stays locked after it's created"
+                  />
+
+                  <View>
+                    <Text style={styles.sectionLabel}>Remind Members</Text>
+                    <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
+                    <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
+                  </View>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
 
         {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
         <TouchableOpacity
-          style={[styles.createButton, { backgroundColor: accentColor }, (!name.trim() || creating) && styles.createButtonDisabled]}
+          style={[styles.createButton, { backgroundColor: accentColor }, creating && styles.createButtonDisabled]}
           onPress={handleCreate}
-          disabled={creating || !name.trim()}
+          disabled={creating}
         >
           {creating ? (
             <ActivityIndicator color="#FFFFFF" />
@@ -327,8 +391,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1, borderBottomColor: '#1A1A1A',
   },
   headerTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
-  createBtn: { fontSize: 16, fontWeight: '700' },
-  createBtnDisabled: { opacity: 0.4 },
   scroll: { flex: 1 },
   content: { padding: 24, gap: 28, paddingBottom: 48 },
   section: { gap: 10 },
@@ -338,7 +400,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 16, color: '#FFFFFF', borderWidth: 1, borderColor: '#2A2A2A',
   },
-  charCount: { fontSize: 12, color: '#444444', alignSelf: 'flex-end', marginTop: -4 },
+  inputError: { borderColor: '#FF3B30' },
+  nameFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: -4 },
+  fieldError: { fontSize: 12, color: '#FF3B30', flex: 1 },
+  charCount: { fontSize: 12, color: '#444444' },
+  noResultsText: { fontSize: 13, color: '#888888' },
   searchBox: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12,
@@ -381,6 +447,21 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   recurrenceChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  // Collapsed-by-default "Schedule details" disclosure — mirrors CreateScreen's
+  // "More options" pattern: only the recurrence choice itself stays always
+  // visible, everything pre-defaulted (anchor, unlock duration, reminder)
+  // collapses behind one toggle with a one-line summary.
+  detailsCard: {
+    backgroundColor: '#111111', borderRadius: 16, borderWidth: 1, borderColor: '#1E1E1E', overflow: 'hidden',
+  },
+  detailsToggle: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+  },
+  detailsToggleTextWrap: { flex: 1, gap: 2 },
+  detailsToggleLabel: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  detailsSummary: { fontSize: 12, color: '#888888' },
+  detailsBody: { paddingHorizontal: 14, paddingBottom: 14, gap: 24 },
   errorText: { fontSize: 14, color: '#FF3B30', textAlign: 'center' },
   createButton: {
     borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginTop: 8,

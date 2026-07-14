@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
+import { haptics } from '../lib/haptics';
 
 const OPTIONS: { label: string; hours: number | null }[] = [
   { label: 'Off', hours: null },
@@ -24,7 +25,7 @@ export default function ReminderLeadPicker({ value, onChange }: Props) {
           <TouchableOpacity
             key={opt.label}
             style={[styles.chip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-            onPress={() => onChange(opt.hours)}
+            onPress={() => { haptics.selection(); onChange(opt.hours); }}
           >
             <Text style={[styles.chipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
           </TouchableOpacity>
