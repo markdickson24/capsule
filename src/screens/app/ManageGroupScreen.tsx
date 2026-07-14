@@ -1,7 +1,7 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState, useMemo } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Keyboard, LayoutAnimation,
+  ActivityIndicator, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -14,7 +14,6 @@ import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { blockStore } from '../../lib/blocks';
-import { haptics } from '../../lib/haptics';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import { Avatar } from './ProfileScreen';
@@ -26,11 +25,8 @@ import {
 import { computeUpcomingOccurrences, RecurrenceAnchor } from '../../lib/recurrence';
 import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
+import DatePickerField, { QuickOption } from '../../components/DatePicker';
 import { AppStackParamList } from '../../types/navigation';
-
-// Android LayoutAnimation is already enabled as a side effect of importing
-// RecurrenceAnchorPicker above — no need to re-enable it here.
-const SPRING = { duration: 220, update: { type: 'easeInEaseOut' as const }, delete: { type: 'easeInEaseOut' as const } };
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
 type RoutePropType = RouteProp<AppStackParamList, 'ManageGroup'>;
@@ -38,53 +34,26 @@ type RoutePropType = RouteProp<AppStackParamList, 'ManageGroup'>;
 interface UserResult { id: string; display_name: string | null; avatar_url: string | null }
 
 const RECURRENCE_OPTIONS: GroupRecurrence[] = ['manual', 'weekly', 'monthly', 'yearly'];
-const DURATION_OPTIONS = [
-  { label: '1 week', hours: 168 },
-  { label: '1 month', hours: 720 },
-  { label: '3 months', hours: 2160 },
-  { label: '6 months', hours: 4380 },
-  { label: '1 year', hours: 8760 },
+
+function addDaysFromNow(days: number): Date {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+// Longer-range presets than DatePickerField's capsule-unlock-date default
+// (Tomorrow/1 week/1 month/3 months) — a group's default duration between
+// capsules skews much longer than a single capsule's typical unlock wait.
+const GROUP_DURATION_QUICK_OPTIONS: QuickOption[] = [
+  { label: '1 week', icon: 'calendar-outline', getDate: () => addDaysFromNow(7) },
+  { label: '1 month', icon: 'calendar-number-outline', getDate: () => addDaysFromNow(30) },
+  { label: '3 months', icon: 'time-outline', getDate: () => addDaysFromNow(90) },
+  { label: '1 year', icon: 'hourglass-outline', getDate: () => addDaysFromNow(365) },
 ];
-type CustomDurationUnit = 'days' | 'weeks' | 'months';
-const CUSTOM_UNIT_LABELS: Record<CustomDurationUnit, string> = { days: 'Days', weeks: 'Weeks', months: 'Months' };
-const CUSTOM_UNIT_PLACEHOLDER: Record<CustomDurationUnit, string> = { days: '30', weeks: '4', months: '1' };
-// Weeks are exactly 7 days; months use a flat 30 days (same convention the
-// existing "1 month"/"3 months" presets already use — only "6 months" uses
-// the more precise 365/2 average, which a hand-typed custom value has no
-// reason to replicate).
-const CUSTOM_UNIT_HOURS_PER: Record<CustomDurationUnit, number> = { days: 24, weeks: 24 * 7, months: 24 * 30 };
-// Per-unit bounds, all comfortably within the DB CHECK constraint
-// (unlock_duration_hours between 1 and 8760, i.e. up to 365 days).
-const CUSTOM_UNIT_RANGE: Record<CustomDurationUnit, { min: number; max: number }> = {
-  days: { min: 1, max: 365 },
-  weeks: { min: 1, max: 52 },
-  months: { min: 1, max: 12 },
-};
 
-function unitValueFromHours(hours: number, unit: CustomDurationUnit): number {
-  return Math.max(1, Math.round(hours / CUSTOM_UNIT_HOURS_PER[unit]));
-}
-
-// Picks whichever unit divides `hours` evenly, so a previously-saved custom
-// duration (loaded from an existing group) displays as "6 weeks" rather
-// than always falling back to "42 days".
-function bestCustomUnitFor(hours: number): CustomDurationUnit {
-  if (hours % CUSTOM_UNIT_HOURS_PER.months === 0) return 'months';
-  if (hours % CUSTOM_UNIT_HOURS_PER.weeks === 0) return 'weeks';
-  return 'days';
-}
-
-function describeCustomDuration(n: number, unit: CustomDurationUnit): string {
-  const plural = n === 1 ? '' : 's';
-  if (unit === 'days') {
-    const approxUnit: CustomDurationUnit = n >= 60 ? 'months' : 'weeks';
-    const approxN = Math.max(1, Math.round(n / (approxUnit === 'months' ? 30 : 7)));
-    const approxPlural = approxN === 1 ? '' : 's';
-    return `Capsules unlock ${n} day${plural} after each one starts (≈ ${approxN} ${approxUnit === 'months' ? 'month' : 'week'}${approxPlural}).`;
-  }
-  const days = unit === 'weeks' ? n * 7 : n * 30;
-  return `Capsules unlock ${n} ${unit === 'weeks' ? 'week' : 'month'}${plural} after each one starts (${days} days).`;
-}
+// Matches the DB CHECK constraint (unlock_duration_hours between 1 and 8760).
+const MIN_DURATION_HOURS = 1;
+const MAX_DURATION_HOURS = 8760;
 
 export default function ManageGroupScreen() {
   const { accentColor } = useTheme();
@@ -98,9 +67,6 @@ export default function ManageGroupScreen() {
   const [name, setName] = useState('');
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
   const [unlockHours, setUnlockHours] = useState(720);
-  const [customUnlockSelected, setCustomUnlockSelected] = useState(false);
-  const [customUnlockUnit, setCustomUnlockUnit] = useState<CustomDurationUnit>('days');
-  const [customUnlockValue, setCustomUnlockValue] = useState('30');
   const [anchor, setAnchor] = useState<RecurrenceAnchor>({ hour: 9, minute: 0 });
   const [reminderLeadHours, setReminderLeadHours] = useState<number | null>(24);
   const [paused, setPaused] = useState(false);
@@ -121,6 +87,20 @@ export default function ManageGroupScreen() {
   // rename, risking a duplicate reminder if a save lands inside the lead window.
   const originalScheduleRef = useRef<{ recurrence: GroupRecurrence; anchor: RecurrenceAnchor } | null>(null);
 
+  // Fixed snapshot of "now" so the DatePickerField's derived preview date
+  // doesn't jitter across re-renders (mirrors CreateGroupScreen's pattern).
+  const unlockBaseNow = useRef(Date.now()).current;
+  const unlockPreviewDate = useMemo(
+    () => new Date(unlockBaseNow + unlockHours * 3_600_000),
+    [unlockBaseNow, unlockHours],
+  );
+
+  function handleUnlockDateChange(date: Date | null) {
+    if (!date) return;
+    const hours = Math.round((date.getTime() - unlockBaseNow) / 3_600_000);
+    setUnlockHours(Math.max(MIN_DURATION_HOURS, Math.min(MAX_DURATION_HOURS, hours)));
+  }
+
   const load = useCallback(async () => {
     const [group, mems] = await Promise.all([getGroup(groupId), getGroupMembers(groupId)]);
     if (!group) { navigation.goBack(); return; }
@@ -131,13 +111,6 @@ export default function ManageGroupScreen() {
     setName(group.name);
     setRecurrence(group.recurrence_interval);
     setUnlockHours(group.unlock_duration_hours);
-    const isPresetDuration = DURATION_OPTIONS.some(o => o.hours === group.unlock_duration_hours);
-    setCustomUnlockSelected(!isPresetDuration);
-    if (!isPresetDuration) {
-      const unit = bestCustomUnitFor(group.unlock_duration_hours);
-      setCustomUnlockUnit(unit);
-      setCustomUnlockValue(String(unitValueFromHours(group.unlock_duration_hours, unit)));
-    }
     // Pre-existing groups only have the anchor sub-field for their ORIGINAL
     // recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
     // backfills just that one field per interval; the rest are null). Fall
@@ -211,40 +184,6 @@ export default function ManageGroupScreen() {
       return;
     }
     invalidate();
-  }
-
-  function selectDurationPreset(hours: number) {
-    haptics.selection();
-    LayoutAnimation.configureNext(SPRING);
-    setCustomUnlockSelected(false);
-    setUnlockHours(hours);
-  }
-
-  function selectCustomDuration() {
-    haptics.selection();
-    LayoutAnimation.configureNext(SPRING);
-    setCustomUnlockSelected(true);
-    setCustomUnlockValue(String(unitValueFromHours(unlockHours, customUnlockUnit)));
-  }
-
-  function selectCustomUnit(unit: CustomDurationUnit) {
-    haptics.selection();
-    // Re-derive the displayed number for the new unit from the current
-    // unlockHours, then snap unlockHours to match that rounded number
-    // exactly — what's shown is always what's actually stored.
-    const n = unitValueFromHours(unlockHours, unit);
-    setCustomUnlockUnit(unit);
-    setCustomUnlockValue(String(n));
-    setUnlockHours(n * CUSTOM_UNIT_HOURS_PER[unit]);
-  }
-
-  function handleCustomDurationChange(text: string) {
-    setCustomUnlockValue(text);
-    const n = parseInt(text, 10);
-    const range = CUSTOM_UNIT_RANGE[customUnlockUnit];
-    if (!Number.isNaN(n) && n >= range.min && n <= range.max) {
-      setUnlockHours(n * CUSTOM_UNIT_HOURS_PER[customUnlockUnit]);
-    }
   }
 
   const existingIds = new Set(members.map(m => m.user_id));
@@ -395,85 +334,13 @@ export default function ManageGroupScreen() {
 
         {recurrence !== 'manual' && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
-          <View style={styles.durationGrid}>
-            <View style={styles.durationGridRow}>
-              {DURATION_OPTIONS.slice(0, 3).map(opt => {
-                const active = !customUnlockSelected && unlockHours === opt.hours;
-                return (
-                  <TouchableOpacity
-                    key={opt.hours}
-                    style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                    onPress={() => selectDurationPreset(opt.hours)}
-                  >
-                    <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <View style={styles.durationGridRow}>
-              {DURATION_OPTIONS.slice(3).map(opt => {
-                const active = !customUnlockSelected && unlockHours === opt.hours;
-                return (
-                  <TouchableOpacity
-                    key={opt.hours}
-                    style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                    onPress={() => selectDurationPreset(opt.hours)}
-                  >
-                    <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-              <TouchableOpacity
-                style={[styles.durationChip, customUnlockSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                onPress={selectCustomDuration}
-              >
-                <Text style={[styles.durationChipText, customUnlockSelected && { color: accentColor }]} numberOfLines={1}>Custom</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-          {customUnlockSelected && (() => {
-            const n = parseInt(customUnlockValue, 10);
-            const range = CUSTOM_UNIT_RANGE[customUnlockUnit];
-            const valid = !Number.isNaN(n) && n >= range.min && n <= range.max;
-            return (
-              <View style={styles.customSection}>
-                <View style={styles.customUnitRow}>
-                  {(['days', 'weeks', 'months'] as CustomDurationUnit[]).map(unit => {
-                    const active = customUnlockUnit === unit;
-                    return (
-                      <TouchableOpacity
-                        key={unit}
-                        style={[styles.customUnitChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                        onPress={() => selectCustomUnit(unit)}
-                      >
-                        <Text style={[styles.customUnitChipText, active && { color: accentColor }]} numberOfLines={1}>
-                          {CUSTOM_UNIT_LABELS[unit]}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-                <View style={styles.customRow}>
-                  <TextInput
-                    style={[styles.customInput, !valid && styles.customInputInvalid]}
-                    value={customUnlockValue}
-                    onChangeText={handleCustomDurationChange}
-                    keyboardType="number-pad"
-                    maxLength={3}
-                    placeholder={CUSTOM_UNIT_PLACEHOLDER[customUnlockUnit]}
-                    placeholderTextColor="#555"
-                  />
-                  <Text style={styles.customLabel}>{customUnlockUnit}</Text>
-                </View>
-                {valid ? (
-                  <Text style={styles.customPreview}>{describeCustomDuration(n, customUnlockUnit)}</Text>
-                ) : (
-                  <Text style={styles.customError}>Enter {range.min}-{range.max} {customUnlockUnit}</Text>
-                )}
-              </View>
-            );
-          })()}
+          <DatePickerField
+            label="Default Unlock Duration"
+            value={unlockPreviewDate}
+            onChange={handleUnlockDateChange}
+            quickOptions={GROUP_DURATION_QUICK_OPTIONS}
+            contextLabel="How long each capsule stays locked after it's created"
+          />
         </View>
         )}
 
@@ -570,39 +437,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
     fontSize: 16, color: '#FFFFFF', borderWidth: 1, borderColor: '#2A2A2A',
   },
-  // 5 presets + Custom = exactly 6 — a clean 3-column x 2-row grid (mirrors
-  // RecurrenceAnchorPicker's month grid) where each chip takes an equal flex
-  // share, so both rows fill the full row width edge to edge instead of
-  // wrapping to whatever width each chip's own text happens to need.
-  durationGrid: { gap: 8 },
-  durationGridRow: { flexDirection: 'row', gap: 8 },
-  durationChip: {
-    // paddingVertical 12 (not 8) so the tappable height clears the 44pt
-    // minimum touch target once combined with the 13px text — the 5
-    // presets + Custom are real actions, not decorative labels.
-    flex: 1, alignItems: 'center', paddingVertical: 12, paddingHorizontal: 4,
-    borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
-  },
-  durationChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
-  customSection: { gap: 8, marginTop: 2 },
-  customUnitRow: { flexDirection: 'row', gap: 8 },
-  customUnitChip: {
-    flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
-    borderRadius: 12, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
-  },
-  customUnitChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
-  customRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  customInput: {
-    backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13,
-    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
-    width: 90, textAlign: 'center',
-  },
-  customInputInvalid: { borderColor: '#FF3B30' },
-  customLabel: { color: '#888888', fontSize: 15 },
-  customPreview: { fontSize: 13, color: '#888888' },
-  customError: { fontSize: 13, color: '#FF3B30' },
-  // Distinct from optionGrid/optionChip (used by the 5-item Duration row,
-  // which still wraps) — this row always has exactly 4 items and must fit
+  // Distinct from optionGrid/optionChip — this row always has exactly 4 items and must fit
   // on one line, so each chip takes an equal flex share instead of sizing to
   // its own text and wrapping onto a second row.
   recurrenceRow: { flexDirection: 'row', gap: 8 },
