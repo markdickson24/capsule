@@ -508,7 +508,10 @@ const styles = StyleSheet.create({
   detailsToggleTextWrap: { flex: 1, gap: 2 },
   detailsToggleLabel: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   detailsSummary: { fontSize: 12, color: '#888888' },
-  detailsBody: { paddingHorizontal: 14, paddingBottom: 14, gap: 24 },
+  // paddingBottom matches the inter-section `gap` so the last section (Remind
+  // Members) sits as far from the card's bottom edge as it does from the
+  // section above it — previously 14 vs. a 24 gap, which crowded the bottom.
+  detailsBody: { paddingHorizontal: 14, paddingBottom: 24, gap: 24 },
   // Presets + Custom: always exactly 4 items (3 day-count presets + Custom),
   // single-line-via-flex like the recurrence/reminder rows.
   durationRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
