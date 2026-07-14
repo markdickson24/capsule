@@ -25,6 +25,7 @@ import {
 import { computeUpcomingOccurrences, RecurrenceAnchor } from '../../lib/recurrence';
 import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
+import InfoTooltip from '../../components/InfoTooltip';
 import { AppStackParamList } from '../../types/navigation';
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
@@ -294,7 +295,13 @@ export default function ManageGroupScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Schedule</Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.sectionLabel}>Schedule</Text>
+            <InfoTooltip
+              title="Schedule"
+              body="Anyone in this group automatically joins every future capsule it creates — there's no invite to accept, since joining the group is the consent. Manual groups only get a new capsule when someone taps “Start New Capsule.”"
+            />
+          </View>
           <View style={styles.recurrenceRow}>
             {RECURRENCE_OPTIONS.map(opt => {
               const active = recurrence === opt;
@@ -322,7 +329,13 @@ export default function ManageGroupScreen() {
 
         {recurrence !== 'manual' && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Upcoming Capsules</Text>
+            <View style={styles.labelRow}>
+              <Text style={styles.sectionLabel}>Upcoming Capsules</Text>
+              <InfoTooltip
+                title="Pause & Resume"
+                body="Pausing stops new capsules from being created on schedule, but keeps your recurrence settings intact. Resuming picks the next occurrence from today — it won't create capsules for any cycles you missed while paused."
+              />
+            </View>
             {paused ? (
               <Text style={styles.hintText}>Paused — no capsules will be created until resumed.</Text>
             ) : (
@@ -348,7 +361,13 @@ export default function ManageGroupScreen() {
 
         {recurrence !== 'manual' && (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
+          <View style={styles.labelRow}>
+            <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
+            <InfoTooltip
+              title="Default Unlock Duration"
+              body="The default lock length for capsules this group creates. Capsules created automatically on schedule use it as-is; if you start one manually instead, you can still change the unlock date before locking it."
+            />
+          </View>
           <Text style={styles.sectionHint}>How long each capsule stays locked after it's created.</Text>
           <View style={styles.durationRow}>
             {DAY_PRESETS.map(opt => {
@@ -476,6 +495,7 @@ const styles = StyleSheet.create({
   content: { padding: 24, gap: 28, paddingBottom: 48 },
   section: { gap: 10 },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   sectionHint: { fontSize: 13, color: '#888888', marginTop: -4 },
   nameInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 14,
