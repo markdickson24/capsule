@@ -345,7 +345,7 @@ export default function CreateGroupScreen() {
           <Text style={styles.sectionHint}>{SCHEDULE_HINTS[recurrence]}</Text>
 
           {recurrence !== 'manual' && (
-            <View style={styles.detailsCard}>
+            <>
               <TouchableOpacity
                 style={styles.detailsToggle}
                 onPress={toggleDetails}
@@ -368,7 +368,7 @@ export default function CreateGroupScreen() {
                 <View style={styles.detailsBody}>
                   <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
 
-                  <View>
+                  <View style={styles.section}>
                     <View style={styles.labelRow}>
                       <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
                       <InfoTooltip
@@ -414,14 +414,14 @@ export default function CreateGroupScreen() {
                     )}
                   </View>
 
-                  <View>
+                  <View style={styles.section}>
                     <Text style={styles.sectionLabel}>Remind Members</Text>
                     <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
                     <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
                   </View>
                 </View>
               )}
-            </View>
+            </>
           )}
         </View>
 
@@ -509,32 +509,30 @@ const styles = StyleSheet.create({
   },
   recurrenceChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
   // Collapsed-by-default "Schedule details" disclosure — mirrors CreateScreen's
-  // "More options" pattern: only the recurrence choice itself stays always
-  // visible, everything pre-defaulted (anchor, unlock duration, reminder)
-  // collapses behind one toggle with a one-line summary.
-  detailsCard: {
-    backgroundColor: '#111111', borderRadius: 16, borderWidth: 1, borderColor: '#1E1E1E', overflow: 'hidden',
-  },
+  // "More options" pattern exactly: a plain toggle row (no card/border — a
+  // bordered box here just nested redundantly around RecurrenceAnchorPicker's
+  // own already-boxed card, which read as "boxes inside boxes" and crowded
+  // the whole section) followed by a flat, gapped body.
   detailsToggle: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 14, gap: 12,
+    gap: 12, marginTop: 14,
   },
   detailsToggleTextWrap: { flex: 1, gap: 2 },
   detailsToggleLabel: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   detailsSummary: { fontSize: 12, color: '#888888' },
-  // paddingBottom matches the inter-section `gap` so the last section (Remind
-  // Members) sits as far from the card's bottom edge as it does from the
-  // section above it — previously 14 vs. a 24 gap, which crowded the bottom.
-  detailsBody: { paddingHorizontal: 14, paddingBottom: 24, gap: 24 },
+  // Each child (RecurrenceAnchorPicker, Duration, Reminder) is its own
+  // `section`-styled group, so label → hint → controls keeps the same
+  // internal rhythm as every other section on the screen.
+  detailsBody: { gap: 24, marginTop: 20 },
   // Presets + Custom: always exactly 4 items (3 day-count presets + Custom),
   // single-line-via-flex like the recurrence/reminder rows.
-  durationRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  durationRow: { flexDirection: 'row', gap: 8 },
   durationChip: {
     flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   durationChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
-  customDaysRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 10 },
+  customDaysRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   customDaysInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
     color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
