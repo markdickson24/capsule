@@ -265,7 +265,7 @@ export default function CreateGroupScreen() {
                   style={[styles.optionChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
                   onPress={() => setUnlockHours(opt.hours)}
                 >
-                  <Text style={[styles.optionChipText, active && { color: accentColor }]}>
+                  <Text style={[styles.optionChipText, active && { color: accentColor }]} numberOfLines={1}>
                     {opt.label}
                   </Text>
                 </TouchableOpacity>
@@ -354,13 +354,15 @@ const styles = StyleSheet.create({
   },
   chipAvatarInitial: { fontSize: 10, fontWeight: '700', color: '#FFFFFF' },
   chipName: { flex: 1, fontSize: 13, color: '#DDDDDD', fontWeight: '500' },
-  optionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  // Always exactly 5 fixed options — same single-line-via-flex treatment as
+  // the recurrence/reminder/weekday rows, so nothing wraps onto its own row.
+  optionGrid: { flexDirection: 'row', gap: 6 },
   optionChip: {
-    paddingVertical: 8, paddingHorizontal: 16,
+    flex: 1, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 2,
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A',
     backgroundColor: '#1A1A1A',
   },
-  optionChipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
+  optionChipText: { fontSize: 12, fontWeight: '600', color: '#888888' },
   // Distinct from optionGrid/optionChip (used by the 5-item Duration row,
   // which still wraps) — this row always has exactly 4 items and must fit
   // on one line, so each chip takes an equal flex share instead of sizing to
