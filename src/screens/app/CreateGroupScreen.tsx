@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, FlatList, Keyboard,
+  ActivityIndicator, FlatList, Keyboard, LayoutAnimation,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -13,12 +13,17 @@ import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { blockStore } from '../../lib/blocks';
+import { haptics } from '../../lib/haptics';
 import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
 import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
 import { RecurrenceAnchor } from '../../lib/recurrence';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
+
+// Android LayoutAnimation is already enabled as a side effect of importing
+// RecurrenceAnchorPicker above — no need to re-enable it here.
+const SPRING = { duration: 220, update: { type: 'easeInEaseOut' as const }, delete: { type: 'easeInEaseOut' as const } };
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
 
@@ -115,11 +120,15 @@ export default function CreateGroupScreen() {
   }
 
   function selectDurationPreset(hours: number) {
+    haptics.selection();
+    LayoutAnimation.configureNext(SPRING);
     setCustomUnlockSelected(false);
     setUnlockHours(hours);
   }
 
   function selectCustomDuration() {
+    haptics.selection();
+    LayoutAnimation.configureNext(SPRING);
     setCustomUnlockSelected(true);
     setCustomUnlockDays(String(Math.max(MIN_CUSTOM_DAYS, Math.round(unlockHours / 24))));
   }
@@ -403,14 +412,17 @@ const styles = StyleSheet.create({
   // pattern for the closely related Awards voting window.
   optionGridWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   wrapChip: {
-    paddingVertical: 8, paddingHorizontal: 16,
+    // paddingVertical 12 (not 8) so the tappable height clears the 44pt
+    // minimum touch target once combined with the 14px text — the 5
+    // presets + Custom are real actions, not decorative labels.
+    paddingVertical: 12, paddingHorizontal: 16,
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A',
     backgroundColor: '#1A1A1A',
   },
   wrapChipText: { fontSize: 14, fontWeight: '600', color: '#888888' },
   customRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 2 },
   customInput: {
-    backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+    backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 13,
     color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
     width: 90, textAlign: 'center',
   },
