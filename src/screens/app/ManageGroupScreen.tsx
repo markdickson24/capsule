@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
   ActivityIndicator, Keyboard,
@@ -25,7 +25,6 @@ import {
 import { computeUpcomingOccurrences, RecurrenceAnchor } from '../../lib/recurrence';
 import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
-import DatePickerField, { QuickOption } from '../../components/DatePicker';
 import { AppStackParamList } from '../../types/navigation';
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
@@ -35,25 +34,17 @@ interface UserResult { id: string; display_name: string | null; avatar_url: stri
 
 const RECURRENCE_OPTIONS: GroupRecurrence[] = ['manual', 'weekly', 'monthly', 'yearly'];
 
-function addDaysFromNow(days: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-// Longer-range presets than DatePickerField's capsule-unlock-date default
-// (Tomorrow/1 week/1 month/3 months) — a group's default duration between
-// capsules skews much longer than a single capsule's typical unlock wait.
-const GROUP_DURATION_QUICK_OPTIONS: QuickOption[] = [
-  { label: '1 week', icon: 'calendar-outline', getDate: () => addDaysFromNow(7) },
-  { label: '1 month', icon: 'calendar-number-outline', getDate: () => addDaysFromNow(30) },
-  { label: '3 months', icon: 'time-outline', getDate: () => addDaysFromNow(90) },
-  { label: '1 year', icon: 'hourglass-outline', getDate: () => addDaysFromNow(365) },
+// Just a plain number of days — presets for the common cases, "Custom" reveals
+// a plain days input for everything else. No dates, no unit toggle.
+const DAY_PRESETS = [
+  { label: '1 week', days: 7 },
+  { label: '1 month', days: 30 },
+  { label: '3 months', days: 90 },
 ];
 
 // Matches the DB CHECK constraint (unlock_duration_hours between 1 and 8760).
-const MIN_DURATION_HOURS = 1;
-const MAX_DURATION_HOURS = 8760;
+const MIN_DURATION_DAYS = 1;
+const MAX_DURATION_DAYS = 365;
 
 export default function ManageGroupScreen() {
   const { accentColor } = useTheme();
@@ -66,7 +57,10 @@ export default function ManageGroupScreen() {
   const [createdBy, setCreatedBy] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
-  const [unlockHours, setUnlockHours] = useState(720);
+  const [unlockDays, setUnlockDays] = useState(30);
+  const [customDaysSelected, setCustomDaysSelected] = useState(false);
+  const [customDaysText, setCustomDaysText] = useState('30');
+  const unlockHours = unlockDays * 24;
   const [anchor, setAnchor] = useState<RecurrenceAnchor>({ hour: 9, minute: 0 });
   const [reminderLeadHours, setReminderLeadHours] = useState<number | null>(24);
   const [paused, setPaused] = useState(false);
@@ -87,18 +81,25 @@ export default function ManageGroupScreen() {
   // rename, risking a duplicate reminder if a save lands inside the lead window.
   const originalScheduleRef = useRef<{ recurrence: GroupRecurrence; anchor: RecurrenceAnchor } | null>(null);
 
-  // Fixed snapshot of "now" so the DatePickerField's derived preview date
-  // doesn't jitter across re-renders (mirrors CreateGroupScreen's pattern).
-  const unlockBaseNow = useRef(Date.now()).current;
-  const unlockPreviewDate = useMemo(
-    () => new Date(unlockBaseNow + unlockHours * 3_600_000),
-    [unlockBaseNow, unlockHours],
-  );
+  function selectDayPreset(days: number) {
+    setUnlockDays(days);
+    setCustomDaysSelected(false);
+  }
 
-  function handleUnlockDateChange(date: Date | null) {
-    if (!date) return;
-    const hours = Math.round((date.getTime() - unlockBaseNow) / 3_600_000);
-    setUnlockHours(Math.max(MIN_DURATION_HOURS, Math.min(MAX_DURATION_HOURS, hours)));
+  function selectCustomDays() {
+    setCustomDaysSelected(true);
+    setCustomDaysText(String(unlockDays));
+  }
+
+  function handleCustomDaysChange(text: string) {
+    setCustomDaysText(text.replace(/[^0-9]/g, '').slice(0, 3));
+  }
+
+  function commitCustomDays() {
+    const n = parseInt(customDaysText, 10);
+    const clamped = Number.isNaN(n) ? unlockDays : Math.max(MIN_DURATION_DAYS, Math.min(MAX_DURATION_DAYS, n));
+    setUnlockDays(clamped);
+    setCustomDaysText(String(clamped));
   }
 
   const load = useCallback(async () => {
@@ -110,7 +111,11 @@ export default function ManageGroupScreen() {
     setCreatedBy(group.created_by);
     setName(group.name);
     setRecurrence(group.recurrence_interval);
-    setUnlockHours(group.unlock_duration_hours);
+    const loadedDays = Math.max(1, Math.round(group.unlock_duration_hours / 24));
+    setUnlockDays(loadedDays);
+    const isPreset = DAY_PRESETS.some(o => o.days === loadedDays);
+    setCustomDaysSelected(!isPreset);
+    setCustomDaysText(String(loadedDays));
     // Pre-existing groups only have the anchor sub-field for their ORIGINAL
     // recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
     // backfills just that one field per interval; the rest are null). Fall
@@ -157,11 +162,20 @@ export default function ManageGroupScreen() {
     const scheduleChanged = !original
       || recurrence !== original.recurrence
       || JSON.stringify(anchor) !== JSON.stringify(original.anchor);
+    // Re-derive from the raw text in case the custom-days field is still
+    // focused (no blur fired yet) when Save is tapped.
+    let finalUnlockDays = unlockDays;
+    if (customDaysSelected) {
+      const typed = parseInt(customDaysText, 10);
+      if (!Number.isNaN(typed)) {
+        finalUnlockDays = Math.max(MIN_DURATION_DAYS, Math.min(MAX_DURATION_DAYS, typed));
+      }
+    }
     const { error } = await updateGroup(groupId, {
       name: name.trim(),
       recurrence: scheduleChanged ? recurrence : undefined,
       anchor: scheduleChanged && recurrence !== 'manual' ? anchor : undefined,
-      unlockDurationHours: unlockHours,
+      unlockDurationHours: finalUnlockDays * 24,
       reminderLeadHours: recurrence !== 'manual' ? reminderLeadHours : null,
     });
     setSaving(false);
@@ -334,13 +348,43 @@ export default function ManageGroupScreen() {
 
         {recurrence !== 'manual' && (
         <View style={styles.section}>
-          <DatePickerField
-            label="Default Unlock Duration"
-            value={unlockPreviewDate}
-            onChange={handleUnlockDateChange}
-            quickOptions={GROUP_DURATION_QUICK_OPTIONS}
-            contextLabel="How long each capsule stays locked after it's created"
-          />
+          <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
+          <Text style={styles.sectionHint}>How long each capsule stays locked after it's created.</Text>
+          <View style={styles.durationRow}>
+            {DAY_PRESETS.map(opt => {
+              const active = !customDaysSelected && unlockDays === opt.days;
+              return (
+                <TouchableOpacity
+                  key={opt.days}
+                  style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                  onPress={() => selectDayPreset(opt.days)}
+                >
+                  <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              style={[styles.durationChip, customDaysSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+              onPress={selectCustomDays}
+            >
+              <Text style={[styles.durationChipText, customDaysSelected && { color: accentColor }]} numberOfLines={1}>Custom</Text>
+            </TouchableOpacity>
+          </View>
+          {customDaysSelected && (
+            <View style={styles.customDaysRow}>
+              <TextInput
+                style={styles.customDaysInput}
+                value={customDaysText}
+                onChangeText={handleCustomDaysChange}
+                onBlur={commitCustomDays}
+                keyboardType="number-pad"
+                maxLength={3}
+                placeholder="30"
+                placeholderTextColor="#555555"
+              />
+              <Text style={styles.customDaysLabel}>days</Text>
+            </View>
+          )}
         </View>
         )}
 
@@ -446,6 +490,21 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   recurrenceChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  // Presets + Custom: always exactly 4 items (3 day-count presets + Custom),
+  // single-line-via-flex like the recurrence/reminder rows.
+  durationRow: { flexDirection: 'row', gap: 8 },
+  durationChip: {
+    flex: 1, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 4,
+    borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
+  },
+  durationChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  customDaysRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
+  customDaysInput: {
+    backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
+    color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
+    width: 80, textAlign: 'center',
+  },
+  customDaysLabel: { color: '#888888', fontSize: 15 },
   hintText: { fontSize: 13, color: '#888888' },
   pauseBtn: {
     marginTop: 4, paddingVertical: 10, borderRadius: 12, alignItems: 'center',
