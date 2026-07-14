@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
-  ActivityIndicator, Keyboard,
+  ActivityIndicator, Keyboard, Platform, LayoutAnimation, UIManager,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp, useFocusEffect } from '@react-navigation/native';
@@ -13,20 +13,34 @@ import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
+import { haptics } from '../../lib/haptics';
 import { blockStore } from '../../lib/blocks';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import { Avatar } from './ProfileScreen';
 import {
   getGroup, getGroupMembers, updateGroup, addGroupMember, removeGroupMember,
-  pauseGroupRecurrence, resumeGroupRecurrence, anchorFromGroup,
+  pauseGroupRecurrence, resumeGroupRecurrence, anchorFromGroup, unlockDurationLabel,
   GroupRecurrence, GroupMemberProfile, recurrenceLabel,
 } from '../../lib/groups';
 import { computeUpcomingOccurrences, RecurrenceAnchor } from '../../lib/recurrence';
-import RecurrenceAnchorPicker from '../../components/RecurrenceAnchorPicker';
+import RecurrenceAnchorPicker, { describeAnchor } from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
 import InfoTooltip from '../../components/InfoTooltip';
 import { AppStackParamList } from '../../types/navigation';
+
+// Same LayoutAnimation setup as RecurrenceAnchorPicker/CreateGroupScreen —
+// idempotent to call again here.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+const SPRING = { duration: 220, update: { type: 'easeInEaseOut' as const }, delete: { type: 'easeInEaseOut' as const } };
+
+const REMINDER_LABELS: Record<number, string> = { 24: '1 day', 72: '3 days', 168: '1 week' };
+function reminderSummary(hours: number | null): string {
+  if (hours == null) return 'no reminder';
+  return `remind ${REMINDER_LABELS[hours] ?? `${hours}h`} before`;
+}
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
 type RoutePropType = RouteProp<AppStackParamList, 'ManageGroup'>;
@@ -68,6 +82,7 @@ export default function ManageGroupScreen() {
   const [pausing, setPausing] = useState(false);
   const [members, setMembers] = useState<GroupMemberProfile[]>([]);
   const [saving, setSaving] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<UserResult[]>([]);
@@ -101,6 +116,12 @@ export default function ManageGroupScreen() {
     const clamped = Number.isNaN(n) ? unlockDays : Math.max(MIN_DURATION_DAYS, Math.min(MAX_DURATION_DAYS, n));
     setUnlockDays(clamped);
     setCustomDaysText(String(clamped));
+  }
+
+  function toggleDetails() {
+    haptics.selection();
+    LayoutAnimation.configureNext(SPRING);
+    setDetailsOpen(v => !v);
   }
 
   const load = useCallback(async () => {
@@ -316,96 +337,117 @@ export default function ManageGroupScreen() {
               );
             })}
           </View>
-          <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
-        </View>
 
-        {recurrence !== 'manual' && (
-          <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Remind Members</Text>
-            <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
-            <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
-          </View>
-        )}
+          {recurrence !== 'manual' && (
+            <>
+              <TouchableOpacity
+                style={styles.detailsToggle}
+                onPress={toggleDetails}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={detailsOpen ? 'Collapse schedule details' : 'Expand schedule details'}
+              >
+                <View style={styles.detailsToggleTextWrap}>
+                  <Text style={styles.detailsToggleLabel}>Schedule details</Text>
+                  {!detailsOpen && (
+                    <Text style={styles.detailsSummary} numberOfLines={1}>
+                      {describeAnchor(recurrence, anchor).compact} · unlocks after {unlockDurationLabel(unlockHours)} · {reminderSummary(reminderLeadHours)}{paused ? ' · Paused' : ''}
+                    </Text>
+                  )}
+                </View>
+                <Ionicons name={detailsOpen ? 'chevron-up' : 'chevron-down'} size={18} color="#888888" />
+              </TouchableOpacity>
 
-        {recurrence !== 'manual' && (
-          <View style={styles.section}>
-            <View style={styles.labelRow}>
-              <Text style={styles.sectionLabel}>Upcoming Capsules</Text>
-              <InfoTooltip
-                title="Pause & Resume"
-                body="Pausing stops new capsules from being created on schedule, but keeps your recurrence settings intact. Resuming picks the next occurrence from today — it won't create capsules for any cycles you missed while paused."
-              />
-            </View>
-            {paused ? (
-              <Text style={styles.hintText}>Paused — no capsules will be created until resumed.</Text>
-            ) : (
-              computeUpcomingOccurrences(recurrence, anchor, new Date(), 3).map((d, i) => (
-                <Text key={i} style={styles.hintText}>
-                  {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                </Text>
-              ))
-            )}
-            <TouchableOpacity
-              style={[styles.pauseBtn, paused && { borderColor: accentColor }]}
-              onPress={handleTogglePause}
-              disabled={pausing}
-              accessibilityRole="button"
-              accessibilityLabel={paused ? 'Resume this group\'s schedule' : 'Pause this group\'s schedule'}
-            >
-              {pausing
-                ? <ActivityIndicator color={accentColor} size="small" />
-                : <Text style={[styles.pauseBtnText, paused && { color: accentColor }]}>{paused ? 'Resume Schedule' : 'Pause Schedule'}</Text>}
-            </TouchableOpacity>
-          </View>
-        )}
+              {detailsOpen && (
+                <View style={styles.detailsBody}>
+                  <RecurrenceAnchorPicker interval={recurrence} anchor={anchor} onChange={setAnchor} />
 
-        {recurrence !== 'manual' && (
-        <View style={styles.section}>
-          <View style={styles.labelRow}>
-            <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
-            <InfoTooltip
-              title="Default Unlock Duration"
-              body="The default lock length for capsules this group creates. Capsules created automatically on schedule use it as-is; if you start one manually instead, you can still change the unlock date before locking it."
-            />
-          </View>
-          <Text style={styles.sectionHint}>How long each capsule stays locked after it's created.</Text>
-          <View style={styles.durationRow}>
-            {DAY_PRESETS.map(opt => {
-              const active = !customDaysSelected && unlockDays === opt.days;
-              return (
-                <TouchableOpacity
-                  key={opt.days}
-                  style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-                  onPress={() => selectDayPreset(opt.days)}
-                >
-                  <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-            <TouchableOpacity
-              style={[styles.durationChip, customDaysSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
-              onPress={selectCustomDays}
-            >
-              <Text style={[styles.durationChipText, customDaysSelected && { color: accentColor }]} numberOfLines={1}>Custom</Text>
-            </TouchableOpacity>
-          </View>
-          {customDaysSelected && (
-            <View style={styles.customDaysRow}>
-              <TextInput
-                style={styles.customDaysInput}
-                value={customDaysText}
-                onChangeText={handleCustomDaysChange}
-                onBlur={commitCustomDays}
-                keyboardType="number-pad"
-                maxLength={3}
-                placeholder="30"
-                placeholderTextColor="#555555"
-              />
-              <Text style={styles.customDaysLabel}>days</Text>
-            </View>
+                  <View style={styles.section}>
+                    <Text style={styles.sectionLabel}>Remind Members</Text>
+                    <Text style={styles.sectionHint}>Heads-up before the next capsule is auto-created.</Text>
+                    <ReminderLeadPicker value={reminderLeadHours} onChange={setReminderLeadHours} />
+                  </View>
+
+                  <View style={styles.section}>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.sectionLabel}>Upcoming Capsules</Text>
+                      <InfoTooltip
+                        title="Pause & Resume"
+                        body="Pausing stops new capsules from being created on schedule, but keeps your recurrence settings intact. Resuming picks the next occurrence from today — it won't create capsules for any cycles you missed while paused."
+                      />
+                    </View>
+                    {paused ? (
+                      <Text style={styles.hintText}>Paused — no capsules will be created until resumed.</Text>
+                    ) : (
+                      computeUpcomingOccurrences(recurrence, anchor, new Date(), 3).map((d, i) => (
+                        <Text key={i} style={styles.hintText}>
+                          {d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </Text>
+                      ))
+                    )}
+                    <TouchableOpacity
+                      style={[styles.pauseBtn, paused && { borderColor: accentColor }]}
+                      onPress={handleTogglePause}
+                      disabled={pausing}
+                      accessibilityRole="button"
+                      accessibilityLabel={paused ? 'Resume this group\'s schedule' : 'Pause this group\'s schedule'}
+                    >
+                      {pausing
+                        ? <ActivityIndicator color={accentColor} size="small" />
+                        : <Text style={[styles.pauseBtnText, paused && { color: accentColor }]}>{paused ? 'Resume Schedule' : 'Pause Schedule'}</Text>}
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.section}>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.sectionLabel}>Default Unlock Duration</Text>
+                      <InfoTooltip
+                        title="Default Unlock Duration"
+                        body="The default lock length for capsules this group creates. Capsules created automatically on schedule use it as-is; if you start one manually instead, you can still change the unlock date before locking it."
+                      />
+                    </View>
+                    <Text style={styles.sectionHint}>How long each capsule stays locked after it's created.</Text>
+                    <View style={styles.durationRow}>
+                      {DAY_PRESETS.map(opt => {
+                        const active = !customDaysSelected && unlockDays === opt.days;
+                        return (
+                          <TouchableOpacity
+                            key={opt.days}
+                            style={[styles.durationChip, active && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                            onPress={() => selectDayPreset(opt.days)}
+                          >
+                            <Text style={[styles.durationChipText, active && { color: accentColor }]} numberOfLines={1}>{opt.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                      <TouchableOpacity
+                        style={[styles.durationChip, customDaysSelected && { backgroundColor: `${accentColor}26`, borderColor: accentColor }]}
+                        onPress={selectCustomDays}
+                      >
+                        <Text style={[styles.durationChipText, customDaysSelected && { color: accentColor }]} numberOfLines={1}>Custom</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {customDaysSelected && (
+                      <View style={styles.customDaysRow}>
+                        <TextInput
+                          style={styles.customDaysInput}
+                          value={customDaysText}
+                          onChangeText={handleCustomDaysChange}
+                          onBlur={commitCustomDays}
+                          keyboardType="number-pad"
+                          maxLength={3}
+                          placeholder="30"
+                          placeholderTextColor="#555555"
+                        />
+                        <Text style={styles.customDaysLabel}>days</Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              )}
+            </>
           )}
         </View>
-        )}
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Members</Text>
@@ -510,6 +552,22 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   recurrenceChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
+  // Collapsed-by-default "Schedule details" disclosure — mirrors CreateGroupScreen's
+  // (and CreateScreen's "More options") pattern exactly: a plain toggle row,
+  // no card/border, followed by a flat gapped body. A bordered box here would
+  // just nest redundantly around RecurrenceAnchorPicker's own already-boxed
+  // card.
+  detailsToggle: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    gap: 12, marginTop: 14,
+  },
+  detailsToggleTextWrap: { flex: 1, gap: 2 },
+  detailsToggleLabel: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  detailsSummary: { fontSize: 12, color: '#888888' },
+  // Each child (RecurrenceAnchorPicker, Remind Members, Upcoming Capsules,
+  // Default Unlock Duration) is its own `section`-styled group, so label →
+  // hint → controls keeps the same internal rhythm as every other section.
+  detailsBody: { gap: 24, marginTop: 20 },
   // Presets + Custom: always exactly 4 items (3 day-count presets + Custom),
   // single-line-via-flex like the recurrence/reminder rows.
   durationRow: { flexDirection: 'row', gap: 8 },
@@ -518,7 +576,7 @@ const styles = StyleSheet.create({
     borderRadius: 20, borderWidth: 1, borderColor: '#2A2A2A', backgroundColor: '#1A1A1A',
   },
   durationChipText: { fontSize: 13, fontWeight: '600', color: '#888888' },
-  customDaysRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 2 },
+  customDaysRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   customDaysInput: {
     backgroundColor: '#1A1A1A', borderRadius: 12, paddingHorizontal: 16, paddingVertical: 12,
     color: '#FFFFFF', fontSize: 16, borderWidth: 1, borderColor: '#2A2A2A',
