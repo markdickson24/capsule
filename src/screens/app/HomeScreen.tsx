@@ -33,15 +33,36 @@ function getTimeLeft(unlockAt: string) {
   return { daysLeft, hoursLeft };
 }
 
-function CountdownBadge({ unlockAt, status, unlockMode }: { unlockAt: string; status: string; unlockMode?: string }) {
+function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: { unlockAt: string; status: string; unlockMode?: string; contributionStartAt?: string | null }) {
   const { accentColor } = useTheme();
-  const [timeLeft, setTimeLeft] = useState(() => getTimeLeft(unlockAt));
+  const notStartedYet = !!contributionStartAt && status !== 'unlocked' && new Date(contributionStartAt) > new Date();
+  // Whichever date is the "active" countdown target right now — reusing one
+  // timeLeft/interval pair for both phases (rather than computing the
+  // pre-start countdown fresh at every render) keeps it live-ticking the
+  // same way the unlock countdown already does, and the `targetDate`
+  // dependency below means the moment notStartedYet flips false (start
+  // date passes), the effect re-runs and immediately recomputes for the
+  // unlock date instead — no stale label in between.
+  const targetDate = notStartedYet ? contributionStartAt! : unlockAt;
+  const [timeLeft, setTimeLeft] = useState(() => getTimeLeft(targetDate));
 
   useEffect(() => {
     if (status === 'unlocked') return;
-    const id = setInterval(() => setTimeLeft(getTimeLeft(unlockAt)), 60_000);
+    setTimeLeft(getTimeLeft(targetDate));
+    const id = setInterval(() => setTimeLeft(getTimeLeft(targetDate)), 60_000);
     return () => clearInterval(id);
-  }, [unlockAt, status]);
+  }, [targetDate, status]);
+
+  if (notStartedYet) {
+    const { daysLeft, hoursLeft } = timeLeft;
+    const label = daysLeft > 0 ? `Starts in ${daysLeft}d` : `Starts in ${hoursLeft}h`;
+    return (
+      <View style={styles.togetherBadge}>
+        <Ionicons name="calendar-outline" size={13} color={accentColor} />
+        <Text style={[styles.togetherBadgeText, { color: accentColor }]} maxFontSizeMultiplier={1.3}> {label}</Text>
+      </View>
+    );
+  }
 
   if (status === 'unlocked') return (
     <View style={styles.unlockedBadge}>
@@ -84,7 +105,7 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }:
             size={isGrid ? 20 : 24}
             color={isLocked ? '#888888' : '#30D158'}
           />
-          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} />
+          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={(capsule as any).contribution_start_at} />
         </View>
         <Text style={[styles.cardTitle, isGrid && styles.cardTitleGrid]} numberOfLines={isGrid ? 2 : undefined}>{capsule.title}</Text>
         {!isGrid && capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
@@ -204,7 +225,7 @@ export default function HomeScreen() {
       // member archiving never changes what other members see.
       const { data, error } = await supabase
         .from('capsule_members')
-        .select('capsule_id, archived_at, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode)')
+        .select('capsule_id, archived_at, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode, contribution_start_at)')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null);
 
