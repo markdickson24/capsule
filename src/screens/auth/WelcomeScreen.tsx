@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthStackParamList } from '../../types/navigation';
 import { signInWithGoogle } from '../../lib/googleAuth';
+import { signInWithApple } from '../../lib/appleAuth';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { sessionStore } from '../../lib/sessionStore';
 
 type Props = {
@@ -14,6 +16,7 @@ type Props = {
 
 export default function WelcomeScreen({ navigation }: Props) {
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState('');
   const [expired, setExpired] = useState(false);
 
@@ -27,6 +30,15 @@ export default function WelcomeScreen({ navigation }: Props) {
     const { error: err } = await signInWithGoogle();
     if (err) setError(err);
     setGoogleLoading(false);
+  }
+
+  async function handleApple() {
+    if (appleLoading) return;
+    setAppleLoading(true);
+    setError('');
+    const { error: err } = await signInWithApple();
+    if (err) setError(err);
+    setAppleLoading(false);
   }
 
   return (
@@ -52,6 +64,16 @@ export default function WelcomeScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.actions}>
+        {Platform.OS === 'ios' && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+            cornerRadius={16}
+            style={styles.appleButton}
+            onPress={handleApple}
+          />
+        )}
+
         <TouchableOpacity style={styles.googleButton} onPress={handleGoogle} disabled={googleLoading}>
           {googleLoading ? (
             <LoadingBrand size="small" color="#FFFFFF" />
@@ -148,6 +170,10 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 17,
     fontWeight: '700',
+  },
+  appleButton: {
+    width: '100%',
+    height: 56,
   },
   divider: {
     flexDirection: 'row',
