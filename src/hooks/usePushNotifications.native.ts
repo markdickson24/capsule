@@ -31,6 +31,8 @@ export function usePushNotifications(userId?: string) {
       if (!navigationRef.isReady()) return;
       if (data?.capsuleId) {
         navigationRef.navigate('CapsuleDetail', { capsuleId: data.capsuleId });
+      } else if (data?.groupId) {
+        navigationRef.navigate('GroupDetail', { groupId: data.groupId });
       } else if (data?.screen === 'Notifications') {
         navigationRef.navigate('Tabs', { screen: 'Notifications' });
       }
@@ -42,6 +44,8 @@ export function usePushNotifications(userId?: string) {
       const navigate = () => {
         if (data?.capsuleId) {
           navigationRef.navigate('CapsuleDetail', { capsuleId: data.capsuleId });
+        } else if (data?.groupId) {
+          navigationRef.navigate('GroupDetail', { groupId: data.groupId });
         } else if (data?.screen === 'Notifications') {
           navigationRef.navigate('Tabs', { screen: 'Notifications' });
         }

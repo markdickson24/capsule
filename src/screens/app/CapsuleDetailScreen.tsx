@@ -52,6 +52,8 @@ type MemberRow = {
   user_id: string;
   role: string;
   joined_at: string | null;
+  /** This member's personal archive flag — archive is per-member, not capsule-global. */
+  archived_at: string | null;
   users: { display_name: string; avatar_url: string | null } | null;
 };
 
@@ -1317,7 +1319,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
-        .select('user_id, role, joined_at, users(display_name, avatar_url)')
+        .select('user_id, role, joined_at, archived_at, users(display_name, avatar_url)')
         .eq('capsule_id', capsuleId),
       fetchPhotos(),
     ]);
@@ -1509,9 +1511,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const isOwner = capsule.owner_id === currentUserId;
   const myMember = members.find(m => m.user_id === currentUserId);
   const myRole = myMember?.role ?? null;
-  // Any joined member can archive/restore (not just the owner) — pending
-  // invitees (joined_at null) can't, matching set_capsule_archived's own check.
-  const canArchive = isOwner || myMember?.joined_at != null;
+  // Archive is per-member (stamps the caller's own capsule_members.archived_at
+  // — never affects what other members see). set_capsule_archived requires a
+  // joined member row, so pending invitees (joined_at null) can't archive.
+  const canArchive = myMember?.joined_at != null;
   // Surprise mode: even the owner is locked out of previewing until unlock.
   const canSeePhotos = !isLocked || (isOwner && !capsule.owner_preview_locked);
   const contributionLocked = capsule.contribution_lock_at
@@ -1881,7 +1884,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 // in the background. Success offers Undo via the same RPC in
                 // reverse; failure surfaces via the global toast wherever the
                 // user navigated to.
-                const wasArchived = !!(capsule as any).archived_at;
+                const wasArchived = !!myMember?.archived_at;
                 const nextArchived = !wasArchived;
                 haptics.light();
                 navigation.goBack();
@@ -1917,7 +1920,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             >
               <Ionicons name="archive-outline" size={18} color="#888888" />
               <Text style={styles.archiveBtnText}>
-                {(capsule as any).archived_at ? 'Restore Capsule' : 'Archive Capsule'}
+                {myMember?.archived_at ? 'Restore Capsule' : 'Archive Capsule'}
               </Text>
             </TouchableOpacity>
           </View>
