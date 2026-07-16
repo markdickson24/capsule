@@ -39,9 +39,12 @@ type NotificationRow = {
     | 'friend_request'
     | 'friend_accept'
     | 'group_capsule'
-    | 'group_capsule_upcoming';
+    | 'group_capsule_upcoming'
+    | 'contribution_activity'
+    | 'contribution_nudge';
   sent_at: string;
   read_at: string | null;
+  count: number | null;
   capsules: { title: string } | null;
   groups: { name: string } | null;
   actor: Actor | null;
@@ -61,7 +64,9 @@ function isCapsuleNav(type: NotificationRow['type']) {
     type === 'superlative_suggested' ||
     type === 'superlative_closing_soon' ||
     type === 'superlative_won' ||
-    type === 'group_capsule'
+    type === 'group_capsule' ||
+    type === 'contribution_activity' ||
+    type === 'contribution_nudge'
   );
 }
 
@@ -127,7 +132,7 @@ export default function NotificationsScreen() {
       const [notifsRes, pendingRes] = await Promise.all([
         supabase
           .from('notifications')
-          .select('id, capsule_id, group_id, actor_id, type, sent_at, read_at, capsules(title), groups(name), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
+          .select('id, capsule_id, group_id, actor_id, type, sent_at, read_at, count, capsules(title), groups(name), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
           .eq('user_id', userId)
           .is('read_at', null)
           .order('sent_at', { ascending: false })
@@ -461,6 +466,8 @@ export default function NotificationsScreen() {
                     : item.type === 'friend_accept' ? 'people'
                     : item.type === 'group_capsule' ? 'people-circle-outline'
                     : item.type === 'group_capsule_upcoming' ? 'calendar-outline'
+                    : item.type === 'contribution_activity' ? 'images-outline'
+                    : item.type === 'contribution_nudge' ? 'hourglass-outline'
                     : 'cube-outline'
                   }
                   size={28}
@@ -472,6 +479,8 @@ export default function NotificationsScreen() {
                     : item.type === 'friend_request' ? accentColor
                     : item.type === 'group_capsule' ? accentColor
                     : item.type === 'group_capsule_upcoming' ? accentColor
+                    : item.type === 'contribution_activity' ? accentColor
+                    : item.type === 'contribution_nudge' ? accentColor
                     : SUPERLATIVE_TYPES.includes(item.type) ? accentColor
                     : '#888888'
                   }
@@ -532,6 +541,26 @@ export default function NotificationsScreen() {
                         <Text style={styles.cardCapsuleTitle}>{item.groups?.name ?? 'your group'}</Text>
                         {' '}starts soon
                       </>
+                    ) : item.type === 'contribution_activity' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.actor?.display_name ?? 'Someone'}</Text>
+                        {` added ${item.count ?? 0} ${item.count === 1 ? 'photo' : 'photos'} to `}
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'your capsule'}</Text>
+                      </>
+                    ) : item.type === 'contribution_nudge' ? (
+                      item.actor ? (
+                        <>
+                          <Text style={styles.cardCapsuleTitle}>{item.actor.display_name}</Text>
+                          {` has added ${item.count ?? 0} ${item.count === 1 ? 'photo' : 'photos'} to `}
+                          <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                          {' — you haven’t added any yet'}
+                        </>
+                      ) : (
+                        <>
+                          {'Don’t forget to add your photos to '}
+                          <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
+                        </>
+                      )
                     ) : (
                       <>
                         You were invited to{' '}
