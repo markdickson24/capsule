@@ -33,7 +33,7 @@ function addDays(days: number) {
   return d;
 }
 
-type QuickOption = { label: string; icon: keyof typeof Ionicons.glyphMap; getDate: () => Date };
+export type QuickOption = { label: string; icon: keyof typeof Ionicons.glyphMap; getDate: () => Date };
 
 const QUICK_OPTIONS: QuickOption[] = [
   { label: 'Tomorrow', icon: 'sunny-outline', getDate: () => addDays(1) },
@@ -347,15 +347,22 @@ const cs = StyleSheet.create({
 
 // --- DatePickerField ---
 
-export default function DatePickerField({ label, optional, value, onChange, contextLabel, tooltip }: {
+export default function DatePickerField({ label, optional, value, onChange, contextLabel, tooltip, quickOptions }: {
   label: string;
   optional?: boolean;
   value: Date | null;
   onChange: (date: Date | null) => void;
   contextLabel?: string;
   tooltip?: { title: string; body: string };
+  // Defaults to the capsule-unlock-date presets (Tomorrow/1 week/1 month/3
+  // months) below. Pass a different set for a different context — e.g.
+  // Groups' default unlock duration uses longer-range presets.
+  quickOptions?: QuickOption[];
 }) {
   const { accentColor } = useTheme();
+  const effectiveQuickOptions = quickOptions ?? QUICK_OPTIONS;
+  const quickRows: QuickOption[][] = [];
+  for (let i = 0; i < effectiveQuickOptions.length; i += 2) quickRows.push(effectiveQuickOptions.slice(i, i + 2));
   const fallback = defaultDate();
   const isEnabled = !optional || value !== null;
   const selected = value ?? fallback;
@@ -461,30 +468,21 @@ export default function DatePickerField({ label, optional, value, onChange, cont
 
           {expanded && (
             <View style={s.expandedBody}>
-              {/* Quick options — 2x2 grid */}
+              {/* Quick options — 2-column grid, however many rows `quickOptions` needs */}
               <View style={s.quickGrid}>
-                <View style={s.quickGridRow}>
-                  {QUICK_OPTIONS.slice(0, 2).map(opt => (
-                    <QuickChip
-                      key={opt.label}
-                      option={opt}
-                      isActive={activeQuick === opt.label}
-                      accentColor={accentColor}
-                      onPress={() => handleQuickSelect(opt)}
-                    />
-                  ))}
-                </View>
-                <View style={s.quickGridRow}>
-                  {QUICK_OPTIONS.slice(2, 4).map(opt => (
-                    <QuickChip
-                      key={opt.label}
-                      option={opt}
-                      isActive={activeQuick === opt.label}
-                      accentColor={accentColor}
-                      onPress={() => handleQuickSelect(opt)}
-                    />
-                  ))}
-                </View>
+                {quickRows.map((row, ri) => (
+                  <View key={ri} style={s.quickGridRow}>
+                    {row.map(opt => (
+                      <QuickChip
+                        key={opt.label}
+                        option={opt}
+                        isActive={activeQuick === opt.label}
+                        accentColor={accentColor}
+                        onPress={() => handleQuickSelect(opt)}
+                      />
+                    ))}
+                  </View>
+                ))}
               </View>
 
               {/* Calendar */}

@@ -102,8 +102,8 @@ export default function SettingsScreen({ navigation }: Props) {
               <Text style={styles.destructiveText}>Delete my account</Text>
             </TouchableOpacity>
             <Text style={styles.helper}>
-              Permanently deletes your account, the capsules you own, and your votes. Groups you created are
-              handed off to another member (or removed if you're the only one). This can't be undone.
+              Permanently deletes your account and your votes. Capsules and groups you created are handed off
+              to another member if one exists (or removed if you're the only one). This can't be undone.
             </Text>
           </View>
 
@@ -212,8 +212,9 @@ function DeleteAccountModal({
           <View style={styles.handle} />
           <Text style={styles.sheetTitle}>Delete your account?</Text>
           <Text style={styles.sheetBody}>
-            This permanently deletes your profile, the capsules you own, your votes, and all related notifications.
-            Any groups you created pass to another member (or are removed if you're the only one). This cannot be undone.
+            This permanently deletes your profile, your votes, and all related notifications. Any capsules or
+            groups you created pass to another member if one exists (or are removed if you're the only one).
+            This cannot be undone.
           </Text>
 
           <View style={styles.optionRow}>

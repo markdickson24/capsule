@@ -20,8 +20,9 @@ import ConfirmModal from '../../components/ConfirmModal';
 import RetryPrompt from '../../components/RetryPrompt';
 import {
   getGroup, getGroupMembers, deleteGroup, removeGroupMember,
-  GroupRow, GroupMemberProfile, recurrenceLabel,
+  GroupRow, GroupMemberProfile, recurrenceLabel, anchorFromGroup,
 } from '../../lib/groups';
+import { computeUpcomingOccurrences } from '../../lib/recurrence';
 import { AppStackParamList } from '../../types/navigation';
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
@@ -87,6 +88,9 @@ export default function GroupDetailScreen() {
   const [deleting, setDeleting] = useState(false);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  // Not persisted — route param + local state only (matches CapsuleDetailScreen's
+  // invite nudge). Gone forever once dismissed or once a second member joins.
+  const [nudgeDismissed, setNudgeDismissed] = useState(false);
 
   const { data: group, loading: groupLoading, refresh: refreshGroup } = useCachedFetch<GroupRow | null>(
     `group:${groupId}`,
@@ -164,7 +168,7 @@ export default function GroupDetailScreen() {
       return (
         <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+            <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
               <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -175,7 +179,7 @@ export default function GroupDetailScreen() {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
@@ -188,7 +192,7 @@ export default function GroupDetailScreen() {
     return (
       <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
@@ -199,13 +203,16 @@ export default function GroupDetailScreen() {
     );
   }
 
-  const nextDate = group.next_capsule_at ? new Date(group.next_capsule_at) : null;
+  const isPaused = group.recurrence_paused_at !== null;
+  const nextDate = !isPaused && group.recurrence_interval !== 'manual'
+    ? computeUpcomingOccurrences(group.recurrence_interval, anchorFromGroup(group), new Date(), 1)[0] ?? null
+    : null;
   const memberList = members ?? [];
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={8} accessibilityRole="button" accessibilityLabel="Back">
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{group.name}</Text>
@@ -253,6 +260,31 @@ export default function GroupDetailScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
         ListHeaderComponent={
           <View>
+            {route.params.justCreated && !nudgeDismissed && memberList.length === 1 && (
+              <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+                <Ionicons name="person-add-outline" size={22} color={accentColor} />
+                <View style={styles.inviteNudgeTextWrap}>
+                  <Text style={styles.inviteNudgeTitle}>Add members</Text>
+                  <Text style={styles.inviteNudgeSub}>Groups are better together — everyone joins each new capsule automatically.</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
+                  onPress={() => navigation.navigate('ManageGroup', { groupId })}
+                >
+                  <Text style={styles.inviteNudgeBtnText}>Add</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inviteNudgeClose}
+                  onPress={() => setNudgeDismissed(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Dismiss add members prompt"
+                  hitSlop={8}
+                >
+                  <Ionicons name="close" size={16} color="#888888" />
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View style={styles.meta}>
               <View style={styles.metaRow}>
                 <View style={styles.memberRow}>
@@ -276,7 +308,12 @@ export default function GroupDetailScreen() {
                   <Ionicons name="repeat-outline" size={13} color="#888888" />
                   <Text style={styles.badgeText}>{recurrenceLabel(group.recurrence_interval)}</Text>
                 </View>
-                {nextDate && (
+                {isPaused ? (
+                  <View style={styles.badge}>
+                    <Ionicons name="pause-circle-outline" size={13} color="#888888" />
+                    <Text style={styles.badgeText}>Paused</Text>
+                  </View>
+                ) : nextDate && (
                   <View style={styles.badge}>
                     <Ionicons name="calendar-outline" size={13} color="#888888" />
                     <Text style={styles.badgeText}>
@@ -308,7 +345,11 @@ export default function GroupDetailScreen() {
             <View style={styles.empty}>
               <Ionicons name="time-outline" size={40} color="#333333" />
               <Text style={styles.emptyText}>No capsules yet</Text>
-              <Text style={styles.emptySubtext}>Start a new capsule to capture memories with this group.</Text>
+              <Text style={styles.emptySubtext}>
+                {nextDate
+                  ? `Your first capsule arrives ${nextDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} — or start one now.`
+                  : 'Start a new capsule to capture memories with this group.'}
+              </Text>
             </View>
           )
         }
@@ -400,5 +441,16 @@ const styles = StyleSheet.create({
   capsuleRowDate: { fontSize: 12, color: '#666666' },
   empty: { alignItems: 'center', paddingTop: 48, paddingHorizontal: 40, gap: 12 },
   emptyText: { fontSize: 17, fontWeight: '700', color: '#888888', textAlign: 'center' },
-  emptySubtext: { fontSize: 14, color: '#444444', textAlign: 'center', lineHeight: 20 },
+  emptySubtext: { fontSize: 14, color: '#888888', textAlign: 'center', lineHeight: 20 },
+  inviteNudge: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    borderRadius: 14, borderWidth: 1, padding: 14,
+    marginHorizontal: 20, marginTop: 8,
+  },
+  inviteNudgeTextWrap: { flex: 1, gap: 2 },
+  inviteNudgeTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
+  inviteNudgeSub: { fontSize: 12, color: '#AAAAAA', lineHeight: 16 },
+  inviteNudgeBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  inviteNudgeBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
+  inviteNudgeClose: { padding: 2 },
 });

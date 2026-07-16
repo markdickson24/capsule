@@ -7,12 +7,65 @@ const supabase = createClient(
 
 type GroupRecurrence = 'weekly' | 'monthly' | 'yearly' | 'manual';
 
-function calcNextAt(from: Date, interval: GroupRecurrence): Date {
-  const d = new Date(from);
-  if (interval === 'weekly') d.setDate(d.getDate() + 7);
-  else if (interval === 'monthly') d.setMonth(d.getMonth() + 1);
-  else if (interval === 'yearly') d.setFullYear(d.getFullYear() + 1);
-  return d;
+// Duplicated verbatim from src/lib/recurrence.ts — Deno edge functions can't
+// import from src/lib (same precedent as this file's GENERAL_AWARD_POOL,
+// mirrored from src/lib/awardPool.ts). Keep in sync if either changes.
+// hour/minute are UTC — this runtime's local time already IS UTC (Supabase
+// edge functions and Postgres both run UTC), so no conversion is needed here;
+// the client side (CreateGroupScreen.defaultAnchor) is what has to convert.
+interface RecurrenceAnchor {
+  weekday?: number;
+  dayOfMonth?: number;
+  month?: number;
+  day?: number;
+  hour: number;
+  minute: number;
+}
+
+function daysInMonth(year: number, month1to12: number): number {
+  return new Date(year, month1to12, 0).getDate();
+}
+
+function clampedDate(year: number, month1to12: number, day: number, hour: number, minute: number): Date {
+  const clampedDay = Math.min(day, daysInMonth(year, month1to12));
+  return new Date(year, month1to12 - 1, clampedDay, hour, minute, 0, 0);
+}
+
+function computeNextOccurrence(interval: GroupRecurrence, anchor: RecurrenceAnchor, from: Date): Date | null {
+  if (interval === 'manual') return null;
+
+  if (interval === 'weekly') {
+    if (anchor.weekday === undefined) throw new Error('weekly recurrence requires anchor.weekday');
+    const diffToWeekday = (anchor.weekday - from.getDay() + 7) % 7;
+    const candidate = new Date(from);
+    candidate.setDate(from.getDate() + diffToWeekday);
+    candidate.setHours(anchor.hour, anchor.minute, 0, 0);
+    if (candidate <= from) candidate.setDate(candidate.getDate() + 7);
+    return candidate;
+  }
+
+  if (interval === 'monthly') {
+    if (anchor.dayOfMonth === undefined) throw new Error('monthly recurrence requires anchor.dayOfMonth');
+    let year = from.getFullYear();
+    let month = from.getMonth() + 1;
+    let candidate = clampedDate(year, month, anchor.dayOfMonth, anchor.hour, anchor.minute);
+    if (candidate <= from) {
+      month += 1;
+      if (month > 12) { month = 1; year += 1; }
+      candidate = clampedDate(year, month, anchor.dayOfMonth, anchor.hour, anchor.minute);
+    }
+    return candidate;
+  }
+
+  if (anchor.month === undefined || anchor.day === undefined) {
+    throw new Error('yearly recurrence requires anchor.month and anchor.day');
+  }
+  const year = from.getFullYear();
+  let candidate = clampedDate(year, anchor.month, anchor.day, anchor.hour, anchor.minute);
+  if (candidate <= from) {
+    candidate = clampedDate(year + 1, anchor.month, anchor.day, anchor.hour, anchor.minute);
+  }
+  return candidate;
 }
 
 function monthYear(d: Date): string {
@@ -86,25 +139,41 @@ async function sendPushes(tokens: string[], groupName: string, capsuleId: string
 // Restore a group's schedule stamps after a mid-create failure, so the capsule
 // that couldn't be built is retried on the next tick rather than silently
 // skipped (GROUPS.md #3).
-async function releaseClaim(groupId: string, prevNextAt: string | null, prevLastAt: string | null) {
+async function releaseClaim(
+  groupId: string,
+  prevNextAt: string | null,
+  prevLastAt: string | null,
+  prevReminderSentAt: string | null,
+) {
   await supabase
     .from('groups')
-    .update({ next_capsule_at: prevNextAt, last_capsule_at: prevLastAt })
+    .update({ next_capsule_at: prevNextAt, last_capsule_at: prevLastAt, next_reminder_sent_at: prevReminderSentAt })
     .eq('id', groupId);
 }
 
 async function processGroup(group: any) {
   const now = new Date();
   const nowIso = now.toISOString();
-  const nextAt = calcNextAt(now, group.recurrence_interval as GroupRecurrence).toISOString();
+  const anchor: RecurrenceAnchor = {
+    weekday: group.anchor_weekday ?? undefined,
+    dayOfMonth: group.anchor_day_of_month ?? undefined,
+    month: group.anchor_month ?? undefined,
+    day: group.anchor_day ?? undefined,
+    hour: group.anchor_hour ?? 9,
+    minute: group.anchor_minute ?? 0,
+  };
+  const nextOccurrence = computeNextOccurrence(group.recurrence_interval as GroupRecurrence, anchor, now);
+  const nextAt = (nextOccurrence ?? now).toISOString();
 
   // GROUPS.md #2 — CLAIM FIRST, atomically. Advancing next_capsule_at up front,
   // gated on it still being due, means two overlapping ticks can't both create
   // a capsule for the same cycle: the second update matches zero rows. Only
-  // proceed for groups this call actually claimed.
+  // proceed for groups this call actually claimed. next_reminder_sent_at is
+  // reset here too — it just moved past its old value, so a stale "already
+  // reminded" stamp from the previous cycle must not suppress the next one.
   const { data: claimed, error: claimErr } = await supabase
     .from('groups')
-    .update({ next_capsule_at: nextAt, last_capsule_at: nowIso })
+    .update({ next_capsule_at: nextAt, last_capsule_at: nowIso, next_reminder_sent_at: null })
     .eq('id', group.id)
     .lte('next_capsule_at', nowIso)
     .select('id');
@@ -133,7 +202,7 @@ async function processGroup(group: any) {
   });
   if (capsuleErr) {
     console.error(`capsule insert failed for group ${group.id}:`, capsuleErr.message);
-    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at);
+    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at, group.next_reminder_sent_at);
     return;
   }
 
@@ -148,7 +217,7 @@ async function processGroup(group: any) {
     // Roll it back and release the claim so the cycle retries.
     console.error(`members fetch empty/failed for group ${group.id}:`, membersErr?.message);
     await supabase.from('capsules').delete().eq('id', capsuleId);
-    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at);
+    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at, group.next_reminder_sent_at);
     return;
   }
 
@@ -164,7 +233,7 @@ async function processGroup(group: any) {
     // orphaned and unreachable even by its owner.
     console.error(`capsule_members insert failed for group ${group.id}:`, cmErr.message);
     await supabase.from('capsules').delete().eq('id', capsuleId);
-    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at);
+    await releaseClaim(group.id, group.next_capsule_at, group.last_capsule_at, group.next_reminder_sent_at);
     return;
   }
 
@@ -192,6 +261,79 @@ async function processGroup(group: any) {
   await sendPushes(tokens, group.name, capsuleId);
 }
 
+async function sendGroupReminder(groupId: string, groupName: string) {
+  const { data: members, error } = await supabase
+    .from('group_members')
+    .select('user_id, users(push_token)')
+    .eq('group_id', groupId);
+  if (error || !members || members.length === 0) return;
+
+  const nowIso = new Date().toISOString();
+  const notifRows = members.map((m: any) => ({
+    user_id: m.user_id,
+    group_id: groupId,
+    type: 'group_capsule_upcoming',
+    sent_at: nowIso,
+    pushed_at: nowIso,
+  }));
+  const { error: insertErr } = await supabase.from('notifications').insert(notifRows);
+  if (insertErr) console.error(`reminder notification insert failed for group ${groupId}:`, insertErr.message);
+
+  const tokens: string[] = members.map((m: any) => m.users?.push_token).filter(Boolean);
+  const messages = tokens.filter((t: string) => t.startsWith('ExponentPushToken[')).map((to: string) => ({
+    to,
+    title: groupName,
+    body: 'A new capsule starts soon',
+    data: { groupId },
+    sound: 'default' as const,
+  }));
+  if (messages.length > 0) await sendExpoPush(messages);
+}
+
+// Fetches candidates broadly (not paused, reminder configured, due date set,
+// not already reminded this cycle) then filters + claims per-row, since the
+// per-row "next_capsule_at <= now + reminder_lead_hours" comparison can't be
+// expressed as a single PostgREST filter (reminder_lead_hours varies per row).
+async function processReminders() {
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  const { data: candidates, error } = await supabase
+    .from('groups')
+    .select('id, name, next_capsule_at, reminder_lead_hours')
+    .is('recurrence_paused_at', null)
+    .not('reminder_lead_hours', 'is', null)
+    .not('next_capsule_at', 'is', null)
+    .gt('next_capsule_at', nowIso)
+    .is('next_reminder_sent_at', null);
+
+  if (error) {
+    console.error('reminder candidates fetch failed:', error.message);
+    return;
+  }
+
+  for (const group of candidates ?? []) {
+    const leadMs = group.reminder_lead_hours * 3_600_000;
+    const dueAt = new Date(group.next_capsule_at).getTime() - leadMs;
+    if (now.getTime() < dueAt) continue; // not within this group's lead window yet
+
+    // Claim atomically — an overlapping tick's claim matches zero rows here.
+    const { data: claimedRows, error: claimErr } = await supabase
+      .from('groups')
+      .update({ next_reminder_sent_at: nowIso })
+      .eq('id', group.id)
+      .is('next_reminder_sent_at', null)
+      .select('id');
+    if (claimErr) {
+      console.error(`reminder claim failed for group ${group.id}:`, claimErr.message);
+      continue;
+    }
+    if (!claimedRows || claimedRows.length === 0) continue;
+
+    await sendGroupReminder(group.id, group.name);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (!await isAuthorized(req)) {
     return new Response('Unauthorized', { status: 401 });
@@ -199,10 +341,23 @@ Deno.serve(async (req: Request) => {
 
   const now = new Date().toISOString();
 
+  // Isolated so a failure here can never block the capsule-creation path
+  // below (matches unlock-capsules' dispatchReminders try/catch — "reminders
+  // are best-effort").
+  try {
+    await processReminders();
+  } catch (_e) {
+    // swallow — reminders are best-effort
+  }
+
   const { data: dueGroups, error } = await supabase
     .from('groups')
-    .select('id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at')
+    .select(
+      'id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, ' +
+      'anchor_weekday, anchor_day_of_month, anchor_month, anchor_day, anchor_hour, anchor_minute, next_reminder_sent_at'
+    )
     .neq('recurrence_interval', 'manual')
+    .is('recurrence_paused_at', null)
     .lte('next_capsule_at', now);
 
   if (error) {

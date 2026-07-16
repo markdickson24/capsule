@@ -199,23 +199,28 @@ export default function HomeScreen() {
       const session = sessionStore.get();
       if (!session) return [];
 
+      // archived_at comes from THIS USER's capsule_members row, not the
+      // capsule — archiving is per-member ("hide from my feed"), so one
+      // member archiving never changes what other members see.
       const { data, error } = await supabase
         .from('capsule_members')
-        .select('capsule_id, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode, archived_at)')
+        .select('capsule_id, archived_at, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode)')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null);
 
       if (error || !data) return [];
 
-      return data.map((row: any) => row.capsules).filter(Boolean);
+      return data
+        .map((row: any) => (row.capsules ? { ...row.capsules, archived_at: row.archived_at } : null))
+        .filter(Boolean);
     },
   );
 
   const capsules = (allCapsules ?? []).filter(c => !c.archived_at);
   // allCapsules is already scoped to joined membership (the query above
-  // filters on joined_at is not null), so any archived capsule here is one
-  // this user can see regardless of ownership — any joined member can
-  // archive/restore now, not just the owner.
+  // filters on joined_at is not null), and archived_at is the user's own
+  // member-row flag — so this section is exactly the capsules this user
+  // personally archived.
   const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at && !restoringIds.has(c.id));
 
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
@@ -229,13 +234,11 @@ export default function HomeScreen() {
   // Optimistic: the card leaves the Archived section instantly (hidden
   // locally), the RPC runs in the background, and refresh() moves it into the
   // active list for real. On failure the card reappears with a toast.
-  // Any joined member can restore, not just the owner — a direct .update()
-  // would be rejected by RLS for non-owners, so this goes through the same
-  // security-definer RPC CapsuleDetailScreen uses.
-  // Every capsule in this list is already scoped to joined membership (the
-  // underlying query filters joined_at is not null), so canArchive's
-  // `isOwner || joined_at != null` is satisfied for any card shown here —
-  // no extra ownership check needed before offering Archive.
+  // Archive is per-member: set_capsule_archived stamps archived_at on the
+  // CALLER's own capsule_members row, so this only hides/restores the capsule
+  // in this user's feed — other members are unaffected. Every capsule in this
+  // list is already scoped to joined membership (the underlying query filters
+  // joined_at is not null), which is exactly what the RPC requires.
   function archiveCapsule(capsuleId: string) {
     setMenuCapsule(null);
     haptics.light();

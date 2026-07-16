@@ -26,6 +26,7 @@ type Actor = { id: string; display_name: string; avatar_url: string | null };
 type NotificationRow = {
   id: string;
   capsule_id: string | null;
+  group_id: string | null;
   actor_id: string | null;
   type:
     | 'invite'
@@ -38,12 +39,14 @@ type NotificationRow = {
     | 'friend_request'
     | 'friend_accept'
     | 'group_capsule'
+    | 'group_capsule_upcoming'
     | 'contribution_activity'
     | 'contribution_nudge';
   sent_at: string;
   read_at: string | null;
   count: number | null;
   capsules: { title: string } | null;
+  groups: { name: string } | null;
   actor: Actor | null;
 };
 
@@ -129,7 +132,7 @@ export default function NotificationsScreen() {
       const [notifsRes, pendingRes] = await Promise.all([
         supabase
           .from('notifications')
-          .select('id, capsule_id, actor_id, type, sent_at, read_at, count, capsules(title), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
+          .select('id, capsule_id, group_id, actor_id, type, sent_at, read_at, count, capsules(title), groups(name), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
           .eq('user_id', userId)
           .is('read_at', null)
           .order('sent_at', { ascending: false })
@@ -445,6 +448,9 @@ export default function NotificationsScreen() {
                   } else if (item.type === 'friend_accept' && item.actor_id) {
                     dismiss(item);
                     navigation.navigate('PublicProfile', { userId: item.actor_id });
+                  } else if (item.type === 'group_capsule_upcoming' && item.group_id) {
+                    dismiss(item);
+                    navigation.navigate('GroupDetail', { groupId: item.group_id });
                   }
                 }}
               >
@@ -459,6 +465,7 @@ export default function NotificationsScreen() {
                     : item.type === 'friend_request' ? 'person-add-outline'
                     : item.type === 'friend_accept' ? 'people'
                     : item.type === 'group_capsule' ? 'people-circle-outline'
+                    : item.type === 'group_capsule_upcoming' ? 'calendar-outline'
                     : item.type === 'contribution_activity' ? 'images-outline'
                     : item.type === 'contribution_nudge' ? 'hourglass-outline'
                     : 'cube-outline'
@@ -471,6 +478,7 @@ export default function NotificationsScreen() {
                     : item.type === 'reaction' ? accentColor
                     : item.type === 'friend_request' ? accentColor
                     : item.type === 'group_capsule' ? accentColor
+                    : item.type === 'group_capsule_upcoming' ? accentColor
                     : item.type === 'contribution_activity' ? accentColor
                     : item.type === 'contribution_nudge' ? accentColor
                     : SUPERLATIVE_TYPES.includes(item.type) ? accentColor
@@ -526,6 +534,12 @@ export default function NotificationsScreen() {
                       <>
                         A new capsule was started in{' '}
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'your group'}</Text>
+                      </>
+                    ) : item.type === 'group_capsule_upcoming' ? (
+                      <>
+                        A new capsule for{' '}
+                        <Text style={styles.cardCapsuleTitle}>{item.groups?.name ?? 'your group'}</Text>
+                        {' '}starts soon
                       </>
                     ) : item.type === 'contribution_activity' ? (
                       <>
