@@ -1316,7 +1316,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // capsule/members result, so run it in the same wave instead of
     // awaiting it afterward.
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
         .select('user_id, role, joined_at, archived_at, users(display_name, avatar_url)')
@@ -1520,7 +1520,14 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const contributionLocked = capsule.contribution_lock_at
     ? new Date(capsule.contribution_lock_at) <= new Date()
     : false;
-  const canUpload = isOwner || (myRole === 'contributor' && !contributionLocked);
+  // Unlike contributionLocked (owner-exempt, by design — see CLAUDE.md),
+  // the start-date gate applies to everyone including the owner: the whole
+  // premise is that the event hasn't happened yet, so there's nothing real
+  // for anyone to upload before then.
+  const notStartedYet = capsule.contribution_start_at
+    ? new Date(capsule.contribution_start_at) > new Date()
+    : false;
+  const canUpload = !notStartedYet && (isOwner || (myRole === 'contributor' && !contributionLocked));
   const existingMemberIds = members.map(m => m.user_id);
 
   return (
@@ -1798,6 +1805,18 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 {uploadTasks.length} uploading…
               </Text>
             )}
+          </View>
+        )}
+
+        {/* Pre-start card — shown instead of upload controls when the
+            capsule's start date hasn't arrived yet. */}
+        {notStartedYet && (myRole === 'contributor' || isOwner) && (
+          <View style={styles.startsBox}>
+            <Ionicons name="calendar-outline" size={28} color="#555555" />
+            <Text style={styles.startsText}>
+              Capsule starts {new Date(capsule.contribution_start_at!).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+            </Text>
+            <Text style={styles.startsHint}>Photos can be added once it starts</Text>
           </View>
         )}
 
@@ -2198,6 +2217,12 @@ const styles = StyleSheet.create({
   lockedText: { fontSize: 15, color: '#888888', textAlign: 'center' },
   lockedHint: { fontSize: 12, color: '#888888', textAlign: 'center', paddingHorizontal: 12 },
   lockedCount: { fontSize: 13, color: '#FF6B35', fontWeight: '600' },
+  startsBox: {
+    alignItems: 'center', justifyContent: 'center', gap: 8,
+    paddingVertical: 32, paddingHorizontal: 24,
+  },
+  startsText: { fontSize: 15, color: '#888888', textAlign: 'center', fontWeight: '600' },
+  startsHint: { fontSize: 13, color: '#888888', textAlign: 'center' },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   uploadingCol: { gap: 10, alignSelf: 'stretch' },
