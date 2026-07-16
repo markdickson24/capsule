@@ -94,6 +94,10 @@ supabase/
                              # pushes (suggested / closing_soon / won). Called every minute by the same
                              # cron that runs close_superlative_windows. Shares CRON_SECRET with
                              # unlock-capsules.
+    dispatch-capsule-start/  # Edge function: atomically claims active capsules whose contribution_start_at
+                             # has arrived (contribution_start_notified_at still null), inserts a
+                             # capsule_started notification per joined member, and pushes inline. Auth:
+                             # Bearer CRON_SECRET. Per-minute EXISTS-gated cron. See "Capsule Start Date".
   migrations/                # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
                              # is the original schema and has drifted — the migrations are the source of truth.
 ```
@@ -168,9 +172,11 @@ The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also 
 
 All RLS policies use `(select auth.uid())` not `auth.uid()` directly — avoids query planner issues. `get_my_capsule_ids()`, `can_insert_capsule_member()`, and the `capsules`/`capsule_members` policies above were live on production for an unknown period without ever being committed to a migration — another out-of-band dashboard/MCP change, like the missing `home_layout` grant below but for an entire policy redesign rather than one grant. Captured in `20260515232500_capture_capsule_rls_and_helpers.sql`. If you find another RLS policy or function that doesn't match what `mcp__supabase__execute_sql` shows is actually live, assume the live DB is correct and the migration is the one that's stale — verify with `pg_policies`/`pg_get_functiondef` before changing behavior.
 
-**Contribution lock is enforced at TWO layers** (both must allow):
-1. `media` table INSERT policy checks `c.contribution_lock_at IS NULL OR now() < c.contribution_lock_at` (joins `capsule_members` for membership + role).
-2. `storage.objects` INSERT policy for the `capsule-media` bucket (`Contributors can upload to their capsules`) does the **same check** — extracts the capsule_id from the path's first folder segment (`(storage.foldername(name))[1]`) and validates membership/role/lock. The bucket-level policy was previously wide open; tightening it closed a hole where a malicious user could spam storage without ever inserting the linking `media` row.
+**Contribution lock — AND the mirror-image start date — are enforced at TWO layers** (both must allow):
+1. `media` table INSERT policy checks `(c.contribution_lock_at IS NULL OR now() < c.contribution_lock_at) AND (c.contribution_start_at IS NULL OR now() >= c.contribution_start_at)` (joins `capsule_members` for membership + role).
+2. `storage.objects` INSERT policy for the `capsule-media` bucket (`Contributors can upload to their capsules`) does the **same check** — extracts the capsule_id from the path's first folder segment (`(storage.foldername(name))[1]`) and validates membership/role/lock/start. The bucket-level policy was previously wide open; tightening it closed a hole where a malicious user could spam storage without ever inserting the linking `media` row.
+
+The `contribution_start_at` half was added in `20260716120000_capsule_start_date.sql` (see "Capsule Start Date"). **Unlike the lock, the start gate has no owner exemption** — it's expressed as a plain `role in ('owner','contributor')` clause, so even the owner can't upload before the start date (the whole premise is that the event hasn't happened yet). Both policies were re-created (drop + create) rather than altered in place.
 
 ---
 
@@ -215,11 +221,11 @@ Defined in `supabase-schema.sql`.
 | Table | Key columns |
 |---|---|
 | `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), home_layout (list/grid, default 'list'), onboarded_at (null = needs wizard), created_at |
-| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at, owner_preview_locked (default true — surprise mode), occasion (wedding/vacation/party/baby/milestone/general, default 'general' — drives the default-awards theme) |
+| `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at, owner_preview_locked (default true — surprise mode), occasion (wedding/vacation/party/baby/milestone/general, default 'general' — drives the default-awards theme), contribution_start_at (nullable — mirror of contribution_lock_at; **nobody, owner included, can upload before it**, see "Capsule Start Date"), contribution_start_notified_at (nullable — dedupe stamp set once the capsule-started push has fired) |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), archived_at (per-member "hide from my feed" flag — see Archive below), checkin_lat, checkin_lng, checkin_at, contribution_nudge_7d_sent_at / _3d_sent_at / _1d_sent_at (nullable — per-tier dedupe stamps, see "Contribution Nudges") |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
 | `reactions` | id, media_id, user_id, emoji, created_at — unique (media_id, user_id) |
-| `notifications` | id, user_id, capsule_id (**nullable** — null for friend events), actor_id (nullable — the other user, for friend events), type (invite/unlock/reaction/contribution_nudge/contribution_activity/milestone/superlative_suggested/superlative_closing_soon/superlative_won/friend_request/friend_accept), count (nullable int — photo count, used by contribution_activity/contribution_nudge), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
+| `notifications` | id, user_id, capsule_id (**nullable** — null for friend events), actor_id (nullable — the other user, for friend events), type (invite/unlock/reaction/contribution_nudge/contribution_activity/capsule_started/milestone/superlative_suggested/superlative_closing_soon/superlative_won/friend_request/friend_accept), count (nullable int — photo count, used by contribution_activity/contribution_nudge), sent_at, read_at, pushed_at (null = unpushed; superlative pushes batch via cron) |
 | `contribution_activity_pending` | capsule_id + uploader_id (composite PK), photo_count, last_upload_at — debounce staging table, see "Contribution Nudges" |
 | `superlative_categories` | id, capsule_id, suggested_by, label (3–80 chars), target_type (person/media), status (pending/live/archived), promoted_at, created_at, is_default (bool, default false — marks an auto-seeded award, see "Default Awards" below) |
 | `superlative_upvotes` | category_id + user_id (composite PK), created_at — drives auto-promote trigger |
@@ -718,6 +724,26 @@ Two retention-notification types, fully server-side (no client code needed to *d
 **Client rendering** (`NotificationsScreen.tsx`) — both types are capsule-nav (tap → `CapsuleDetail`). `contribution_activity` uses an `images-outline` icon and reads "`<actor.display_name>` added `<count>` photo(s) to `<capsule title>`". `contribution_nudge` uses an `hourglass-outline` icon and reads either the top-contributor comparison (when `actor_id` is set) or the "nobody's added photos yet" line (when it's null). Both colored `accentColor`.
 
 **Shipped to production** (`ezxxvvmesegegkdeniri`) via the two migrations above plus edge functions `dispatch-contribution-activity` and `contribution-nudges` (both `verify_jwt: false`, matching `unlock-capsules`/`send-superlative-pushes`/`create-group-capsules`) — verified end-to-end against live data (not just a test branch) before this doc was written: a real `media` insert produced a `contribution_activity` notification via the live cron within its debounce window, and a disposable test capsule with a near-term deadline produced `contribution_nudge` notifications with correctly-stamped tier columns.
+
+---
+
+## Capsule Start Date
+
+An optional `contribution_start_at` — the **mirror image of `contribution_lock_at`**: nobody (owner included, deliberately unlike the lock's owner exemption) can add photos until the start date arrives. For planning a capsule ahead of an event/trip that hasn't happened yet. Ships with a countdown UI, near-term date presets, and a push the moment it opens.
+
+**Schema** (`20260716120000_capsule_start_date.sql`): `capsules.contribution_start_at` + `capsules.contribution_start_notified_at` (both nullable timestamptz), `notifications_type_check` gained `capsule_started`, and `create_capsule_with_owner` gained a trailing `p_contribution_start_at timestamptz default null`. Existing callers are unaffected (PostgREST maps `.rpc()` by name). **The migration drops the old 10-arg `create_capsule_with_owner` overload before `create or replace`** — adding a trailing param changes the type signature, so `create or replace` alone would leave two overloads coexisting and make the original 10-named-arg call ambiguous (PGRST203). RLS enforcement: see "Contribution lock… enforced at TWO layers" above (both the `media` and `storage.objects` INSERT policies check the start gate, no owner exemption).
+
+**Cron + edge function** (`20260716120100_capsule_start_cron.sql` + `supabase/functions/dispatch-capsule-start`) — `* * * * *`, EXISTS-gated, Vault-backed `CRON_SECRET` via the shared `cron_unlock_capsules_secret` (`verify_jwt: false`, own auth check). The function atomically claims due capsules (`UPDATE ... contribution_start_notified_at = now() ... where ... is null RETURNING`, so overlapping ticks can't double-send), inserts one `capsule_started` notification per **joined** member (`pushed_at` set inline), and pushes via a local ≤100-chunk `sendExpoPush()`. Same self-contained shape as `dispatch-contribution-activity`.
+
+**Client:**
+- `src/components/DatePicker.tsx` exports `START_DATE_QUICK_OPTIONS` (Tomorrow / This weekend / In 3 days / 1 week — near-term presets, since the default `QUICK_OPTIONS` skew too far out for event planning). Consumed by both Create and Edit.
+- `CreateScreen` — a "Starts" `DatePickerField` (optional, with tooltip) rendered **above the fold, unconditionally** (unlike Unlock Date, which is hidden for `proximity` mode — the start date is independent of `unlock_mode`). Validation: start must be before both the unlock date and the uploads deadline. Threaded into the RPC as `p_contribution_start_at`.
+- `EditCapsuleScreen` — same "Starts" field (no tooltip, matching this screen's simpler pattern) loaded from / saved to `contribution_start_at`, with the same ordering validation.
+- `CapsuleDetailScreen` — computes `notStartedYet` from `contribution_start_at`; when true it gates `canUpload` for **everyone including the owner** and renders a "Capsule starts `<date>`" pre-start card (`startsBox`) in place of the upload controls.
+- `HomeScreen` — `CountdownBadge` gained a pre-start branch: when `contribution_start_at` is in the future it shows a "Starts in Nd/Nh" badge (reusing the `togetherBadge` style, calendar icon) counting down to the start date, then automatically flips to the unlock countdown once the start passes.
+- `NotificationsScreen` — renders `capsule_started` (camera-outline icon, accent color, capsule-nav) with "`<title>` is open for photos now" copy.
+
+**Shipped to production** (`ezxxvvmesegegkdeniri`) — both migrations applied, edge function deployed, cron active, bad-token 401 confirmed, and verified end-to-end against live data: a disposable capsule with a past `contribution_start_at` + two joined members produced exactly 2 `capsule_started` notifications (one per member, `pushed_at` set) via the real Vault-auth cron path, the dedup stamp landed, a second invocation returned `{"claimed":0,"notified":0}` (idempotent), and all fixtures were deleted afterward.
 
 ---
 

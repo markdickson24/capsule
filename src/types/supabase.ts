@@ -2,12 +2,16 @@
 // by hand — re-run the generator after schema changes.
 //
 // EXCEPTION: create_capsule_with_owner's Args (p_contribution_lock_at,
-// p_description, p_group_id) need `| null` hand-restored after every
-// regeneration — the generator can't see that this plpgsql function accepts
-// NULL for them (Postgres function parameters carry no nullability metadata
-// the way column types do; see supabase/migrations/20260711160000_atomic_capsule_create.sql,
-// no STRICT modifier, all three genuinely accept null). CreateScreen.tsx and
-// OnboardingScreen.tsx both pass null through these.
+// p_description, p_group_id, p_contribution_start_at) need `| null`
+// hand-restored after every regeneration — the generator can't see that this
+// plpgsql function accepts NULL for them (Postgres function parameters carry
+// no nullability metadata the way column types do; see
+// supabase/migrations/20260711160000_atomic_capsule_create.sql and
+// supabase/migrations/20260716120000_capsule_start_date.sql, no STRICT
+// modifier, all four genuinely accept null). CreateScreen.tsx and
+// OnboardingScreen.tsx both pass null through p_contribution_lock_at/
+// p_description/p_group_id; CreateScreen.tsx also passes null through
+// p_contribution_start_at when no Start Date is set.
 
 export type Json =
   | string
@@ -65,6 +69,9 @@ export type Database = {
           checkin_at: string | null
           checkin_lat: number | null
           checkin_lng: number | null
+          contribution_nudge_1d_sent_at: string | null
+          contribution_nudge_3d_sent_at: string | null
+          contribution_nudge_7d_sent_at: string | null
           id: string
           invited_at: string
           joined_at: string | null
@@ -77,6 +84,9 @@ export type Database = {
           checkin_at?: string | null
           checkin_lat?: number | null
           checkin_lng?: number | null
+          contribution_nudge_1d_sent_at?: string | null
+          contribution_nudge_3d_sent_at?: string | null
+          contribution_nudge_7d_sent_at?: string | null
           id?: string
           invited_at?: string
           joined_at?: string | null
@@ -89,6 +99,9 @@ export type Database = {
           checkin_at?: string | null
           checkin_lat?: number | null
           checkin_lng?: number | null
+          contribution_nudge_1d_sent_at?: string | null
+          contribution_nudge_3d_sent_at?: string | null
+          contribution_nudge_7d_sent_at?: string | null
           id?: string
           invited_at?: string
           joined_at?: string | null
@@ -116,6 +129,8 @@ export type Database = {
         Row: {
           archived_at: string | null
           contribution_lock_at: string | null
+          contribution_start_at: string | null
+          contribution_start_notified_at: string | null
           created_at: string
           description: string | null
           group_id: string | null
@@ -141,6 +156,8 @@ export type Database = {
         Insert: {
           archived_at?: string | null
           contribution_lock_at?: string | null
+          contribution_start_at?: string | null
+          contribution_start_notified_at?: string | null
           created_at?: string
           description?: string | null
           group_id?: string | null
@@ -166,6 +183,8 @@ export type Database = {
         Update: {
           archived_at?: string | null
           contribution_lock_at?: string | null
+          contribution_start_at?: string | null
+          contribution_start_notified_at?: string | null
           created_at?: string
           description?: string | null
           group_id?: string | null
@@ -267,6 +286,42 @@ export type Database = {
           {
             foreignKeyName: "content_reports_reporter_id_fkey"
             columns: ["reporter_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contribution_activity_pending: {
+        Row: {
+          capsule_id: string
+          last_upload_at: string
+          photo_count: number
+          uploader_id: string
+        }
+        Insert: {
+          capsule_id: string
+          last_upload_at?: string
+          photo_count?: number
+          uploader_id: string
+        }
+        Update: {
+          capsule_id?: string
+          last_upload_at?: string
+          photo_count?: number
+          uploader_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contribution_activity_pending_capsule_id_fkey"
+            columns: ["capsule_id"]
+            isOneToOne: false
+            referencedRelation: "capsules"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contribution_activity_pending_uploader_id_fkey"
+            columns: ["uploader_id"]
             isOneToOne: false
             referencedRelation: "users"
             referencedColumns: ["id"]
@@ -480,6 +535,7 @@ export type Database = {
         Row: {
           actor_id: string | null
           capsule_id: string | null
+          count: number | null
           group_id: string | null
           id: string
           pushed_at: string | null
@@ -491,6 +547,7 @@ export type Database = {
         Insert: {
           actor_id?: string | null
           capsule_id?: string | null
+          count?: number | null
           group_id?: string | null
           id?: string
           pushed_at?: string | null
@@ -502,6 +559,7 @@ export type Database = {
         Update: {
           actor_id?: string | null
           capsule_id?: string | null
+          count?: number | null
           group_id?: string | null
           id?: string
           pushed_at?: string | null
@@ -855,10 +913,20 @@ export type Database = {
         Args: { p_capsule_id: string; p_lat: number; p_lng: number }
         Returns: Json
       }
+      claim_contribution_nudge_tier: {
+        Args: { p_tier: string }
+        Returns: {
+          capsule_id: string
+          capsule_title: string
+          effective_deadline: string
+          user_id: string
+        }[]
+      }
       close_superlative_windows: { Args: never; Returns: undefined }
       create_capsule_with_owner: {
         Args: {
           p_contribution_lock_at: string | null
+          p_contribution_start_at?: string | null
           p_description: string | null
           p_group_id?: string | null
           p_occasion: string
@@ -898,6 +966,14 @@ export type Database = {
           target_media_id: string
           target_user_id: string
           vote_count: number
+        }[]
+      }
+      top_contributors: {
+        Args: { p_capsule_id: string }
+        Returns: {
+          display_name: string
+          photo_count: number
+          user_id: string
         }[]
       }
     }
