@@ -42,6 +42,24 @@ const QUICK_OPTIONS: QuickOption[] = [
   { label: '3 months', icon: 'time-outline', getDate: () => addDays(90) },
 ];
 
+// Near-term presets for the capsule Start Date field — the default
+// QUICK_OPTIONS above (Tomorrow/1 week/1 month/3 months) skew too far out
+// for "this weekend" event-planning use cases.
+function nextWeekend(): Date {
+  const d = new Date();
+  const daysUntilSat = (6 - d.getDay() + 7) % 7;
+  d.setDate(d.getDate() + daysUntilSat);
+  d.setHours(12, 0, 0, 0);
+  return d;
+}
+
+export const START_DATE_QUICK_OPTIONS: QuickOption[] = [
+  { label: 'Tomorrow', icon: 'sunny-outline', getDate: () => addDays(1) },
+  { label: 'This weekend', icon: 'calendar-outline', getDate: nextWeekend },
+  { label: 'In 3 days', icon: 'time-outline', getDate: () => addDays(3) },
+  { label: '1 week', icon: 'calendar-number-outline', getDate: () => addDays(7) },
+];
+
 function formatPreview(date: Date) {
   const dayName = date.toLocaleDateString('en-US', { weekday: 'long' });
   const monthDay = date.toLocaleDateString('en-US', { month: 'long', day: 'numeric' });
