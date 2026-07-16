@@ -41,7 +41,8 @@ type NotificationRow = {
     | 'group_capsule'
     | 'group_capsule_upcoming'
     | 'contribution_activity'
-    | 'contribution_nudge';
+    | 'contribution_nudge'
+    | 'capsule_started';
   sent_at: string;
   read_at: string | null;
   count: number | null;
@@ -66,7 +67,8 @@ function isCapsuleNav(type: NotificationRow['type']) {
     type === 'superlative_won' ||
     type === 'group_capsule' ||
     type === 'contribution_activity' ||
-    type === 'contribution_nudge'
+    type === 'contribution_nudge' ||
+    type === 'capsule_started'
   );
 }
 
@@ -468,6 +470,7 @@ export default function NotificationsScreen() {
                     : item.type === 'group_capsule_upcoming' ? 'calendar-outline'
                     : item.type === 'contribution_activity' ? 'images-outline'
                     : item.type === 'contribution_nudge' ? 'hourglass-outline'
+                    : item.type === 'capsule_started' ? 'camera-outline'
                     : 'cube-outline'
                   }
                   size={28}
@@ -481,6 +484,7 @@ export default function NotificationsScreen() {
                     : item.type === 'group_capsule_upcoming' ? accentColor
                     : item.type === 'contribution_activity' ? accentColor
                     : item.type === 'contribution_nudge' ? accentColor
+                    : item.type === 'capsule_started' ? accentColor
                     : SUPERLATIVE_TYPES.includes(item.type) ? accentColor
                     : '#888888'
                   }
@@ -561,6 +565,11 @@ export default function NotificationsScreen() {
                           <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'a capsule'}</Text>
                         </>
                       )
+                    ) : item.type === 'capsule_started' ? (
+                      <>
+                        <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'Your capsule'}</Text>
+                        {' is open for photos now'}
+                      </>
                     ) : (
                       <>
                         You were invited to{' '}

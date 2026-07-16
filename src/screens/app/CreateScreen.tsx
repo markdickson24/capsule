@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList, AppTabParamList, PendingMedia } from '../../types/navigation';
 import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
-import DatePickerField from '../../components/DatePicker';
+import DatePickerField, { START_DATE_QUICK_OPTIONS } from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
@@ -61,6 +61,7 @@ export default function CreateScreen() {
     groupUnlockHours ? new Date(Date.now() + groupUnlockHours * 3_600_000) : defaultUnlockDate()
   );
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
+  const [startDate, setStartDate] = useState<Date | null>(null);
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
   const [hideFromMe, setHideFromMe] = useState(true);
@@ -74,7 +75,7 @@ export default function CreateScreen() {
   // to hold state for here.
   const [advancedOpen, setAdvancedOpen] = useState(false);
   type FieldErrors = {
-    title?: string; description?: string; unlockDate?: string;
+    title?: string; description?: string; unlockDate?: string; startDate?: string;
     contribLockDate?: string; votingHours?: string; general?: string;
   };
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -129,10 +130,21 @@ export default function CreateScreen() {
         scrollToField('unlockDate');
         return;
       }
+      if (startDate && startDate >= unlockDate) {
+        setErrors({ startDate: 'Start date must be before the unlock date.' });
+        scrollToField('startDate');
+        return;
+      }
       if (contribLockDate && contribLockDate >= unlockDate) {
         setAdvancedOpen(true);
         setErrors({ contribLockDate: 'Uploads deadline must be before the unlock date.' });
         scrollToField('contribLockDate');
+        return;
+      }
+      if (startDate && contribLockDate && startDate >= contribLockDate) {
+        setAdvancedOpen(true);
+        setErrors({ startDate: 'Start date must be before the uploads deadline.' });
+        scrollToField('startDate');
         return;
       }
     }
@@ -166,6 +178,7 @@ export default function CreateScreen() {
       p_occasion: occasion,
       p_visibility: 'invite',
       p_group_id: groupId ?? null,
+      p_contribution_start_at: startDate?.toISOString() ?? null,
     });
 
     if (capsuleError || !capsuleId) {
@@ -319,6 +332,22 @@ export default function CreateScreen() {
             maxLength={100}
           />
           {errors.title ? <Text style={styles.fieldError}>{errors.title}</Text> : null}
+        </View>
+
+        <View onLayout={recordFieldY('startDate')}>
+          <DatePickerField
+            label="Starts"
+            optional
+            value={startDate}
+            onChange={setStartDate}
+            contextLabel="No one can add photos until this date"
+            quickOptions={START_DATE_QUICK_OPTIONS}
+            tooltip={{
+              title: 'Start Date',
+              body: 'Nobody — including you — can add photos or videos until this date arrives. Useful for planning a capsule ahead of an event or trip that hasn\'t happened yet.\n\nLeave it off to let people start adding photos right away.',
+            }}
+          />
+          {errors.startDate ? <Text style={styles.fieldError}>{errors.startDate}</Text> : null}
         </View>
 
         {unlockMode !== 'proximity' && (
