@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AppStackParamList } from '../../types/navigation';
 import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
-import DatePickerField from '../../components/DatePicker';
+import DatePickerField, { START_DATE_QUICK_OPTIONS } from '../../components/DatePicker';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
@@ -42,6 +42,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [description, setDescription] = useState('');
   const [unlockDate, setUnlockDate] = useState<Date | null>(null);
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
+  const [startDate, setStartDate] = useState<Date | null>(null);
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
   const [fetching, setFetching] = useState(true);
@@ -57,7 +58,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
     const { data, error: err } = await supabase
       .from('capsules')
-      .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, unlock_mode, superlative_voting_hours')
+      .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, contribution_start_at, unlock_mode, superlative_voting_hours')
       .eq('id', capsuleId)
       .single();
 
@@ -70,6 +71,9 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     setUnlockDate(new Date((data as any).unlock_at));
     setContribLockDate(
       (data as any).contribution_lock_at ? new Date((data as any).contribution_lock_at) : null
+    );
+    setStartDate(
+      (data as any).contribution_start_at ? new Date((data as any).contribution_start_at) : null
     );
     setUnlockMode((data as any).unlock_mode ?? 'time');
     setVotingHours((data as any).superlative_voting_hours ?? 48);
@@ -90,8 +94,16 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     if (unlockMode !== 'proximity') {
       if (!unlockDate) { setError('Set a valid unlock date.'); return; }
       if (unlockDate <= new Date()) { setError('Unlock date must be in the future.'); return; }
+      if (startDate && startDate >= unlockDate) {
+        setError('Start date must be before the unlock date.');
+        return;
+      }
       if (contribLockDate && contribLockDate >= unlockDate) {
         setError('Contribution lock must be before the unlock date.');
+        return;
+      }
+      if (startDate && contribLockDate && startDate >= contribLockDate) {
+        setError('Start date must be before the uploads deadline.');
         return;
       }
     }
@@ -108,6 +120,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         description: description.trim() || null,
         unlock_at: (unlockDate ?? new Date()).toISOString(),
         contribution_lock_at: contribLockDate?.toISOString() ?? null,
+        contribution_start_at: startDate?.toISOString() ?? null,
         unlock_mode: unlockMode,
         superlative_voting_hours: votingHours,
       })
@@ -241,6 +254,14 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
           <Text style={styles.modeHint}>{unlockModeHint(unlockMode)}</Text>
         </View>
 
+        <DatePickerField
+          label="Starts"
+          optional
+          value={startDate}
+          onChange={setStartDate}
+          contextLabel="No one can add photos until this date"
+          quickOptions={START_DATE_QUICK_OPTIONS}
+        />
         {unlockMode !== 'proximity' && (
           <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
         )}
