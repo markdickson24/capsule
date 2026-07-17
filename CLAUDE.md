@@ -816,6 +816,19 @@ never copies from a stale key. Main + alt also now upload **concurrently**
 (`Promise.all`) instead of sequentially — free wall-time win on swappable
 dual photos regardless of cache hit/miss.
 
+Each task is bounded by `TASK_TIMEOUT_MS` (3 minutes, via a `withTimeout()`
+race in `work()`) — RN's network primitives never time out a dead connection
+on their own, and `work()` is a single sequential loop, so one hung task
+would otherwise wedge every future upload app-wide with no retry UI to
+recover from. The underlying network call isn't cancelled on timeout (no
+`AbortController` wired through), so it can still resolve after `work()` has
+already moved on and, at the batch's end, cleared the dedup caches above. A
+module-level `cacheGeneration` counter (bumped on every cache clear) guards
+this: `copyOrUpload()` snapshots the generation before its upload and only
+writes the result into the cache if the generation is unchanged, so a write
+that straddles a drain is dropped rather than repopulating a cleared Map with
+a stale entry an unrelated later batch could collide with and copy from.
+
 **Video thumbnail at upload time:** for `mediaType === 'video'` (native only —
 `expo-video-thumbnails` has no web implementation), `runTask` grabs a frame
 from the **local** file via `VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 })`
