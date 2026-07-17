@@ -199,6 +199,27 @@ async function runTask(task: UploadTask): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// Hard ceiling on a single upload task. RN network primitives (web `fetch`,
+// native `FileSystem.uploadAsync`) never time out on a dead connection —
+// they can hang indefinitely. work() is a single sequential loop, so one
+// hung task means `working` never flips back to false and every future
+// upload app-wide silently queues behind it forever, with no failed/retry
+// UI to recover from (only a force-quit does). This forces every task to
+// either finish or fail within 3 minutes so the loop always keeps moving.
+const TASK_TIMEOUT_MS = 180_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  // If `promise` itself later rejects after the timeout has already won the
+  // race, nobody else is listening to it — swallow that here so it can't
+  // surface as an unhandled promise rejection.
+  promise.catch(() => {});
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function work() {
   if (working) return;
   working = true;
@@ -209,7 +230,29 @@ async function work() {
     if (!task) break;
 
     try {
-      await runTask(task);
+      // NOTE on late resolution: if runTask's underlying network calls are
+      // still in flight when the timeout above fires, they are NOT
+      // cancelled (no AbortController wired through fetch/uploadAsync
+      // here) — they keep running in the background and may still settle
+      // after this catch block has already run for `task`.
+      //   - A late-succeeding copyOrUpload() still writes into the
+      //     module-level dedup caches (mainUploadCache/altUploadCache/
+      //     thumbUploadCache). That's benign: the entry points at a real
+      //     uploaded object, so if the user taps Retry on this task later,
+      //     it hits the cache and does a cheap storage.copy() instead of
+      //     re-uploading — never corrupts anything.
+      //   - A late-succeeding `media` insert is the one real side effect:
+      //     it can leave a real row in the DB for a task the UI is still
+      //     showing as failed/retryable. Worst case, a subsequent Retry
+      //     re-runs and inserts a second row, i.e. a duplicate photo — not
+      //     data loss, and rare (requires the call to complete *just*
+      //     after the 3-minute cutoff). Accepted trade-off for this fix's
+      //     scope; not guarded further here.
+      //   - Either way, none of this touches `tasks`/`batchAdded`/
+      //     `batchFailed` — that bookkeeping only happens in this try/catch,
+      //     which has already run to completion for `task` by the time any
+      //     late resolution arrives, so nothing here double-fires.
+      await withTimeout(runTask(task), TASK_TIMEOUT_MS, 'Upload timed out');
       tasks = tasks.filter(t => t.id !== task.id);
       batchAdded += 1;
       const p = progressByCapsule[task.capsuleId];
