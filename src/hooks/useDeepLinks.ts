@@ -13,6 +13,36 @@ function navigateWhenReady(fn: () => void) {
   }
 }
 
+// Like navigateWhenReady, but for routes that only exist in a navigator that
+// isn't mounted yet at the moment we want to navigate — e.g. the reset-password
+// deep link fires while the user is still signed out (AuthNavigator mounted,
+// ResetPassword lives in AppNavigator). navigationRef.isReady() only tells us
+// SOME navigator is mounted, not the right one, so a single navigate() call
+// can silently no-op if it races the sign-in state change that swaps
+// AuthNavigator for AppNavigator. This retries until navigationRef actually
+// reports the target route as current, or gives up after `attempts`.
+function navigateUntilRouteActive(
+  routeName: string,
+  navigate: () => void,
+  attempts: number = 40,
+  intervalMs: number = 250
+) {
+  if (navigationRef.isReady()) {
+    if (navigationRef.getCurrentRoute()?.name === routeName) {
+      return; // already there — stop immediately, don't navigate again
+    }
+    navigate();
+    if (navigationRef.getCurrentRoute()?.name === routeName) {
+      return; // landed synchronously
+    }
+  }
+  if (attempts <= 1) {
+    console.warn(`[useDeepLinks] gave up navigating to ${routeName} after retries`);
+    return;
+  }
+  setTimeout(() => navigateUntilRouteActive(routeName, navigate, attempts - 1, intervalMs), intervalMs);
+}
+
 async function handleUrl(url: string | null) {
   if (!url) return;
 
@@ -25,7 +55,12 @@ async function handleUrl(url: string | null) {
     const refresh_token = params.get('refresh_token');
     if (!access_token || !refresh_token) return;
     await supabase.auth.setSession({ access_token, refresh_token });
-    navigateWhenReady(() => {
+    // Signed-out is the canonical case here — setSession just triggered a
+    // sign-in that swaps AuthNavigator for AppNavigator a tick later, and
+    // ResetPassword only exists in the latter. Retry until it's actually
+    // the active route (~10s budget) instead of navigateWhenReady's single
+    // shot, which drops silently if it fires before the swap.
+    navigateUntilRouteActive('ResetPassword', () => {
       (navigationRef as any).navigate('ResetPassword');
     });
     return;
