@@ -66,8 +66,20 @@ export default function SignUpScreen({ navigation }: Props) {
       setError(mapped.message);
       setErrorAction(mapped.action);
     } else if (data.session === null) {
-      setPendingEmail(email.trim());
-      setResendCooldown(RESEND_COOLDOWN_S);
+      // Supabase's anti-enumeration behavior: a session-less "success" for an
+      // email that already belongs to a confirmed account comes back with an
+      // obfuscated user whose `identities` array is empty (rather than the
+      // "already registered" error a direct duplicate signUp would throw).
+      // Route it through the same mapper/copy as that error path instead of
+      // showing a "check your email" screen for an email that's never coming.
+      if (data.user?.identities?.length === 0) {
+        const mapped = mapAuthError('already registered');
+        setError(mapped.message);
+        setErrorAction(mapped.action);
+      } else {
+        setPendingEmail(email.trim());
+        setResendCooldown(RESEND_COOLDOWN_S);
+      }
     }
   }
 
