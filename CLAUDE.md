@@ -941,7 +941,9 @@ Hero card design with accent-colored glow:
 
 ## Sign-Up Flow
 
-`SignUpScreen` collects only email and password — **no display name**. The `handle_new_user` trigger creates the `users` row with `display_name = null`. Display name is collected in Onboarding Step 1 (the first screen after sign-up). This avoids asking for the name twice.
+`SignUpScreen` collects only email and password — **no display name**. Display name is collected in Onboarding Step 1 (the first screen after sign-up). This avoids asking for the name twice.
+
+**`handle_new_user` does NOT leave `display_name` null** — this doc previously claimed it did, which was wrong and caused a real bug (see "Apple Sign In" → name auto-fill). The live trigger is `coalesce(new.raw_user_meta_data->>'display_name', split_part(coalesce(new.email, new.phone, 'user'), '@', 1))` — with no `display_name` key in `raw_user_meta_data` (true for email signup, Google, and Apple), it falls back to the **local part of the email**. For a normal email signup this is harmless today only because nothing reads `users.display_name` back before `OnboardingScreen`'s own `saveProfile()` overwrites it — the local `displayName` state starts blank (`useState('')`) regardless of what's in the DB. Any new code that reads `users.display_name` before onboarding completes (like Apple Sign In's pre-fill) **will** see this fallback value, not null. For Apple's private-relay email (`4n66rhjb5j@privaterelay.appleid.com`) that fallback is a random-looking string — exactly what a real user saw in production before this was fixed.
 
 ## Web Auth Gotchas
 

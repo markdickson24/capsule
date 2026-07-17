@@ -10,6 +10,8 @@ import { AuthStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { signInWithGoogle } from '../../lib/googleAuth';
+import { signInWithApple } from '../../lib/appleAuth';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { mapAuthError } from '../../lib/authErrors';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
@@ -20,6 +22,7 @@ export default function LoginScreen({ navigation, route }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState('');
   const [showForgot, setShowForgot] = useState(false);
   const [resetEmail, setResetEmail] = useState('');
@@ -60,6 +63,15 @@ export default function LoginScreen({ navigation, route }: Props) {
     const { error: err } = await signInWithGoogle();
     if (err) setError(err);
     setGoogleLoading(false);
+  }
+
+  async function handleApple() {
+    if (appleLoading) return;
+    setAppleLoading(true);
+    setError('');
+    const { error: err } = await signInWithApple();
+    if (err) setError(err);
+    setAppleLoading(false);
   }
 
   return (
@@ -157,6 +169,16 @@ export default function LoginScreen({ navigation, route }: Props) {
           <View style={styles.dividerLine} />
         </View>
 
+        {Platform.OS === 'ios' && (
+          <AppleAuthentication.AppleAuthenticationButton
+            buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+            buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+            cornerRadius={16}
+            style={styles.appleButton}
+            onPress={handleApple}
+          />
+        )}
+
         <TouchableOpacity style={styles.googleButton} onPress={handleGoogle} disabled={googleLoading}>
           {googleLoading ? (
             <LoadingBrand size="small" color="#FFFFFF" />
@@ -233,4 +255,8 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   googleButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  appleButton: {
+    width: '100%',
+    height: 56,
+  },
 });

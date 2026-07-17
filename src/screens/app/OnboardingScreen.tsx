@@ -69,6 +69,27 @@ export default function OnboardingScreen({ navigation }: Props) {
   // isn't discovered three screens later at finish-time.
   const avatarUrlPromise = useRef<Promise<string | null> | null>(null);
 
+  // If the user just signed in via Apple and granted the name scope for the
+  // first time, signInWithApple() already wrote it to users.display_name —
+  // read it back so Step 1 opens pre-filled instead of blank. No-op (stays
+  // blank, required) for every other path: email signup, Google, or a
+  // returning Apple user who wasn't granted the name this time.
+  useEffect(() => {
+    const session = sessionStore.get();
+    if (!session) return;
+    supabase
+      .from('users')
+      .select('display_name')
+      .eq('id', session.user.id)
+      .single()
+      .then(({ data }) => {
+        const fetchedName = data?.display_name;
+        if (fetchedName) {
+          setDisplayName(prev => prev || fetchedName);
+        }
+      });
+  }, []);
+
   // Screen 2
   const [moment, setMoment] = useState<Moment>(GENERAL_MOMENT);
   const [intentText, setIntentText] = useState('');
