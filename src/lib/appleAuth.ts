@@ -7,7 +7,7 @@ import { supabase } from './supabase';
 // claim itself — this is what stops a captured token from being replayed.
 function randomNonce(length = 32): string {
   const charset =
-    '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz';
+    '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
   const bytes = Crypto.getRandomBytes(length);
   let result = '';
   for (let i = 0; i < length; i++) {
@@ -64,21 +64,17 @@ export async function signInWithApple(): Promise<{ error?: string }> {
   const fullName = [givenName, familyName].filter(Boolean).join(' ').trim();
 
   if (fullName && data.user) {
-    const { data: existing } = await supabase
+    // Defensive: never clobber a name the user already has. In practice this
+    // only fires once per Apple ID (handle_new_user creates the row with
+    // display_name null, and Apple never sends the name again). Single atomic
+    // update (not select-then-update) — narrows the window where
+    // OnboardingScreen's mount-effect read can race ahead of this write, and
+    // doesn't depend on a prior read succeeding.
+    await supabase
       .from('users')
-      .select('display_name')
+      .update({ display_name: fullName })
       .eq('id', data.user.id)
-      .single();
-
-    // Defensive: never clobber a name the user already has. In practice
-    // this only fires once per Apple ID (handle_new_user creates the row
-    // with display_name null, and Apple never sends the name again).
-    if (existing && !existing.display_name) {
-      await supabase
-        .from('users')
-        .update({ display_name: fullName })
-        .eq('id', data.user.id);
-    }
+      .is('display_name', null);
   }
 
   return {};

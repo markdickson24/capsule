@@ -83,7 +83,10 @@ export default function OnboardingScreen({ navigation }: Props) {
       .eq('id', session.user.id)
       .single()
       .then(({ data }) => {
-        if (data?.display_name) setDisplayName(data.display_name);
+        const fetchedName = data?.display_name;
+        if (fetchedName) {
+          setDisplayName(prev => prev || fetchedName);
+        }
       });
   }, []);
 
