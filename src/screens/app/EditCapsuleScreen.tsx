@@ -102,10 +102,14 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         setError('Contribution lock must be before the unlock date.');
         return;
       }
-      if (startDate && contribLockDate && startDate >= contribLockDate) {
-        setError('Start date must be before the uploads deadline.');
-        return;
-      }
+    }
+    // Independent of unlock_mode: unlock_at is just a placeholder in
+    // proximity mode, but the start/deadline RLS gates apply regardless of
+    // mode, so this must always run or a proximity capsule can end up with
+    // Starts after the Uploads Deadline and never receive a single upload.
+    if (startDate && contribLockDate && startDate >= contribLockDate) {
+      setError('Start date must be before the uploads deadline.');
+      return;
     }
     if (votingHours < 1 || votingHours > 720) {
       setError('Voting window must be between 1 and 720 hours.');
