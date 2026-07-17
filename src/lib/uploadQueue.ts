@@ -53,6 +53,13 @@ type CachedUpload = { key: string; size: number; ext: string };
 const mainUploadCache = new Map<string, CachedUpload>();
 const altUploadCache = new Map<string, CachedUpload>();
 const thumbUploadCache = new Map<string, CachedUpload>();
+// Bumped every time the three caches above are cleared (currently only the
+// drain point at the end of work()). copyOrUpload() snapshots this before
+// starting an upload and only writes its result into the cache if the
+// generation hasn't moved on — so a late-resolving upload that straddles a
+// drain-clear (see the TASK_TIMEOUT_MS note in work()) can't repopulate a
+// cache that's since been reset for an unrelated later batch.
+let cacheGeneration = 0;
 // Per-capsule done/total since that capsule's queue was last empty — drives
 // the aggregate progress bar on CapsuleDetail. Cleared when the capsule's
 // last task leaves the queue.
@@ -135,12 +142,21 @@ async function copyOrUpload(
     if (error) throw new Error(error.message);
     return { key, size: cached.size, ext: cached.ext };
   }
+  // Snapshot before the (possibly long-running / timed-out) upload so a
+  // late write below can detect a drain that happened while it was in flight.
+  const generationAtStart = cacheGeneration;
   const prepared = await produce();
   const ext = prepared.mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
   const key = `${capsuleId}/${randomUUID()}.${ext}`;
   const size = await uploadFile(key, prepared.uri, prepared.mimeType);
   const entry: CachedUpload = { key, size, ext };
-  cacheMap.set(sourceUri, entry);
+  // Only cache the result if no drain happened while this upload was in
+  // flight — otherwise this would repopulate a Map that was just cleared for
+  // an unrelated later batch, and a colliding uri there would wrongly hit
+  // this stale entry.
+  if (cacheGeneration === generationAtStart) {
+    cacheMap.set(sourceUri, entry);
+  }
   return entry;
 }
 
@@ -235,12 +251,18 @@ async function work() {
       // cancelled (no AbortController wired through fetch/uploadAsync
       // here) — they keep running in the background and may still settle
       // after this catch block has already run for `task`.
-      //   - A late-succeeding copyOrUpload() still writes into the
+      //   - A late-succeeding copyOrUpload() may still try to write into the
       //     module-level dedup caches (mainUploadCache/altUploadCache/
-      //     thumbUploadCache). That's benign: the entry points at a real
-      //     uploaded object, so if the user taps Retry on this task later,
-      //     it hits the cache and does a cheap storage.copy() instead of
-      //     re-uploading — never corrupts anything.
+      //     thumbUploadCache). A generation counter (cacheGeneration) guards
+      //     this: if the write lands within the same batch (no drain
+      //     happened yet), it's benign — the entry points at a real uploaded
+      //     object, so a later Retry on this task hits the cache and does a
+      //     cheap storage.copy() instead of re-uploading. If the write
+      //     straddles a drain-clear (queue emptied and caches reset while
+      //     this upload was still in flight), the generation has moved on
+      //     and copyOrUpload() drops the write instead of repopulating a
+      //     cleared Map with a stale entry that an unrelated later batch
+      //     could collide with.
       //   - A late-succeeding `media` insert is the one real side effect:
       //     it can leave a real row in the DB for a task the UI is still
       //     showing as failed/retryable. Worst case, a subsequent Retry
@@ -289,7 +311,11 @@ async function work() {
   batchAdded = 0;
   batchFailed = 0;
   // Drop the dedup caches now that the batch is fully done — a later,
-  // unrelated upload shouldn't copy from a stale key.
+  // unrelated upload shouldn't copy from a stale key. Bump the generation
+  // counter first so any upload still in flight past this point (see the
+  // TASK_TIMEOUT_MS note above) skips its cache write instead of
+  // repopulating a Map we're about to clear.
+  cacheGeneration += 1;
   mainUploadCache.clear();
   altUploadCache.clear();
   thumbUploadCache.clear();
