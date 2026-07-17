@@ -801,7 +801,17 @@ function MediaViewerModal({
                         // expo-image's disk cache survives re-signing — signed URLs
                         // get a fresh token roughly every 50 minutes, which would
                         // otherwise look like a brand-new image and force a re-download.
-                        cacheKey: swapped[item.id] && item.altStorageKey ? item.altStorageKey : item.storage_key,
+                        // `:full` suffix keeps this full-resolution load from colliding
+                        // with the thumbnail-resolution grid/gallery cache slot for the
+                        // same storage_key (see those sites' `:thumb` suffix) — without
+                        // it, whichever loads first "wins" the shared cache key and the
+                        // other can end up permanently showing the wrong resolution.
+                        // NOTE: the branch condition must mirror shownUrl() exactly (gate on
+                        // altSignedUrl) — if the alt key failed to sign, shownUrl falls back
+                        // to the MAIN bytes, so the cacheKey must fall back with it.
+                        cacheKey: swapped[item.id] && item.altSignedUrl && item.altStorageKey
+                          ? `${item.altStorageKey}:full`
+                          : `${item.storage_key}:full`,
                       }}
                       style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
                       contentFit="contain"
@@ -979,8 +989,13 @@ function MediaGalleryModal({
                 <Image
                   source={{
                     uri: item.mediaType === 'video' ? item.thumbnailUri : (item.thumbSignedUrl ?? item.signedUrl),
-                    // Stable cacheKey — same rationale as the viewer above.
-                    cacheKey: item.mediaType === 'video' ? undefined : item.storage_key,
+                    // Stable cacheKey — same rationale as the viewer above. Suffix tracks
+                    // which bytes are actually loading: `:thumb` when a thumbnail-res URL
+                    // is available, `:full` when falling back to the full-res signedUrl
+                    // (matches the viewer's `:full` key so that fallback case is a real
+                    // cache hit instead of a fresh download). Never bare `storage_key` —
+                    // that would collide with whichever resolution loads first.
+                    cacheKey: item.mediaType === 'video' ? undefined : `${item.storage_key}:${item.thumbSignedUrl ? 'thumb' : 'full'}`,
                   }}
                   recyclingKey={item.id}
                   style={StyleSheet.absoluteFill}
@@ -1833,7 +1848,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                         <Image
                           source={{
                             uri: p.mediaType === 'video' ? p.thumbnailUri : (p.thumbSignedUrl ?? p.signedUrl),
-                            cacheKey: p.mediaType === 'video' ? undefined : p.storage_key,
+                            // Same `:thumb`/`:full` split as the gallery grid and viewer above —
+                            // keeps this thumbnail-resolution load from colliding with the
+                            // full-screen viewer's cache slot for the same storage_key.
+                            cacheKey: p.mediaType === 'video' ? undefined : `${p.storage_key}:${p.thumbSignedUrl ? 'thumb' : 'full'}`,
                           }}
                           style={StyleSheet.absoluteFill}
                           contentFit="cover"
