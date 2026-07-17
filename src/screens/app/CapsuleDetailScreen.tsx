@@ -571,6 +571,13 @@ function MediaViewerModal({
 }) {
   const currentIndexRef = useRef(startIndex);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
+  // Track the *id* of the item being viewed, not just its index — `items` is the
+  // parent's `photos` array, which gets wholesale-replaced by fetchPhotos() from
+  // several triggers that can fire while this modal is open (a background upload
+  // completing is the common one). If we only tracked the index, a reorder/insert
+  // would silently swap in a different photo under the user's finger, and
+  // reactions/captions would target the wrong media id.
+  const [currentItemId, setCurrentItemId] = useState<string | null>(items[startIndex]?.id ?? null);
   const [reactions, setReactions] = useState<Reaction[]>([]);
   const [downloading, setDownloading] = useState(false);
   const [downloadDone, setDownloadDone] = useState(false);
@@ -675,8 +682,41 @@ function MediaViewerModal({
     setEditingCaption(false);
     currentIndexRef.current = index;
     setCurrentIndex(index);
+    setCurrentItemId(items[index]?.id ?? null);
     Animated.spring(translateX, { toValue: -index * SCREEN_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
   };
+
+  // Resync to the viewed item's id whenever `items` is replaced out from under us
+  // (see the `currentItemId` comment above). If the id shifted to a new index,
+  // snap `currentIndex`/`currentIndexRef` and `translateX` straight there — no
+  // animation, since this isn't a user-initiated swipe. If the id is gone
+  // entirely (the item was deleted), close the viewer rather than show a
+  // fallback photo the user never asked to see.
+  useEffect(() => {
+    if (currentItemId == null) return;
+    const newIndex = items.findIndex(i => i.id === currentItemId);
+    if (newIndex === -1) {
+      onClose();
+      return;
+    }
+    if (newIndex !== currentIndexRef.current) {
+      currentIndexRef.current = newIndex;
+      setCurrentIndex(newIndex);
+      // `axis` tracks whether the PanResponder is mid-swipe and, if so, on which
+      // axis — it's the closest thing this component has to a "gesture in
+      // progress" flag. Only snap translateX when no horizontal gesture is
+      // active, so we don't yank the photo out from under an actively-dragging
+      // finger (onPanResponderMove writes translateX every move while
+      // axis.current === 'h'). If a horizontal gesture *is* in progress, we
+      // still update currentIndex/currentIndexRef above so the eventual
+      // onPanResponderRelease resolves against the correct item — and even if
+      // this did fight the gesture, a brief jump mid-swipe is still strictly
+      // better than silently landing on/reacting to the wrong photo.
+      if (axis.current !== 'h') {
+        translateX.setValue(-newIndex * SCREEN_WIDTH);
+      }
+    }
+  }, [items]);
 
   const panResponder = useRef(
     PanResponder.create({
