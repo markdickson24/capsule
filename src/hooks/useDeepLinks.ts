@@ -1,9 +1,11 @@
 import { useEffect } from 'react';
 import { Linking } from 'react-native';
+import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { navigationRef } from '../lib/navigationRef';
 import { cache } from '../lib/cache';
+import { pendingJoinStash } from '../lib/pendingJoinStash';
 
 function navigateWhenReady(fn: () => void) {
   if (navigationRef.isReady()) {
@@ -43,6 +45,35 @@ function navigateUntilRouteActive(
   setTimeout(() => navigateUntilRouteActive(routeName, navigate, attempts - 1, intervalMs), intervalMs);
 }
 
+// Shared by both the signed-in-tap path and the drain-after-sign-in path
+// (stashed while signed out — see pendingJoinStash). Opening the link IS the
+// consent act — join immediately (joined_at set) rather than leaving a
+// pending invite the user has to accept a second time from Alerts.
+async function joinAndNavigate(capsuleId: string, userId: string) {
+  const { data: existing } = await supabase
+    .from('capsule_members')
+    .select('id')
+    .eq('capsule_id', capsuleId)
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (!existing) {
+    // No client-side notifications insert (no INSERT policy — always errors
+    // silently); the notify_on_invite trigger already covers this.
+    await supabase.from('capsule_members').insert({
+      capsule_id: capsuleId,
+      user_id: userId,
+      role: 'contributor',
+      joined_at: new Date().toISOString(),
+    });
+    cache.invalidate('capsules', 'profile');
+  }
+
+  navigateWhenReady(() => {
+    (navigationRef as any).navigate('CapsuleDetail', { capsuleId });
+  });
+}
+
 async function handleUrl(url: string | null) {
   if (!url) return;
 
@@ -71,41 +102,28 @@ async function handleUrl(url: string | null) {
   const capsuleId = match[1];
 
   const session = sessionStore.get();
-  if (!session) return;
-  const userId = session.user.id;
-
-  // Check if already a member (pending or joined)
-  const { data: existing } = await supabase
-    .from('capsule_members')
-    .select('id')
-    .eq('capsule_id', capsuleId)
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (!existing) {
-    // Opening the link IS the consent act — join immediately (joined_at set)
-    // rather than leaving a pending invite the user has to accept a second
-    // time from Alerts. No client-side notifications insert (no INSERT
-    // policy — always errors silently); the notify_on_invite trigger already
-    // covers this.
-    await supabase.from('capsule_members').insert({
-      capsule_id: capsuleId,
-      user_id: userId,
-      role: 'contributor',
-      joined_at: new Date().toISOString(),
-    });
-    cache.invalidate('capsules', 'profile');
+  if (!session) {
+    // Signed out: stash the id instead of dropping the link. useDeepLinks
+    // drains this the moment a session shows up (sign-in / sign-up).
+    pendingJoinStash.set(capsuleId);
+    return;
   }
 
-  navigateWhenReady(() => {
-    (navigationRef as any).navigate('CapsuleDetail', { capsuleId });
-  });
+  await joinAndNavigate(capsuleId, session.user.id);
 }
 
-export function useDeepLinks() {
+export function useDeepLinks(session?: Session | null) {
   useEffect(() => {
     Linking.getInitialURL().then(handleUrl);
     const sub = Linking.addEventListener('url', ({ url }) => handleUrl(url));
     return () => sub.remove();
   }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    const stashedCapsuleId = pendingJoinStash.get();
+    if (!stashedCapsuleId) return;
+    pendingJoinStash.clear();
+    joinAndNavigate(stashedCapsuleId, session.user.id);
+  }, [session]);
 }
