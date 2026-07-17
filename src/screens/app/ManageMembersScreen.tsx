@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { toast } from '../../lib/toast';
+import { cache } from '../../lib/cache';
 import {
   View, Text, StyleSheet, FlatList,
   TouchableOpacity,
@@ -94,6 +95,12 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
             );
           }
           toast.show(`Couldn't remove ${displayName} — try again.`);
+        } else {
+          // A still-mounted CapsuleDetailScreen has its own copy of this
+          // member list cached under `capsule:${capsuleId}` — invalidate it
+          // so the removal is reflected there too (see CapsuleDetailScreen's
+          // focus-refetch, added alongside this).
+          cache.invalidate(`capsule:${capsuleId}`);
         }
       });
   }
