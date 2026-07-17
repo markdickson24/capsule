@@ -64,17 +64,22 @@ export async function signInWithApple(): Promise<{ error?: string }> {
   const fullName = [givenName, familyName].filter(Boolean).join(' ').trim();
 
   if (fullName && data.user) {
-    // Defensive: never clobber a name the user already has. In practice this
-    // only fires once per Apple ID (handle_new_user creates the row with
-    // display_name null, and Apple never sends the name again). Single atomic
-    // update (not select-then-update) — narrows the window where
-    // OnboardingScreen's mount-effect read can race ahead of this write, and
-    // doesn't depend on a prior read succeeding.
+    // Unconditional overwrite — safe because Apple only ever grants fullName
+    // on the very first authorization, which is exactly the moment
+    // handle_new_user() just inserted this row. That trigger does NOT leave
+    // display_name null: it falls back to the email's local part
+    // (split_part(email, '@', 1)), which for Apple's private-relay address
+    // is a random-looking string (e.g. "4n66rhjb5j@privaterelay.appleid.com"
+    // -> "4n66rhjb5j"). A `.is('display_name', null)` guard here would see
+    // that non-null placeholder and silently no-op, leaving the relay-email
+    // fragment as the user's name instead of what Apple actually gave us —
+    // confirmed happening in production before this fix. There is no
+    // scenario where a real user-set name could already exist at this exact
+    // instant, so overwriting unconditionally is correct.
     await supabase
       .from('users')
       .update({ display_name: fullName })
-      .eq('id', data.user.id)
-      .is('display_name', null);
+      .eq('id', data.user.id);
   }
 
   return {};
