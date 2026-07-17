@@ -91,6 +91,11 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }:
   const isLocked = capsule.status !== 'unlocked';
   const entrance = useListItemEntrance(index);
   const isGrid = variant === 'grid';
+  // Same computation as CountdownBadge's notStartedYet — kept in sync so the
+  // badge ("Starts in Nd") and this bottom line ("Starts <date>") always
+  // agree, and both flip to unlock-based copy at the same instant.
+  const contributionStartAt = (capsule as any).contribution_start_at as string | null | undefined;
+  const notStartedYet = !!contributionStartAt && capsule.status !== 'unlocked' && new Date(contributionStartAt) > new Date();
   return (
     <Animated.View style={[entrance, isGrid && styles.gridCell]}>
       <TouchableOpacity
@@ -105,11 +110,15 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }:
             size={isGrid ? 20 : 24}
             color={isLocked ? '#888888' : '#30D158'}
           />
-          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={(capsule as any).contribution_start_at} />
+          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={contributionStartAt} />
         </View>
         <Text style={[styles.cardTitle, isGrid && styles.cardTitleGrid]} numberOfLines={isGrid ? 2 : undefined}>{capsule.title}</Text>
         {!isGrid && capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
-        {isLocked && capsule.unlock_mode === 'proximity' ? (
+        {notStartedYet ? (
+          <Text style={styles.cardDate}>
+            Starts {new Date(contributionStartAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+          </Text>
+        ) : isLocked && capsule.unlock_mode === 'proximity' ? (
           <Text style={styles.cardDate}>Unlocks when you're all together</Text>
         ) : (
           <Text style={styles.cardDate}>
