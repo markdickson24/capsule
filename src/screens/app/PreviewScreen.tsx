@@ -160,6 +160,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
           </View>
         ) : (
           <FlatList
+            style={StyleSheet.absoluteFill}
             data={items}
             keyExtractor={(_, i) => String(i)}
             horizontal

@@ -816,7 +816,7 @@ const styles = StyleSheet.create({
   },
   iconBtn: { padding: 10 },
   doubleTapHint: { color: 'rgba(255,255,255,0.45)', fontSize: 12 },
-  modeDropdown: { position: 'absolute', top: 56, left: 16, zIndex: 20, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  modeDropdown: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingTop: 4 },
   modeChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 10,
