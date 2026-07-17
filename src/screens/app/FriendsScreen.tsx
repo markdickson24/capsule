@@ -15,6 +15,7 @@ import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { transformAvatarUrl } from '../../lib/avatarUrl';
@@ -49,7 +50,12 @@ export default function FriendsScreen({ navigation }: Props) {
 
   async function accept(id: string) {
     setBusy(id);
-    await acceptFriendRequest(id);
+    const { error } = await acceptFriendRequest(id);
+    if (error) {
+      setBusy(null);
+      toast.show("Couldn't accept the request — try again.");
+      return;
+    }
     cache.invalidate('profile');
     await load();
     setBusy(null);
@@ -57,9 +63,14 @@ export default function FriendsScreen({ navigation }: Props) {
 
   async function decline(id: string) {
     setBusy(id);
+    const snapshot = incoming;
     setIncoming(prev => prev.filter(p => p.id !== id)); // optimistic
-    await removeFriendship(id);
+    const { error } = await removeFriendship(id);
     setBusy(null);
+    if (error) {
+      setIncoming(snapshot);
+      toast.show("Couldn't decline — try again.");
+    }
   }
 
   async function onRefresh() {
