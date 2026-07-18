@@ -89,9 +89,11 @@ async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
       const phrase = formatRemaining(remaining);
       const { tokens, userIds } = await pushTokensFor(capsule.id);
 
-      // Durable in-app rows (pushed_at set — we push inline below).
+      // Durable in-app rows (pushed_at set — we push inline below). The tier
+      // stamp already committed, so a failed insert is unrecoverable — at
+      // least make it visible in the function logs instead of silent.
       if (userIds.length) {
-        await supabase.from('notifications').insert(
+        const { error: reminderInsertError } = await supabase.from('notifications').insert(
           userIds.map((uid) => ({
             user_id: uid,
             capsule_id: capsule.id,
@@ -99,6 +101,9 @@ async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
             pushed_at: nowIso,
           }))
         );
+        if (reminderInsertError) {
+          console.error(`Failed to insert unlock_reminder rows for capsule ${capsule.id}:`, reminderInsertError);
+        }
       }
 
       for (const token of tokens) {
@@ -144,7 +149,26 @@ Deno.serve(async (req) => {
   }
 
   for (const capsule of unlocked ?? []) {
-    const { tokens } = await pushTokensFor(capsule.id);
+    const { tokens, userIds } = await pushTokensFor(capsule.id);
+    const nowIso = new Date().toISOString();
+
+    // Durable in-app rows FIRST, to every joined member (not just those with a
+    // push token) — this is the fallback if the push below fails or the member
+    // never granted notification permission.
+    if (userIds.length) {
+      const { error: notifyError } = await supabase.from('notifications').insert(
+        userIds.map((uid) => ({
+          user_id: uid,
+          capsule_id: capsule.id,
+          type: 'unlock',
+          pushed_at: nowIso,
+        }))
+      );
+      if (notifyError) {
+        console.error(`Failed to insert unlock notifications for capsule ${capsule.id}:`, notifyError);
+      }
+    }
+
     for (const token of tokens) {
       messages.push({
         to: token,
@@ -166,7 +190,14 @@ Deno.serve(async (req) => {
   }
 
   if (messages.length) {
-    await sendExpoPush(messages);
+    // The durable notification rows above are already written — a push failure
+    // here (transient Expo/network error) must not fail the whole invocation or
+    // block subsequent ticks; the in-app Alerts card is the fallback.
+    try {
+      await sendExpoPush(messages);
+    } catch (e) {
+      console.error('sendExpoPush failed:', e);
+    }
   }
 
   return new Response(

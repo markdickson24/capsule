@@ -48,10 +48,15 @@ export function useShareIntent(session: Session | null) {
 
   useEffect(() => {
     if (!session) return;
-    const stashed = shareIntentStash.get();
-    if (!stashed || stashed.length === 0) return;
-    shareIntentStash.clear();
+    if (!shareIntentStash.get()?.length) return;
+    // Clear INSIDE the callback, not before it: navigateWhenReady gives up
+    // silently if the navigator never becomes ready, and clearing up front
+    // would lose the media with no way to retry. The re-read + clear inside
+    // also makes a double-fired effect idempotent (second run sees null).
     navigateWhenReady(() => {
+      const stashed = shareIntentStash.get();
+      if (!stashed || stashed.length === 0) return;
+      shareIntentStash.clear();
       (navigationRef as any).navigate('Preview', { media: stashed, source: 'share' });
     });
   }, [session]);

@@ -63,7 +63,15 @@ Deno.serve(async (req) => {
     }
 
     for (const [capsuleId, entry] of byCapsule) {
-      const { data: topContributors } = await supabase.rpc('top_contributors', { p_capsule_id: capsuleId });
+      const { data: topContributors, error: topError } = await supabase.rpc('top_contributors', { p_capsule_id: capsuleId });
+      if (topError) {
+        // Falling through would send the "nobody's added photos yet" copy
+        // even when people have — a failed query must not masquerade as a
+        // real zero-contributor state. Skip this capsule's batch (the tier
+        // stamp already committed; losing the nudge beats lying in it).
+        console.error(`top_contributors failed for capsule ${capsuleId}, skipping its nudges:`, topError);
+        continue;
+      }
       const deadlinePhrase = formatDeadline(entry.effectiveDeadline);
 
       const { data: userRows } = await supabase
@@ -113,8 +121,14 @@ Deno.serve(async (req) => {
           messages.push({ to: token, title, body, data: { capsuleId }, sound: 'default' });
         }
       }
-      await supabase.from('notifications').insert(rows);
-      reminded += rows.length;
+      // Tier stamps already committed — a failed insert is unrecoverable;
+      // log it instead of silently losing the Alerts rows.
+      const { error: insertError } = await supabase.from('notifications').insert(rows);
+      if (insertError) {
+        console.error(`Failed to insert contribution_nudge rows for capsule ${capsuleId}:`, insertError);
+      } else {
+        reminded += rows.length;
+      }
     }
   }
 
