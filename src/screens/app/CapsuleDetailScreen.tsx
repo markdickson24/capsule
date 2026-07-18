@@ -301,6 +301,14 @@ function InviteModal({
     // Success and failure both go through the toast system now — the error
     // slot is reserved for actual errors, not "saved ✓" confirmations.
     try {
+      if (Platform.OS !== 'web') {
+        // writeOnly: true — we only ever add to the library, never read it.
+        const { status } = await MediaLibrary.requestPermissionsAsync(true);
+        if (status !== 'granted') {
+          toast.show('Enable Photos access in Settings to save the QR code.');
+          return;
+        }
+      }
       const uri = await viewShotRef.current?.capture?.();
       if (!uri) return;
       await MediaLibrary.saveToLibraryAsync(uri);
@@ -652,8 +660,13 @@ function MediaViewerModal({
         a.download = `capsule-${item.id}.${item.mediaType === 'video' ? 'mp4' : 'jpg'}`;
         a.click();
       } else {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status !== 'granted') { setDownloading(false); return; }
+        // writeOnly: true — we only ever add to the library, never read it.
+        const { status } = await MediaLibrary.requestPermissionsAsync(true);
+        if (status !== 'granted') {
+          toast.show('Enable Photos access in Settings to save this.');
+          setDownloading(false);
+          return;
+        }
         const ext = item.mediaType === 'video' ? 'mp4' : 'jpg';
         const localUri = FileSystem.cacheDirectory + `capsule-${item.id}.${ext}`;
         await FileSystem.downloadAsync(url, localUri);
@@ -662,7 +675,7 @@ function MediaViewerModal({
       setDownloadDone(true);
       setTimeout(() => setDownloadDone(false), 2000);
     } catch {
-      // Silent fail — permission denied or network error
+      toast.show("Couldn't save — try again.");
     } finally {
       setDownloading(false);
     }
