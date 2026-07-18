@@ -22,6 +22,7 @@ import { uploadQueue } from '../../lib/uploadQueue';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
 import { getGroup, getGroupMembers, updateGroup } from '../../lib/groups';
 import { OCCASIONS, OccasionKey, pickDefaults } from '../../lib/awardPool';
+import SealedMoment from '../../components/SealedMoment';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -67,6 +68,9 @@ export default function CreateScreen() {
   const [hideFromMe, setHideFromMe] = useState(true);
   const [occasion, setOccasion] = useState<OccasionKey>('general');
   const [loading, setLoading] = useState(false);
+  // UX_POLISH.md #4 — shown after a successful create, before navigating in.
+  const [sealedVisible, setSealedVisible] = useState(false);
+  const [sealedCapsuleId, setSealedCapsuleId] = useState<string | null>(null);
   // Everything except Name and the unlock date is pre-defaulted and editable
   // later, so it all collapses behind "More options" — a new user only faces
   // two decisions before "Lock Capsule". Default awards are seeded from the
@@ -281,9 +285,23 @@ export default function CreateScreen() {
       );
     }
 
-    setLoading(false);
     cache.invalidate('capsules', 'profile');
-    navigation.navigate('CapsuleDetail', { capsuleId, justCreated: true });
+    // Sealed-moment ceremony (UX_POLISH.md #4) plays before the nav — onDone
+    // below does the actual navigate that used to happen immediately here.
+    // `loading` deliberately stays true until onDone: the Lock Capsule button
+    // is still mounted under the overlay, and visual occlusion alone doesn't
+    // stop keyboard (web) or screen-reader activation — a second tap would
+    // create a duplicate capsule.
+    setSealedCapsuleId(capsuleId);
+    setSealedVisible(true);
+  }
+
+  function handleSealedDone() {
+    setSealedVisible(false);
+    setLoading(false);
+    if (sealedCapsuleId) {
+      navigation.navigate('CapsuleDetail', { capsuleId: sealedCapsuleId, justCreated: true });
+    }
   }
 
   const headerAnim = useFadeIn(0, 300);
@@ -291,6 +309,13 @@ export default function CreateScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+      <SealedMoment
+        visible={sealedVisible}
+        title={title.trim()}
+        unlockMode={unlockMode}
+        unlockDate={unlockDate}
+        onDone={handleSealedDone}
+      />
       {isStackPush && (
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={8}>
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />

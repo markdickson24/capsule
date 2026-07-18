@@ -41,6 +41,9 @@ src/
     ConfirmModal.tsx         # Cross-platform confirmation dialog — use instead of Alert.alert
     DatePicker.tsx           # Shared date/time picker — custom calendar grid, month/year picker, quick presets, haptics
     RetryPrompt.tsx          # Inline "taking longer than expected" + Retry button, shown after useLoadingTimeout fires
+    SealedMoment.tsx         # Full-screen "sealed" ceremony overlay (lock scale-in + success haptic + unlock-date line)
+                             # shown by CreateScreen.handleCreate on every successful create; auto-dismisses ~1.8s or on
+                             # tap, then onDone navigates to CapsuleDetail. Mirrors Onboarding step 5's one-time ceremony.
     Skeleton.tsx             # Shimmer skeleton loaders (SkeletonBox, SkeletonCard, SkeletonProfileCard, etc.)
     SuggestCategoryModal.tsx # Bottom sheet for proposing a superlative category (label + target type)
     VoteSheet.tsx            # Bottom sheet for casting / changing a vote (person picker or media grid)
@@ -639,6 +642,7 @@ Named member sets with an optional recurrence schedule that auto-creates capsule
 - **Every insert after the claim is checked; failures roll back.** If the `capsule_members` insert fails (or the group has zero members to insert), the just-created capsule row is deleted and the claim is released (`next_capsule_at`/`last_capsule_at` reset to their pre-claim values) so the *next* tick retries instead of silently skipping a cycle or leaving a members-less capsule that RLS hides from everyone, including its own owner.
 - **Seeds 4 default awards directly** — `superlative_categories` rows inserted with `status='live', is_default=true` from a `general`-occasion pool mirrored verbatim from `src/lib/awardPool.ts` (group capsules have no `occasion` column to pick a themed pool from, and the owner-gated `set_default_superlatives` RPC can't be called by the service role anyway).
 - **Pushes chunked ≤100** via a local `sendExpoPush()` — same ≤100-slice pattern as `unlock-capsules`/`send-superlative-pushes`.
+- **Titles are `"{name} — {Month Year}"` except weekly groups, which get day granularity** (`"{name} — July 20, 2026"`, via `capsuleTitleDate`) — a month-year title collides 4-5×/month for weekly recurrence (GROUPS.md #15).
 - **Auth is Vault-backed, not env-var-backed**: `isAuthorized()` calls the `check_cron_secret(provided)` SECURITY DEFINER RPC (reads `vault.decrypted_secrets`), unlike `unlock-capsules`/`send-superlative-pushes`, which compare against a `CRON_SECRET` env var directly. Both styles currently coexist in this codebase.
 
 **Manual create respects the schedule.** When a member manually starts a capsule for a group that has a real recurrence (not `manual`), `CreateScreen`'s group branch bumps `next_capsule_at` forward from now (via `updateGroup(groupId, { recurrence: group.recurrence_interval })`, with no `anchor` argument — `updateGroup` re-fetches the group's own stored anchor and recomputes via `computeNextOccurrence`, see below) right after creating the capsule — otherwise the cron would still fire on the old schedule and double up. Best-effort/non-fatal: worst case on failure is one extra capsule next cycle, not worth surfacing to the user over their own "Lock Capsule" tap. The capsule itself is owned by whoever tapped create, not necessarily the group's creator — an accepted asymmetry, not a bug.

@@ -42,18 +42,33 @@ async function sendExpoPush(messages: ExpoMessage[]): Promise<void> {
   }
 }
 
-async function pushTokensFor(capsuleId: string): Promise<{ tokens: string[]; userIds: string[] }> {
+// PERFORMANCE.md #10 residual: one members query per batch of capsules
+// (.in) instead of one query per capsule — a tick that unlocks or reminds
+// N capsules used to make N round-trips here.
+type MemberPush = { tokens: string[]; userIds: string[] };
+const EMPTY_MEMBER_PUSH: MemberPush = { tokens: [], userIds: [] };
+
+async function pushTokensForMany(capsuleIds: string[]): Promise<Map<string, MemberPush>> {
+  const byCapsule = new Map<string, MemberPush>();
+  if (capsuleIds.length === 0) return byCapsule;
+
   const { data: members } = await supabase
     .from('capsule_members')
-    .select('user_id, users(push_token)')
-    .eq('capsule_id', capsuleId)
+    .select('capsule_id, user_id, users(push_token)')
+    .in('capsule_id', capsuleIds)
     .not('joined_at', 'is', null);
 
-  const userIds: string[] = (members ?? []).map((m: any) => m.user_id).filter(Boolean);
-  const tokens: string[] = (members ?? [])
-    .map((m: any) => m.users?.push_token)
-    .filter(Boolean);
-  return { tokens, userIds };
+  for (const m of (members ?? []) as any[]) {
+    let entry = byCapsule.get(m.capsule_id);
+    if (!entry) {
+      entry = { tokens: [], userIds: [] };
+      byCapsule.set(m.capsule_id, entry);
+    }
+    if (m.user_id) entry.userIds.push(m.user_id);
+    const token = m.users?.push_token;
+    if (token) entry.tokens.push(token);
+  }
+  return byCapsule;
 }
 
 // Reminder tiers, in firing order. `ms` is how far before unlock_at the tier covers.
@@ -84,10 +99,11 @@ async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
 
     if (error || !due?.length) continue;
 
+    const memberMap = await pushTokensForMany(due.map((c) => c.id));
     for (const capsule of due) {
       const remaining = new Date(capsule.unlock_at).getTime() - Date.now();
       const phrase = formatRemaining(remaining);
-      const { tokens, userIds } = await pushTokensFor(capsule.id);
+      const { tokens, userIds } = memberMap.get(capsule.id) ?? EMPTY_MEMBER_PUSH;
 
       // Durable in-app rows (pushed_at set — we push inline below). The tier
       // stamp already committed, so a failed insert is unrecoverable — at
@@ -148,8 +164,9 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: 'Internal error' }), { status: 500 });
   }
 
+  const unlockedMemberMap = await pushTokensForMany((unlocked ?? []).map((c) => c.id));
   for (const capsule of unlocked ?? []) {
-    const { tokens, userIds } = await pushTokensFor(capsule.id);
+    const { tokens, userIds } = unlockedMemberMap.get(capsule.id) ?? EMPTY_MEMBER_PUSH;
     const nowIso = new Date().toISOString();
 
     // Durable in-app rows FIRST, to every joined member (not just those with a
