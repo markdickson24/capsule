@@ -154,43 +154,19 @@ function DeleteAccountModal({
   async function confirm() {
     const session = sessionStore.get();
     if (!session) { setError('Not signed in.'); return; }
-    const userId = session.user.id;
 
     setBusy(true);
     setError('');
 
     try {
-      // 1. Collect storage_keys to delete — owned capsule media + (optionally) contributed media.
-      const keys: string[] = [];
-
-      const { data: ownedMedia } = await supabase
-        .from('media')
-        .select('storage_key, thumbnail_key, capsules!inner(owner_id)')
-        .eq('capsules.owner_id', userId);
-      for (const m of (ownedMedia ?? []) as any[]) {
-        if (m.storage_key) keys.push(m.storage_key);
-        if (m.thumbnail_key) keys.push(m.thumbnail_key);
-      }
-
-      if (deleteContribs) {
-        const { data: contribMedia } = await supabase
-          .from('media')
-          .select('storage_key, thumbnail_key')
-          .eq('uploader_id', userId);
-        for (const m of (contribMedia ?? []) as any[]) {
-          if (m.storage_key) keys.push(m.storage_key);
-          if (m.thumbnail_key) keys.push(m.thumbnail_key);
-        }
-      }
-
-      if (keys.length > 0) {
-        await supabase.storage.from('capsule-media').remove(keys);
-      }
-
-      // 2. Remove avatar (best effort)
-      await supabase.storage.from('avatars').remove([`${userId}/avatar.jpg`]);
-
-      // 3. DB cleanup
+      // Storage cleanup (capsule media + avatar) happens server-side inside
+      // delete_my_account itself — see the migration that added it. Doing it
+      // client-side first was the bug: a failed RPC left other users' photos
+      // destroyed with all DB rows intact, and even on success it also wiped
+      // storage for capsules the RPC TRANSFERS to another member (whose media
+      // rows survive on purpose). Client-side cleanup also can't simply run
+      // AFTER the RPC instead — once the account is deleted the JWT is dead
+      // and any follow-up storage call would 401.
       const { error: rpcError } = await supabase.rpc('delete_my_account', {
         p_delete_contributions: deleteContribs,
       });

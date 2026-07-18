@@ -53,6 +53,13 @@ type CachedUpload = { key: string; size: number; ext: string };
 const mainUploadCache = new Map<string, CachedUpload>();
 const altUploadCache = new Map<string, CachedUpload>();
 const thumbUploadCache = new Map<string, CachedUpload>();
+// Bumped every time the three caches above are cleared (currently only the
+// drain point at the end of work()). copyOrUpload() snapshots this before
+// starting an upload and only writes its result into the cache if the
+// generation hasn't moved on — so a late-resolving upload that straddles a
+// drain-clear (see the TASK_TIMEOUT_MS note in work()) can't repopulate a
+// cache that's since been reset for an unrelated later batch.
+let cacheGeneration = 0;
 // Per-capsule done/total since that capsule's queue was last empty — drives
 // the aggregate progress bar on CapsuleDetail. Cleared when the capsule's
 // last task leaves the queue.
@@ -135,12 +142,21 @@ async function copyOrUpload(
     if (error) throw new Error(error.message);
     return { key, size: cached.size, ext: cached.ext };
   }
+  // Snapshot before the (possibly long-running / timed-out) upload so a
+  // late write below can detect a drain that happened while it was in flight.
+  const generationAtStart = cacheGeneration;
   const prepared = await produce();
   const ext = prepared.mimeType.split('/').pop()?.replace('jpeg', 'jpg') ?? 'jpg';
   const key = `${capsuleId}/${randomUUID()}.${ext}`;
   const size = await uploadFile(key, prepared.uri, prepared.mimeType);
   const entry: CachedUpload = { key, size, ext };
-  cacheMap.set(sourceUri, entry);
+  // Only cache the result if no drain happened while this upload was in
+  // flight — otherwise this would repopulate a Map that was just cleared for
+  // an unrelated later batch, and a colliding uri there would wrongly hit
+  // this stale entry.
+  if (cacheGeneration === generationAtStart) {
+    cacheMap.set(sourceUri, entry);
+  }
   return entry;
 }
 
@@ -199,6 +215,27 @@ async function runTask(task: UploadTask): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+// Hard ceiling on a single upload task. RN network primitives (web `fetch`,
+// native `FileSystem.uploadAsync`) never time out on a dead connection —
+// they can hang indefinitely. work() is a single sequential loop, so one
+// hung task means `working` never flips back to false and every future
+// upload app-wide silently queues behind it forever, with no failed/retry
+// UI to recover from (only a force-quit does). This forces every task to
+// either finish or fail within 3 minutes so the loop always keeps moving.
+const TASK_TIMEOUT_MS = 180_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  // If `promise` itself later rejects after the timeout has already won the
+  // race, nobody else is listening to it — swallow that here so it can't
+  // surface as an unhandled promise rejection.
+  promise.catch(() => {});
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
 async function work() {
   if (working) return;
   working = true;
@@ -209,7 +246,35 @@ async function work() {
     if (!task) break;
 
     try {
-      await runTask(task);
+      // NOTE on late resolution: if runTask's underlying network calls are
+      // still in flight when the timeout above fires, they are NOT
+      // cancelled (no AbortController wired through fetch/uploadAsync
+      // here) — they keep running in the background and may still settle
+      // after this catch block has already run for `task`.
+      //   - A late-succeeding copyOrUpload() may still try to write into the
+      //     module-level dedup caches (mainUploadCache/altUploadCache/
+      //     thumbUploadCache). A generation counter (cacheGeneration) guards
+      //     this: if the write lands within the same batch (no drain
+      //     happened yet), it's benign — the entry points at a real uploaded
+      //     object, so a later Retry on this task hits the cache and does a
+      //     cheap storage.copy() instead of re-uploading. If the write
+      //     straddles a drain-clear (queue emptied and caches reset while
+      //     this upload was still in flight), the generation has moved on
+      //     and copyOrUpload() drops the write instead of repopulating a
+      //     cleared Map with a stale entry that an unrelated later batch
+      //     could collide with.
+      //   - A late-succeeding `media` insert is the one real side effect:
+      //     it can leave a real row in the DB for a task the UI is still
+      //     showing as failed/retryable. Worst case, a subsequent Retry
+      //     re-runs and inserts a second row, i.e. a duplicate photo — not
+      //     data loss, and rare (requires the call to complete *just*
+      //     after the 3-minute cutoff). Accepted trade-off for this fix's
+      //     scope; not guarded further here.
+      //   - Either way, none of this touches `tasks`/`batchAdded`/
+      //     `batchFailed` — that bookkeeping only happens in this try/catch,
+      //     which has already run to completion for `task` by the time any
+      //     late resolution arrives, so nothing here double-fires.
+      await withTimeout(runTask(task), TASK_TIMEOUT_MS, 'Upload timed out');
       tasks = tasks.filter(t => t.id !== task.id);
       batchAdded += 1;
       const p = progressByCapsule[task.capsuleId];
@@ -246,7 +311,11 @@ async function work() {
   batchAdded = 0;
   batchFailed = 0;
   // Drop the dedup caches now that the batch is fully done — a later,
-  // unrelated upload shouldn't copy from a stale key.
+  // unrelated upload shouldn't copy from a stale key. Bump the generation
+  // counter first so any upload still in flight past this point (see the
+  // TASK_TIMEOUT_MS note above) skips its cache write instead of
+  // repopulating a Map we're about to clear.
+  cacheGeneration += 1;
   mainUploadCache.clear();
   altUploadCache.clear();
   thumbUploadCache.clear();

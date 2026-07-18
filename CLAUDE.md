@@ -665,6 +665,8 @@ A recurring group's schedule is a **fixed calendar anchor**, not "N days/months/
 
 **Ownership safety net (groups and capsules).** `groups.created_by` and `capsules.owner_id` are both `on delete cascade` to `users(id)` — deleting an owner used to silently delete every group or capsule they owned for every other member too, with no warning, even for one with years of history and (for capsules) real photos/videos from other people. `delete_my_account` handles both the same way: immediately before the final `auth.users` delete, every group the caller created (`20260710030000_delete_account_group_transfer.sql`) and every capsule the caller owns (`20260711170000_delete_account_capsule_transfer.sql`) is reassigned to another existing member — oldest-`joined_at`, deterministic — if one exists (for capsules, specifically another **joined**, not pending, member; the RPC also bumps that member's `capsule_members.role` to `'owner'`). Either kind with no other (joined) member needs no special handling — it still cascade-deletes/gets swept by the existing `delete from capsules where owner_id = v_uid` exactly as before, since "delete only if they were the last one" falls out of the existing logic once the transfer-if-possible case runs first. `SettingsScreen`'s delete-account copy (both the inline `Account` section helper text and the confirmation sheet body) mentions that owned capsules and groups are handed off rather than destroyed.
 
+**Storage cleanup is server-side, inside `delete_my_account` itself** (`20260717120000_delete_account_server_storage_cleanup.sql`), not client-side. It used to run in `SettingsScreen`'s `confirm()` before the RPC call — a real data-loss bug with two failure modes: (a) if the RPC then failed, other users' photos were permanently destroyed while every DB row survived, and (b) even on RPC success it also wiped storage for capsules the RPC *transfers* (see above) rather than deletes, whose media rows — and thus other members' photos — are meant to survive. Storage cleanup can't simply be reordered to run *after* the RPC instead: once `delete_my_account` succeeds the auth user (and the client's JWT) is gone, so a follow-up storage call would 401. The fix: at the top of the function, before any mutation, it computes the exact `storage_key`/`thumbnail_key`/`alt_storage_key` set for media it's actually about to delete — media in owned capsules with **no other joined member** (these fall through to the cascade-delete, independent of the transfer loop's order) plus, when `p_delete_contributions`, the caller's own contributed media in *any* capsule (including ones being transferred) — and deletes those rows directly from `storage.objects` (`bucket_id = 'capsule-media'`), plus the caller's `avatars/<uid>/avatar.jpg` row. Deleting `storage.objects` rows directly (not via the storage API) is the accepted pattern for this kind of server-side cleanup; orphaned S3 blobs on an edge case are acceptable. `SettingsScreen.confirm()` is now just the RPC call — no client-side key collection or `storage.remove()`.
+
 ---
 
 ## Content Moderation (Report + Block)
@@ -813,6 +815,19 @@ cleared when the queue fully drains (`work()`), so an unrelated later batch
 never copies from a stale key. Main + alt also now upload **concurrently**
 (`Promise.all`) instead of sequentially — free wall-time win on swappable
 dual photos regardless of cache hit/miss.
+
+Each task is bounded by `TASK_TIMEOUT_MS` (3 minutes, via a `withTimeout()`
+race in `work()`) — RN's network primitives never time out a dead connection
+on their own, and `work()` is a single sequential loop, so one hung task
+would otherwise wedge every future upload app-wide with no retry UI to
+recover from. The underlying network call isn't cancelled on timeout (no
+`AbortController` wired through), so it can still resolve after `work()` has
+already moved on and, at the batch's end, cleared the dedup caches above. A
+module-level `cacheGeneration` counter (bumped on every cache clear) guards
+this: `copyOrUpload()` snapshots the generation before its upload and only
+writes the result into the cache if the generation is unchanged, so a write
+that straddles a drain is dropped rather than repopulating a cleared Map with
+a stale entry an unrelated later batch could collide with and copy from.
 
 **Video thumbnail at upload time:** for `mediaType === 'video'` (native only —
 `expo-video-thumbnails` has no web implementation), `runTask` grabs a frame
