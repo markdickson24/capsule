@@ -67,18 +67,18 @@ const MAX_DURATION_DAYS = 365;
 
 function defaultAnchor(): RecurrenceAnchor {
   const now = new Date();
+  // Every field is derived from the UTC getters — computeNextOccurrence and
+  // the Deno cron that actually fires the schedule both do UTC-only math, so
+  // an anchor mixing local calendar-day fields with a UTC hour/minute would
+  // be internally inconsistent (e.g. weekday computed locally could name a
+  // different calendar day than the UTC hour/minute actually falls on near a
+  // local-midnight boundary). See the RecurrenceAnchor doc comment in
+  // src/lib/recurrence.ts.
   return {
-    weekday: now.getDay(),
-    dayOfMonth: now.getDate(),
-    month: now.getMonth() + 1,
-    day: now.getDate(),
-    // UTC, not local — computeNextOccurrence's Date constructor is interpreted
-    // in whatever timezone runs it (device-local here, UTC in the Deno cron
-    // that actually fires this schedule). Storing a UTC hour/minute means the
-    // cron's own interpretation of anchor_hour/anchor_minute stays correct and
-    // stable forever, since UTC is a fixed reference rather than "local to
-    // whoever's reading it." The calendar day fields above stay local, since
-    // that's what the user sees as "today" when picking a default.
+    weekday: now.getUTCDay(),
+    dayOfMonth: now.getUTCDate(),
+    month: now.getUTCMonth() + 1,
+    day: now.getUTCDate(),
     hour: now.getUTCHours(),
     minute: now.getUTCMinutes(),
   };

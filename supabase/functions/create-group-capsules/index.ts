@@ -10,9 +10,14 @@ type GroupRecurrence = 'weekly' | 'monthly' | 'yearly' | 'manual';
 // Duplicated verbatim from src/lib/recurrence.ts — Deno edge functions can't
 // import from src/lib (same precedent as this file's GENERAL_AWARD_POOL,
 // mirrored from src/lib/awardPool.ts). Keep in sync if either changes.
-// hour/minute are UTC — this runtime's local time already IS UTC (Supabase
-// edge functions and Postgres both run UTC), so no conversion is needed here;
-// the client side (CreateGroupScreen.defaultAnchor) is what has to convert.
+// All anchor fields (weekday/dayOfMonth/month/day AND hour/minute) are UTC,
+// and every computation below is UTC-only (Date.UTC / getUTC* / setUTC*), so
+// the result is timezone-independent — the same absolute instant regardless
+// of which timezone the runtime is in. This runtime's local time already IS
+// UTC (Supabase edge functions and Postgres both run UTC), but the math no
+// longer depends on that being true; the client side (CreateGroupScreen.
+// defaultAnchor) captures every field from UTC getters too, for the same
+// reason. Do not reintroduce any local Date accessor/mutator here.
 interface RecurrenceAnchor {
   weekday?: number;
   dayOfMonth?: number;
@@ -23,12 +28,16 @@ interface RecurrenceAnchor {
 }
 
 function daysInMonth(year: number, month1to12: number): number {
-  return new Date(year, month1to12, 0).getDate();
+  // Day 0 of the following month = the last day of the target month.
+  return new Date(Date.UTC(year, month1to12, 0)).getUTCDate();
 }
 
+// Clamps `day` to the last valid day of the given month (e.g. day 31 in a
+// 30-day month becomes that month's 30th) rather than overflowing into the
+// next month.
 function clampedDate(year: number, month1to12: number, day: number, hour: number, minute: number): Date {
   const clampedDay = Math.min(day, daysInMonth(year, month1to12));
-  return new Date(year, month1to12 - 1, clampedDay, hour, minute, 0, 0);
+  return new Date(Date.UTC(year, month1to12 - 1, clampedDay, hour, minute, 0, 0));
 }
 
 function computeNextOccurrence(interval: GroupRecurrence, anchor: RecurrenceAnchor, from: Date): Date | null {
@@ -36,18 +45,18 @@ function computeNextOccurrence(interval: GroupRecurrence, anchor: RecurrenceAnch
 
   if (interval === 'weekly') {
     if (anchor.weekday === undefined) throw new Error('weekly recurrence requires anchor.weekday');
-    const diffToWeekday = (anchor.weekday - from.getDay() + 7) % 7;
-    const candidate = new Date(from);
-    candidate.setDate(from.getDate() + diffToWeekday);
-    candidate.setHours(anchor.hour, anchor.minute, 0, 0);
-    if (candidate <= from) candidate.setDate(candidate.getDate() + 7);
+    const diffToWeekday = (anchor.weekday - from.getUTCDay() + 7) % 7;
+    const candidate = new Date(from.getTime());
+    candidate.setUTCDate(from.getUTCDate() + diffToWeekday);
+    candidate.setUTCHours(anchor.hour, anchor.minute, 0, 0);
+    if (candidate <= from) candidate.setUTCDate(candidate.getUTCDate() + 7);
     return candidate;
   }
 
   if (interval === 'monthly') {
     if (anchor.dayOfMonth === undefined) throw new Error('monthly recurrence requires anchor.dayOfMonth');
-    let year = from.getFullYear();
-    let month = from.getMonth() + 1;
+    let year = from.getUTCFullYear();
+    let month = from.getUTCMonth() + 1; // 1-12
     let candidate = clampedDate(year, month, anchor.dayOfMonth, anchor.hour, anchor.minute);
     if (candidate <= from) {
       month += 1;
@@ -60,7 +69,7 @@ function computeNextOccurrence(interval: GroupRecurrence, anchor: RecurrenceAnch
   if (anchor.month === undefined || anchor.day === undefined) {
     throw new Error('yearly recurrence requires anchor.month and anchor.day');
   }
-  const year = from.getFullYear();
+  const year = from.getUTCFullYear();
   let candidate = clampedDate(year, anchor.month, anchor.day, anchor.hour, anchor.minute);
   if (candidate <= from) {
     candidate = clampedDate(year + 1, anchor.month, anchor.day, anchor.hour, anchor.minute);

@@ -141,12 +141,16 @@ export default function CreateScreen() {
         scrollToField('contribLockDate');
         return;
       }
-      if (startDate && contribLockDate && startDate >= contribLockDate) {
-        setAdvancedOpen(true);
-        setErrors({ startDate: 'Start date must be before the uploads deadline.' });
-        scrollToField('startDate');
-        return;
-      }
+    }
+    // Independent of unlock_mode: unlock_at is just a placeholder in
+    // proximity mode, but the start/deadline RLS gates apply regardless of
+    // mode, so this must always run or a proximity capsule can end up with
+    // Starts after the Uploads Deadline and never receive a single upload.
+    if (startDate && contribLockDate && startDate >= contribLockDate) {
+      setAdvancedOpen(true);
+      setErrors({ startDate: 'Start date must be before the uploads deadline.' });
+      scrollToField('startDate');
+      return;
     }
     if (votingHours < 1 || votingHours > 720) {
       setAdvancedOpen(true);

@@ -141,20 +141,22 @@ export default function ManageGroupScreen() {
     // Pre-existing groups only have the anchor sub-field for their ORIGINAL
     // recurrence_interval populated (20260713010000_groups_recurrence_revamp.sql
     // backfills just that one field per interval; the rest are null). Fall
-    // back to today's date for whichever field wasn't populated — same
-    // approach as CreateGroupScreen.defaultAnchor() — so `anchor` always has
-    // every calendar sub-field set no matter which interval is currently
-    // selected. Without this, switching to a different interval (before the
-    // user touches the sub-picker) throws inside computeNextOccurrence, both
-    // in the upcoming-preview render and in handleSave's updateGroup call.
+    // back to today's date (UTC, to stay consistent with the UTC
+    // anchor_hour/anchor_minute already on the row) for whichever field
+    // wasn't populated — same approach as CreateGroupScreen.defaultAnchor()
+    // — so `anchor` always has every calendar sub-field set no matter which
+    // interval is currently selected. Without this, switching to a different
+    // interval (before the user touches the sub-picker) throws inside
+    // computeNextOccurrence, both in the upcoming-preview render and in
+    // handleSave's updateGroup call.
     const anchorFromDb = anchorFromGroup(group);
     const now = new Date();
     const seededAnchor: RecurrenceAnchor = {
       ...anchorFromDb,
-      weekday: anchorFromDb.weekday ?? now.getDay(),
-      dayOfMonth: anchorFromDb.dayOfMonth ?? now.getDate(),
-      month: anchorFromDb.month ?? (now.getMonth() + 1),
-      day: anchorFromDb.day ?? now.getDate(),
+      weekday: anchorFromDb.weekday ?? now.getUTCDay(),
+      dayOfMonth: anchorFromDb.dayOfMonth ?? now.getUTCDate(),
+      month: anchorFromDb.month ?? (now.getUTCMonth() + 1),
+      day: anchorFromDb.day ?? now.getUTCDate(),
     };
     setAnchor(seededAnchor);
     originalScheduleRef.current = { recurrence: group.recurrence_interval, anchor: seededAnchor };
