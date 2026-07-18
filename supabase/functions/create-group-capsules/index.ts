@@ -77,7 +77,13 @@ function computeNextOccurrence(interval: GroupRecurrence, anchor: RecurrenceAnch
   return candidate;
 }
 
-function monthYear(d: Date): string {
+// GROUPS.md #15 — a month-year title collides for weekly groups (4-5 identical
+// titles per month), so weekly gets day granularity. Monthly/yearly keep the
+// month-year form, which is already unique per cycle for them.
+function capsuleTitleDate(d: Date, interval: string): string {
+  if (interval === 'weekly') {
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  }
   return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
 
@@ -201,7 +207,7 @@ async function processGroup(group: any) {
   const { error: capsuleErr } = await supabase.from('capsules').insert({
     id: capsuleId,
     owner_id: group.created_by,
-    title: `${group.name} — ${monthYear(now)}`,
+    title: `${group.name} — ${capsuleTitleDate(now, group.recurrence_interval)}`,
     status: 'active',
     visibility: 'invite',
     unlock_at: unlockAt.toISOString(),
