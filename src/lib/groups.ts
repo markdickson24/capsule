@@ -1,6 +1,5 @@
 import { supabase } from './supabase';
 import { sessionStore } from './sessionStore';
-import { randomUUID } from './uuid';
 import { computeNextOccurrence, RecurrenceAnchor, RecurrenceInterval } from './recurrence';
 
 export type GroupRecurrence = RecurrenceInterval;
@@ -115,36 +114,31 @@ export async function createGroup(params: {
   const me = myId();
   if (!me) return { error: 'Not signed in' };
 
-  const groupId = randomUUID();
   const isManual = params.recurrence === 'manual';
   const nextCapsuleAt = !isManual && params.anchor
     ? computeNextOccurrence(params.recurrence, params.anchor, new Date())
     : null;
 
-  const { error } = await supabase.from('groups').insert({
-    id: groupId,
-    name: params.name.trim(),
-    created_by: me,
-    recurrence_interval: params.recurrence,
-    unlock_duration_hours: params.unlockDurationHours,
-    next_capsule_at: nextCapsuleAt ? nextCapsuleAt.toISOString() : null,
-    anchor_weekday: !isManual ? params.anchor?.weekday ?? null : null,
-    anchor_day_of_month: !isManual ? params.anchor?.dayOfMonth ?? null : null,
-    anchor_month: !isManual ? params.anchor?.month ?? null : null,
-    anchor_day: !isManual ? params.anchor?.day ?? null : null,
-    anchor_hour: !isManual ? params.anchor?.hour ?? null : null,
-    anchor_minute: !isManual ? params.anchor?.minute ?? null : null,
-    reminder_lead_hours: !isManual ? params.reminderLeadHours : null,
+  // Atomic: the groups insert + creator group_members insert happen inside
+  // one PL/pgSQL function so a failure partway through can't leave an
+  // orphaned, permanently-invisible group behind (see GROUPS.md #3 /
+  // 20260718091000_create_group_with_creator.sql — mirrors
+  // create_capsule_with_owner's fix for the same class of bug on capsules).
+  const { data: groupId, error } = await supabase.rpc('create_group_with_creator', {
+    p_name: params.name.trim(),
+    p_recurrence_interval: params.recurrence,
+    p_unlock_duration_hours: params.unlockDurationHours,
+    p_next_capsule_at: nextCapsuleAt ? nextCapsuleAt.toISOString() : null,
+    p_anchor_weekday: !isManual ? params.anchor?.weekday ?? null : null,
+    p_anchor_day_of_month: !isManual ? params.anchor?.dayOfMonth ?? null : null,
+    p_anchor_month: !isManual ? params.anchor?.month ?? null : null,
+    p_anchor_day: !isManual ? params.anchor?.day ?? null : null,
+    p_anchor_hour: !isManual ? params.anchor?.hour ?? null : null,
+    p_anchor_minute: !isManual ? params.anchor?.minute ?? null : null,
+    p_reminder_lead_hours: !isManual ? params.reminderLeadHours : null,
   });
 
-  if (error) return { error: 'Could not create group.' };
-
-  // Insert creator first so get_my_group_ids() returns this group for subsequent checks.
-  const { error: creatorErr } = await supabase.from('group_members').insert({
-    group_id: groupId,
-    user_id: me,
-  });
-  if (creatorErr) return { error: 'Could not add you to the group.' };
+  if (error || !groupId) return { error: 'Could not create group.' };
 
   // Insert other members — is_group_creator() can now resolve correctly.
   const otherIds = params.memberIds.filter(id => id !== me);

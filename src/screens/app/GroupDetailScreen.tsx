@@ -15,6 +15,7 @@ import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
+import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import RetryPrompt from '../../components/RetryPrompt';
@@ -60,7 +61,11 @@ function CapsuleRow({ item, onPress }: { item: GroupCapsule; onPress: () => void
   );
 }
 
-function MemberBubble({ avatarUrl, displayName }: { avatarUrl: string | null; displayName: string | null }) {
+function MemberBubble({
+  avatarUrl, displayName, isCreator, accentColor,
+}: {
+  avatarUrl: string | null; displayName: string | null; isCreator: boolean; accentColor: string;
+}) {
   return (
     <View style={styles.memberBubble}>
       {avatarUrl ? (
@@ -70,6 +75,15 @@ function MemberBubble({ avatarUrl, displayName }: { avatarUrl: string | null; di
           <Text style={styles.memberAvatarInitial}>
             {(displayName ?? '?')[0].toUpperCase()}
           </Text>
+        </View>
+      )}
+      {isCreator && (
+        <View
+          style={[styles.creatorBadge, { backgroundColor: accentColor }]}
+          accessible
+          accessibilityLabel={`${displayName ?? 'Member'} is the group creator`}
+        >
+          <Ionicons name="star" size={9} color="#FFFFFF" />
         </View>
       )}
     </View>
@@ -101,6 +115,9 @@ export default function GroupDetailScreen() {
     `group-members:${groupId}`,
     () => getGroupMembers(groupId),
   );
+  // Reactive so unblocking someone updates the bubble list live, without a
+  // manual refresh — matches the other block-filter sites (InviteModal, etc).
+  const blockedIds = useBlockedUsers();
 
   const { data: capsules, loading: capsulesLoading, refresh: refreshCapsules } = useCachedFetch<GroupCapsule[]>(
     `group-capsules:${groupId}`,
@@ -208,6 +225,12 @@ export default function GroupDetailScreen() {
     ? computeUpcomingOccurrences(group.recurrence_interval, anchorFromGroup(group), new Date(), 1)[0] ?? null
     : null;
   const memberList = members ?? [];
+  // Blocked members are hidden from the bubble list — same client-side
+  // filtering as InviteModal/ManageGroupScreen search (CLAUDE.md "Content
+  // Moderation" — block enforcement is client-side, not RLS). The member
+  // count text below is derived from this same filtered array so it never
+  // disagrees with what's actually rendered.
+  const visibleMembers = memberList.filter(m => !blockedIds.has(m.user_id));
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
@@ -260,6 +283,10 @@ export default function GroupDetailScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
         ListHeaderComponent={
           <View>
+            {/* Gate on the UNFILTERED roster (memberList, not visibleMembers):
+                the nudge is about actual group size — a group whose only other
+                member is blocked is still a 2-person group, not one that needs
+                the "add members" prompt. */}
             {route.params.justCreated && !nudgeDismissed && memberList.length === 1 && (
               <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
                 <Ionicons name="person-add-outline" size={22} color={accentColor} />
@@ -288,20 +315,22 @@ export default function GroupDetailScreen() {
             <View style={styles.meta}>
               <View style={styles.metaRow}>
                 <View style={styles.memberRow}>
-                  {memberList.slice(0, 5).map(m => (
+                  {visibleMembers.slice(0, 5).map(m => (
                     <MemberBubble
                       key={m.user_id}
                       avatarUrl={m.users?.avatar_url ?? null}
                       displayName={m.users?.display_name ?? null}
+                      isCreator={m.user_id === group.created_by}
+                      accentColor={accentColor}
                     />
                   ))}
-                  {memberList.length > 5 && (
+                  {visibleMembers.length > 5 && (
                     <View style={styles.memberOverflow}>
-                      <Text style={styles.memberOverflowText}>+{memberList.length - 5}</Text>
+                      <Text style={styles.memberOverflowText}>+{visibleMembers.length - 5}</Text>
                     </View>
                   )}
                 </View>
-                <Text style={styles.memberCount}>{memberList.length} member{memberList.length !== 1 ? 's' : ''}</Text>
+                <Text style={styles.memberCount}>{visibleMembers.length} member{visibleMembers.length !== 1 ? 's' : ''}</Text>
               </View>
               <View style={styles.badges}>
                 <View style={styles.badge}>
@@ -394,7 +423,7 @@ const styles = StyleSheet.create({
   },
   metaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   memberRow: { flexDirection: 'row', alignItems: 'center' },
-  memberBubble: { marginRight: -8 },
+  memberBubble: { marginRight: -8, position: 'relative' },
   memberAvatar: { width: 32, height: 32, borderRadius: 16, borderWidth: 2, borderColor: '#1A1A1A' },
   memberAvatarFallback: {
     width: 32, height: 32, borderRadius: 16,
@@ -402,6 +431,12 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: '#1A1A1A',
   },
   memberAvatarInitial: { fontSize: 13, fontWeight: '700', color: '#FFFFFF' },
+  creatorBadge: {
+    position: 'absolute', bottom: -2, right: -2,
+    width: 14, height: 14, borderRadius: 7,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: '#1A1A1A',
+  },
   memberOverflow: {
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: '#2A2A2A', alignItems: 'center', justifyContent: 'center',

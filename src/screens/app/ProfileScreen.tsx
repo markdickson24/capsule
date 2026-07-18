@@ -76,7 +76,10 @@ async function uploadAvatar(uri: string): Promise<string> {
     const { error } = await supabase.storage
       .from('avatars')
       .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.warn('Avatar upload failed:', error.message);
+      throw new Error('Check your connection and try again.');
+    }
   } else {
     const { accessToken, userId } = await getFreshSession();
     path = `${userId}/avatar.jpg`;

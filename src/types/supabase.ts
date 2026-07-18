@@ -939,6 +939,26 @@ export type Database = {
         }
         Returns: string
       }
+      create_group_with_creator: {
+        Args: {
+          p_anchor_day?: number | null
+          p_anchor_day_of_month?: number | null
+          p_anchor_hour?: number | null
+          p_anchor_minute?: number | null
+          p_anchor_month?: number | null
+          p_anchor_weekday?: number | null
+          p_name: string
+          p_next_capsule_at?: string | null
+          p_recurrence_interval: string
+          p_reminder_lead_hours?: number | null
+          p_unlock_duration_hours: number
+        }
+        Returns: string
+      }
+      delete_capsule_with_storage: {
+        Args: { p_capsule_id: string }
+        Returns: undefined
+      }
       delete_my_account: {
         Args: { p_delete_contributions?: boolean }
         Returns: undefined

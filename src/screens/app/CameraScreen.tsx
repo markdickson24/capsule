@@ -121,6 +121,12 @@ export default function CameraScreen() {
   const isRecordingRef = useRef(false);
   const holdStarted = useRef(false);
   const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True for the lifetime of a shutter press (onPressIn → onPressOut/terminate).
+  // startRecording/startDualRecording re-check this after every await that
+  // precedes actually arming the recording (e.g. the mic-permission prompt) —
+  // if the finger already lifted, nothing would ever stop a recording that
+  // starts after the fact, so we bail out instead of stranding it.
+  const pressActiveRef = useRef(false);
   const recordInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const maxDurationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTapRef = useRef(0);
@@ -252,6 +258,10 @@ export default function CameraScreen() {
     if (!micPermission?.granted) {
       const result = await requestMicPermission();
       if (!result.granted) return;
+      // The permission prompt can take several seconds to resolve — the user
+      // may have already released the shutter while it was up. Don't arm a
+      // recording that no gesture is left to stop.
+      if (!pressActiveRef.current) { cleanupRecording(); return; }
     }
     isRecordingRef.current = true;
     segmentsRef.current = [];
@@ -346,6 +356,9 @@ export default function CameraScreen() {
     if (!micPermission?.granted) {
       const result = await requestMicPermission();
       if (!result.granted) return;
+      // Same race as startRecording: bail out if the finger already lifted
+      // while the permission prompt was up.
+      if (!pressActiveRef.current) { cleanupRecording(); return; }
     }
     isRecordingRef.current = true;
     setIsRecording(true);
@@ -398,6 +411,7 @@ export default function CameraScreen() {
   }
 
   function onPressIn() {
+    pressActiveRef.current = true;
     holdStarted.current = false;
     holdTimer.current = setTimeout(() => {
       holdStarted.current = true;
@@ -407,6 +421,7 @@ export default function CameraScreen() {
   }
 
   async function onPressOut() {
+    pressActiveRef.current = false;
     if (holdTimer.current) { clearTimeout(holdTimer.current); holdTimer.current = null; }
     if (isDual) {
       if (holdStarted.current) stopDualRecording();

@@ -293,7 +293,7 @@ function InviteModal({
 
   async function shareLink() {
     await Share.share({
-      message: `Join my Capsule "${capsuleTitle}"! Tap to join: capsule://join/${capsuleId}`,
+      message: `Join my Capsule "${capsuleTitle}" — add your photos before it locks! Open this link on your phone with Capsule installed: capsule://join/${capsuleId}`,
     });
   }
 
@@ -301,6 +301,14 @@ function InviteModal({
     // Success and failure both go through the toast system now — the error
     // slot is reserved for actual errors, not "saved ✓" confirmations.
     try {
+      if (Platform.OS !== 'web') {
+        // writeOnly: true — we only ever add to the library, never read it.
+        const { status } = await MediaLibrary.requestPermissionsAsync(true);
+        if (status !== 'granted') {
+          toast.show('Enable Photos access in Settings to save the QR code.');
+          return;
+        }
+      }
       const uri = await viewShotRef.current?.capture?.();
       if (!uri) return;
       await MediaLibrary.saveToLibraryAsync(uri);
@@ -652,8 +660,13 @@ function MediaViewerModal({
         a.download = `capsule-${item.id}.${item.mediaType === 'video' ? 'mp4' : 'jpg'}`;
         a.click();
       } else {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status !== 'granted') { setDownloading(false); return; }
+        // writeOnly: true — we only ever add to the library, never read it.
+        const { status } = await MediaLibrary.requestPermissionsAsync(true);
+        if (status !== 'granted') {
+          toast.show('Enable Photos access in Settings to save this.');
+          setDownloading(false);
+          return;
+        }
         const ext = item.mediaType === 'video' ? 'mp4' : 'jpg';
         const localUri = FileSystem.cacheDirectory + `capsule-${item.id}.${ext}`;
         await FileSystem.downloadAsync(url, localUri);
@@ -662,7 +675,7 @@ function MediaViewerModal({
       setDownloadDone(true);
       setTimeout(() => setDownloadDone(false), 2000);
     } catch {
-      // Silent fail — permission denied or network error
+      toast.show("Couldn't save — try again.");
     } finally {
       setDownloading(false);
     }
@@ -1241,26 +1254,20 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
   async function confirmDelete() {
     setDeleting(true);
-    // Fetch the media keys BEFORE deleting the row — the media rows
-    // cascade-delete with the capsule, so this must happen first.
-    const { data: mediaRows } = await supabase
-      .from('media').select('storage_key, alt_storage_key, thumbnail_key').eq('capsule_id', capsuleId);
-    const keys = (mediaRows ?? []).flatMap((m: any) =>
-      [m.storage_key, m.alt_storage_key, m.thumbnail_key].filter(Boolean)
-    );
-
-    const { error: deleteErr } = await supabase.from('capsules').delete().eq('id', capsuleId);
+    // Key collection + storage cleanup + the capsule delete all happen
+    // server-side in one SECURITY DEFINER RPC — a client-side select on
+    // `media` can't see any rows while the capsule is locked in surprise
+    // mode (owner_preview_locked), which used to leave every file orphaned
+    // in the capsule-media bucket. See BUGS.md #1 /
+    // 20260718090000_delete_capsule_with_storage.sql.
+    const { error: deleteErr } = await supabase.rpc('delete_capsule_with_storage', {
+      p_capsule_id: capsuleId,
+    });
     setDeleting(false);
     if (deleteErr) {
       setShowDeleteConfirm(false);
       toast.show("Couldn't delete the capsule — try again.");
       return;
-    }
-
-    // Best-effort storage cleanup — a failure here just leaves orphaned,
-    // inaccessible blobs behind; it must not block navigation.
-    if (keys.length) {
-      await supabase.storage.from('capsule-media').remove(keys).catch(() => {});
     }
 
     setShowDeleteConfirm(false);
@@ -1746,7 +1753,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <View style={styles.memberAvatarRow}>
             {members.slice(0, 5).map((m, i) => (
               <View
-                key={i}
+                key={m.user_id}
                 style={[
                   styles.memberBubbleWrap,
                   { zIndex: 5 - i },
@@ -2126,7 +2133,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               >
                 {members.map((m, i) => (
                   <TouchableOpacity
-                    key={i}
+                    key={m.user_id}
                     style={styles.sheetMemberRow}
                     onPress={() => {
                       setShowMembersSheet(false);

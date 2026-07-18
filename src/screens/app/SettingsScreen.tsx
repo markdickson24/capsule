@@ -15,11 +15,13 @@ import { useSlideUp } from '../../lib/animations';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
+import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
-const PRIVACY_URL = 'https://capsule.app/privacy';
-const TERMS_URL = 'https://capsule.app/terms';
+// Published contact info, required by App Review's UGC checklist (Guideline 1.2).
+const SUPPORT_EMAIL = 'mark.dickson0824@gmail.com';
+const SUPPORT_URL = `mailto:${SUPPORT_EMAIL}?subject=Capsule%20Support`;
 
 function appVersionLabel(): string {
   const v = Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '?';
@@ -79,7 +81,12 @@ export default function SettingsScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Legal</Text>
+            <Text style={styles.sectionLabel}>Support &amp; Legal</Text>
+            <SettingsRow
+              icon="mail-outline"
+              label="Contact Support"
+              onPress={() => Linking.openURL(SUPPORT_URL)}
+            />
             <SettingsRow
               icon="document-text-outline"
               label="Privacy Policy"
