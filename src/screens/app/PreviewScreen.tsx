@@ -124,6 +124,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
           mediaType: item.mediaType,
           altUri: item.altUri,
           caption: captions[idx],
+          mimeType: item.mimeType,
         }))
       )
     );

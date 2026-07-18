@@ -10,6 +10,9 @@ export type PendingMedia = {
   /** PiP dual photos only: the swapped (front-main) composite, uploaded as alt_storage_key. */
   altUri?: string;
   caption?: string;
+  /** Real source mimeType when known (picker/share-intent) — lets uploadQueue derive a
+   * coherent storage-key extension/Content-Type instead of falling back to a guessed default. */
+  mimeType?: string;
 };
 
 export type AppTabParamList = {

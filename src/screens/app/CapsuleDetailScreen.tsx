@@ -479,6 +479,10 @@ const MEDIA_CACHE_TTL = 3 * 60 * 1000;
 
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '🔥', '😢', '👏', '🤯'];
 
+// Library/camera-roll videos are capped at 2 minutes — parity with
+// CameraScreen's module-level MAX_RECORD_SECONDS (=120) for in-app recording.
+const MAX_LIBRARY_VIDEO_MS = 120_000;
+
 type Reaction = { id: string; media_id: string; user_id: string; emoji: string };
 
 function ReactionsBar({
@@ -1523,6 +1527,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       media: assets.map(a => ({
         uri: a.uri,
         mediaType: a.type === 'video' ? ('video' as const) : ('photo' as const),
+        // Real picker mimeType, when present — lets uploadQueue derive a
+        // coherent storage-key extension/Content-Type (e.g. a web-picked
+        // .webm/.ogg video) instead of always defaulting to video/mp4.
+        mimeType: a.mimeType ?? undefined,
       })),
       source: 'camera',
       targetCapsuleId: capsuleId,
@@ -1540,16 +1548,19 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadTasks.length]);
 
-  // Library videos are capped at 2 minutes — parity with CameraScreen's
-  // in-app recording cap (MAX_RECORD_SECONDS = 120 there).
-  const MAX_LIBRARY_VIDEO_MS = 120_000;
-
   // expo-image-picker's ImagePickerAsset.duration is documented as
   // milliseconds and IS milliseconds on iOS/Android, but the web shim
   // (ExponentImagePicker.web.ts) sets it straight from HTMLVideoElement's
   // `duration`, which the DOM defines in SECONDS — an inconsistency in the
   // library itself, not something to "fix" here. Normalize to ms so the cap
   // check below is correct on both platforms.
+  //
+  // Missing/unreadable duration (null/undefined) deliberately fails OPEN —
+  // it's treated as 0ms and passes the cap rather than being dropped. A video
+  // whose metadata the picker couldn't read is far more likely to be a picker
+  // quirk than an actual multi-hour file, and punishing missing metadata by
+  // silently discarding the user's video would be a worse outcome than
+  // letting an edge case through uncapped.
   function durationMs(asset: ImagePicker.ImagePickerAsset): number {
     const raw = asset.duration ?? 0;
     return Platform.OS === 'web' ? raw * 1000 : raw;
@@ -1558,7 +1569,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // Drops any picked video over the cap, toasts what happened (correct
   // singular/plural), and returns null (instead of an empty array) when
   // every picked item was dropped so the caller can skip navigating to
-  // Preview with nothing to show.
+  // Preview with nothing to show. See durationMs() above for why a video with
+  // no readable duration passes through uncapped rather than being dropped.
   function filterOversizedVideos(assets: ImagePicker.ImagePickerAsset[]): ImagePicker.ImagePickerAsset[] | null {
     const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= MAX_LIBRARY_VIDEO_MS);
     const droppedCount = assets.length - kept.length;
@@ -1595,11 +1607,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ['images', 'videos'],
       // Caps a system-camera video recording at capture time — the same
-      // 2-minute ceiling enforced post-hoc on library picks above.
+      // 2-minute ceiling enforced post-hoc on library picks below. Kept as a
+      // best-effort front line, not a guarantee: some Android camera apps
+      // don't reliably honor videoMaxDuration, so the post-hoc filter is the
+      // real backstop.
       videoMaxDuration: 120,
       quality: 0.8,
     });
-    if (!result.canceled) goToPreview(result.assets);
+    if (result.canceled) return;
+    const kept = filterOversizedVideos(result.assets);
+    if (kept) goToPreview(kept);
   }
 
   if (loading) {
