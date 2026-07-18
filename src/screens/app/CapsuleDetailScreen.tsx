@@ -1241,26 +1241,20 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
   async function confirmDelete() {
     setDeleting(true);
-    // Fetch the media keys BEFORE deleting the row — the media rows
-    // cascade-delete with the capsule, so this must happen first.
-    const { data: mediaRows } = await supabase
-      .from('media').select('storage_key, alt_storage_key, thumbnail_key').eq('capsule_id', capsuleId);
-    const keys = (mediaRows ?? []).flatMap((m: any) =>
-      [m.storage_key, m.alt_storage_key, m.thumbnail_key].filter(Boolean)
-    );
-
-    const { error: deleteErr } = await supabase.from('capsules').delete().eq('id', capsuleId);
+    // Key collection + storage cleanup + the capsule delete all happen
+    // server-side in one SECURITY DEFINER RPC — a client-side select on
+    // `media` can't see any rows while the capsule is locked in surprise
+    // mode (owner_preview_locked), which used to leave every file orphaned
+    // in the capsule-media bucket. See BUGS.md #1 /
+    // 20260718090000_delete_capsule_with_storage.sql.
+    const { error: deleteErr } = await supabase.rpc('delete_capsule_with_storage', {
+      p_capsule_id: capsuleId,
+    });
     setDeleting(false);
     if (deleteErr) {
       setShowDeleteConfirm(false);
       toast.show("Couldn't delete the capsule — try again.");
       return;
-    }
-
-    // Best-effort storage cleanup — a failure here just leaves orphaned,
-    // inaccessible blobs behind; it must not block navigation.
-    if (keys.length) {
-      await supabase.storage.from('capsule-media').remove(keys).catch(() => {});
     }
 
     setShowDeleteConfirm(false);

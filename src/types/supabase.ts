@@ -939,6 +939,10 @@ export type Database = {
         }
         Returns: string
       }
+      delete_capsule_with_storage: {
+        Args: { p_capsule_id: string }
+        Returns: undefined
+      }
       delete_my_account: {
         Args: { p_delete_contributions?: boolean }
         Returns: undefined
