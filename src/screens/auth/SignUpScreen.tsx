@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { AuthStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
 import { mapAuthError } from '../../lib/authErrors';
+import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
@@ -207,6 +208,18 @@ export default function SignUpScreen({ navigation }: Props) {
           )}
         </TouchableOpacity>
 
+        <Text style={styles.consentText}>
+          By creating an account you agree to our{' '}
+          <Text style={styles.consentLink} onPress={() => Linking.openURL(TERMS_URL)}>
+            Terms of Service
+          </Text>{' '}
+          and{' '}
+          <Text style={styles.consentLink} onPress={() => Linking.openURL(PRIVACY_URL)}>
+            Privacy Policy
+          </Text>
+          .
+        </Text>
+
         <TouchableOpacity onPress={() => navigation.navigate('Login')}>
           <Text style={styles.switchText}>Already have an account? <Text style={styles.link}>Sign in</Text></Text>
         </TouchableOpacity>
@@ -242,6 +255,8 @@ const styles = StyleSheet.create({
   },
   buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   switchText: { color: '#888888', textAlign: 'center', fontSize: 15 },
+  consentText: { color: '#888888', textAlign: 'center', fontSize: 12, lineHeight: 17 },
+  consentLink: { color: '#FF6B35', fontWeight: '600' },
   link: { color: '#FF6B35', fontWeight: '600', textAlign: 'center', fontSize: 15 },
   linkDisabled: { color: '#555555' },
   error: { color: '#FF3B30', textAlign: 'center', fontSize: 14 },
