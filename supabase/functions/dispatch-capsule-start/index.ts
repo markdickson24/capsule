@@ -64,8 +64,14 @@ Deno.serve(async (req) => {
       pushed_at: new Date().toISOString(),
     }));
     if (rows.length) {
-      await supabase.from('notifications').insert(rows);
-      notified += rows.length;
+      // contribution_start_notified_at already stamped — a failed insert is
+      // unrecoverable; log it instead of silently losing the Alerts rows.
+      const { error: insertError } = await supabase.from('notifications').insert(rows);
+      if (insertError) {
+        console.error(`Failed to insert capsule_started rows for capsule ${capsule.id}:`, insertError);
+      } else {
+        notified += rows.length;
+      }
     }
 
     for (const m of (members ?? []) as any[]) {
