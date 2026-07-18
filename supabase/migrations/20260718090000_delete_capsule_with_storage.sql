@@ -68,3 +68,7 @@ $$;
 
 revoke all on function public.delete_capsule_with_storage(uuid) from public;
 grant execute on function public.delete_capsule_with_storage(uuid) to authenticated;
+
+-- Supabase default privileges grant execute on new functions to anon/authenticated/
+-- service_role explicitly, so the revoke-from-public above does not strip anon.
+revoke execute on function public.delete_capsule_with_storage(uuid) from anon;
