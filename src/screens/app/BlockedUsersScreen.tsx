@@ -155,5 +155,5 @@ const styles = StyleSheet.create({
   },
   unblockBtnText: { fontSize: 13, fontWeight: '700' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, paddingBottom: 80 },
-  emptyText: { fontSize: 16, color: '#555555', fontWeight: '600' },
+  emptyText: { fontSize: 16, color: '#888888', fontWeight: '600' },
 });
