@@ -358,6 +358,10 @@ export const uploadQueue = {
     const task = tasks.find(t => t.id === taskId);
     tasks = tasks.filter(t => t.id !== taskId);
     if (task) {
+      // Mirror retry()'s decrement — a dismissed failure must not still be
+      // counted in the drain toast ("1 added · 1 failed" with no failed
+      // tile left anywhere to act on).
+      if (task.status === 'failed') batchFailed = Math.max(0, batchFailed - 1);
       const p = progressByCapsule[task.capsuleId];
       if (p) p.total = Math.max(0, p.total - 1);
       clearProgressIfDrained(task.capsuleId);

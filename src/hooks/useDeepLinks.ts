@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { navigationRef } from '../lib/navigationRef';
 import { cache } from '../lib/cache';
+import { toast } from '../lib/toast';
 import { pendingJoinStash } from '../lib/pendingJoinStash';
 
 function navigateWhenReady(fn: () => void) {
@@ -60,12 +61,18 @@ async function joinAndNavigate(capsuleId: string, userId: string) {
   if (!existing) {
     // No client-side notifications insert (no INSERT policy — always errors
     // silently); the notify_on_invite trigger already covers this.
-    await supabase.from('capsule_members').insert({
+    const { error } = await supabase.from('capsule_members').insert({
       capsule_id: capsuleId,
       user_id: userId,
       role: 'contributor',
       joined_at: new Date().toISOString(),
     });
+    if (error) {
+      // Navigating anyway would land on "Failed to load capsule" (the
+      // membership-gated SELECT hides the row) with no hint the JOIN failed.
+      toast.show("Couldn't join this capsule — try the link again.");
+      return;
+    }
     cache.invalidate('capsules', 'profile');
   }
 

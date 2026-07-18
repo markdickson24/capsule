@@ -233,6 +233,11 @@ export async function updateGroup(groupId: string, updates: {
     patch.next_reminder_sent_at = null;
   }
 
+  // A lead-time change alone must also clear the stamp: if the old lead
+  // already fired this cycle, the stale stamp would suppress the reminder
+  // the user just reconfigured until the next cycle resets it.
+  if (updates.reminderLeadHours !== undefined) patch.next_reminder_sent_at = null;
+
   const { error } = await supabase.from('groups').update(patch as any).eq('id', groupId);
   return error ? { error: 'Could not update group.' } : {};
 }

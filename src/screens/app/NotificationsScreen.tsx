@@ -186,6 +186,12 @@ export default function NotificationsScreen() {
           .eq('user_id', session.user.id)
           .eq('capsule_id', item.capsule_id)
           .eq('type', 'reaction')
+          // Only sweep rows the user could actually have seen: the grouped
+          // card is the NEWEST fetched reaction (its sent_at is the group's
+          // ceiling), so a reaction arriving server-side after the last
+          // fetch must not be marked read before it was ever surfaced.
+          .is('read_at', null)
+          .lte('sent_at', item.sent_at)
       : supabase.from('notifications').update({ read_at: now }).eq('id', item.id);
     const { error } = await query;
     if (error) {
