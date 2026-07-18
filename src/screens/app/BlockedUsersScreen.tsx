@@ -28,8 +28,13 @@ export default function BlockedUsersScreen({ navigation }: Props) {
   const [unblockingIds, setUnblockingIds] = useState<Set<string>>(new Set());
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
+  // Stable string of the actual blocked ids (not just the count) — a same-size
+  // swap (unblock A, block C between visits) must still invalidate `load`'s
+  // memoized closure, or it keeps serving the stale pre-swap id list.
+  const blockedKey = Array.from(blockedIds).sort().join(',');
+
   const load = useCallback(async () => {
-    const ids = Array.from(blockedIds);
+    const ids = blockedKey ? blockedKey.split(',') : [];
     if (ids.length === 0) {
       setProfiles([]);
       setLoading(false);
@@ -41,8 +46,7 @@ export default function BlockedUsersScreen({ navigation }: Props) {
       .in('id', ids);
     setProfiles((data ?? []) as BlockedProfile[]);
     setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockedIds.size]);
+  }, [blockedKey]);
 
   useFocusEffect(useCallback(() => {
     setLoading(true);

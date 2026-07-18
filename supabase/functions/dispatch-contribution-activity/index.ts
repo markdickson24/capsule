@@ -93,8 +93,14 @@ Deno.serve(async (req) => {
       count: row.photo_count,
       pushed_at: new Date().toISOString(),
     }));
-    await supabase.from('notifications').insert(rows);
-    notified += rows.length;
+    // The debounce row was already claimed (deleted), so a failed insert is
+    // unrecoverable — log it instead of silently losing the Alerts rows.
+    const { error: insertError } = await supabase.from('notifications').insert(rows);
+    if (insertError) {
+      console.error(`Failed to insert contribution_activity rows for capsule ${row.capsule_id}:`, insertError);
+    } else {
+      notified += rows.length;
+    }
 
     for (const m of recipients as any[]) {
       const token = m.users?.push_token;

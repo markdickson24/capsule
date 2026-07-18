@@ -89,9 +89,11 @@ async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
       const phrase = formatRemaining(remaining);
       const { tokens, userIds } = await pushTokensFor(capsule.id);
 
-      // Durable in-app rows (pushed_at set — we push inline below).
+      // Durable in-app rows (pushed_at set — we push inline below). The tier
+      // stamp already committed, so a failed insert is unrecoverable — at
+      // least make it visible in the function logs instead of silent.
       if (userIds.length) {
-        await supabase.from('notifications').insert(
+        const { error: reminderInsertError } = await supabase.from('notifications').insert(
           userIds.map((uid) => ({
             user_id: uid,
             capsule_id: capsule.id,
@@ -99,6 +101,9 @@ async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
             pushed_at: nowIso,
           }))
         );
+        if (reminderInsertError) {
+          console.error(`Failed to insert unlock_reminder rows for capsule ${capsule.id}:`, reminderInsertError);
+        }
       }
 
       for (const token of tokens) {

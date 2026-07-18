@@ -30,7 +30,7 @@ if (SENTRY_DSN) {
 function RootNavigator() {
   const { session, loading } = useAuth();
   usePushNotifications(session?.user.id);
-  useDeepLinks();
+  useDeepLinks(session);
   useShareIntent(session);
 
   if (loading) return <LoadingBrandScreen />;

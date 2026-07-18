@@ -28,7 +28,22 @@ export function useAuth() {
     };
 
     // Native safety net: if SecureStore-backed init lags, don't block forever.
-    const timeout = setTimeout(() => settle(sessionStore.get()), 1500);
+    // This only releases the loading spinner — it must NOT write a null
+    // session (via setSession/sessionStore.set), or a signed-in user whose
+    // restore is merely slow gets flashed to the Welcome/Auth screen. The
+    // still-in-flight getSession() call and/or onAuthStateChange below keep
+    // calling `settle` with the real session once it lands; `settle` always
+    // applies session state regardless of `settled`, so late arrival still
+    // swaps AuthNavigator for AppNavigator — only the loading-flip is guarded.
+    const settleLoadingOnly = () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        setLoading(false);
+      }
+    };
+
+    const timeout = setTimeout(settleLoadingOnly, 1500);
 
     supabase.auth.getSession()
       .then(({ data: { session } }) => settle(session))

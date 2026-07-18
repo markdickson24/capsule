@@ -136,9 +136,13 @@ export default function PreviewScreen({ route, navigation }: Props) {
   }
 
   function goCreateCapsule() {
+    // Merge typed captions the same way `upload()` does for the normal
+    // "Add to Capsule" path — captions are keyed by item index — so a caption
+    // typed before hitting "Create Capsule" isn't silently dropped.
+    const media = items.map((item, idx) => ({ ...item, caption: captions[idx] }));
     navigation.replace('Tabs', {
       screen: 'Create',
-      params: { pendingMedia: items },
+      params: { pendingMedia: media },
     });
   }
 

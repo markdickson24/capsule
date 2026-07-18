@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import LoadingBrand from '../../components/LoadingBrand';
 import ProgressBar from '../../components/ProgressBar';
 import { uploadQueue } from '../../lib/uploadQueue';
@@ -463,6 +464,11 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 // fetchPhotos only needs to derive one resized URL per photo.
 const GRID_THUMB_PX = Math.ceil(SCREEN_WIDTH / 3);
 
+// Shared with fetchPhotos' own `media:${capsuleId}` cache.get/set below, so a
+// same-shape patch (e.g. saveCaption) checks freshness the same way the
+// screen's own read does.
+const MEDIA_CACHE_TTL = 3 * 60 * 1000;
+
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '🔥', '😢', '👏', '🤯'];
 
 type Reaction = { id: string; media_id: string; user_id: string; emoji: string };
@@ -676,6 +682,22 @@ function MediaViewerModal({
     await supabase.from('media').update({ caption: trimmed }).eq('id', item.id);
     onCaptionSave(item.id, trimmed);
     setEditingCaption(false);
+
+    // Patch the raw `media:${capsuleId}` cache in place rather than
+    // invalidating it — a non-forced fetchPhotos() within the next 3min
+    // (MEDIA_CACHE_TTL) would otherwise rebuild `photos` from this
+    // now-stale cached row list and silently revert the caption the user
+    // just saw save. No invalidate() here: that would also blow away the
+    // signed-URL cache derivation cost for no reason (this update doesn't
+    // touch storage keys).
+    const mediaCacheKey = `media:${capsuleId}`;
+    const cachedMedia = cache.get<any[]>(mediaCacheKey, MEDIA_CACHE_TTL);
+    if (cachedMedia) {
+      cache.set(
+        mediaCacheKey,
+        cachedMedia.map(m => (m.id === item.id ? { ...m, caption: trimmed } : m))
+      );
+    }
   }
 
   const goToIndex = (index: number) => {
@@ -779,7 +801,17 @@ function MediaViewerModal({
                         // expo-image's disk cache survives re-signing — signed URLs
                         // get a fresh token roughly every 50 minutes, which would
                         // otherwise look like a brand-new image and force a re-download.
-                        cacheKey: swapped[item.id] && item.altStorageKey ? item.altStorageKey : item.storage_key,
+                        // `:full` suffix keeps this full-resolution load from colliding
+                        // with the thumbnail-resolution grid/gallery cache slot for the
+                        // same storage_key (see those sites' `:thumb` suffix) — without
+                        // it, whichever loads first "wins" the shared cache key and the
+                        // other can end up permanently showing the wrong resolution.
+                        // NOTE: the branch condition must mirror shownUrl() exactly (gate on
+                        // altSignedUrl) — if the alt key failed to sign, shownUrl falls back
+                        // to the MAIN bytes, so the cacheKey must fall back with it.
+                        cacheKey: swapped[item.id] && item.altSignedUrl && item.altStorageKey
+                          ? `${item.altStorageKey}:full`
+                          : `${item.storage_key}:full`,
                       }}
                       style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
                       contentFit="contain"
@@ -957,8 +989,13 @@ function MediaGalleryModal({
                 <Image
                   source={{
                     uri: item.mediaType === 'video' ? item.thumbnailUri : (item.thumbSignedUrl ?? item.signedUrl),
-                    // Stable cacheKey — same rationale as the viewer above.
-                    cacheKey: item.mediaType === 'video' ? undefined : item.storage_key,
+                    // Stable cacheKey — same rationale as the viewer above. Suffix tracks
+                    // which bytes are actually loading: `:thumb` when a thumbnail-res URL
+                    // is available, `:full` when falling back to the full-res signedUrl
+                    // (matches the viewer's `:full` key so that fallback case is a real
+                    // cache hit instead of a fresh download). Never bare `storage_key` —
+                    // that would collide with whichever resolution loads first.
+                    cacheKey: item.mediaType === 'video' ? undefined : `${item.storage_key}:${item.thumbSignedUrl ? 'thumb' : 'full'}`,
                   }}
                   recyclingKey={item.id}
                   style={StyleSheet.absoluteFill}
@@ -1255,8 +1292,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // always bypasses it, since another member's upload wouldn't trigger our
     // local cache.invalidate.
     const mediaCacheKey = `media:${capsuleId}`;
-    const MEDIA_TTL = 3 * 60 * 1000;
-    let mediaData = force ? null : cache.get<any[]>(mediaCacheKey, MEDIA_TTL);
+    let mediaData = force ? null : cache.get<any[]>(mediaCacheKey, MEDIA_CACHE_TTL);
     if (!mediaData) {
       const { data } = await supabase
         .from('media')
@@ -1418,6 +1454,24 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       fetchAwardsData(capsuleId, userId).catch(() => {});
     }
   }, [capsuleId]);
+
+  // `capsule:${capsuleId}` (capsule + members) has no cache.subscribe here —
+  // unlike the media/signedUrls caches, nothing in this screen re-fetches it
+  // in response to cache.invalidate while mounted. ManageMembersScreen (and
+  // anything else that mutates capsule_members) invalidates that key on
+  // success, but this screen only reads it once, above, on mount. Re-fetch
+  // on every focus after the first (which the mount effect above already
+  // covers) so navigating back from ManageMembers picks up member changes.
+  const hasFocusedOnceRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!hasFocusedOnceRef.current) {
+        hasFocusedOnceRef.current = true;
+        return;
+      }
+      load();
+    }, [capsuleId])
+  );
 
   useEffect(() => {
     const channel = supabase
@@ -1808,7 +1862,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                         <Image
                           source={{
                             uri: p.mediaType === 'video' ? p.thumbnailUri : (p.thumbSignedUrl ?? p.signedUrl),
-                            cacheKey: p.mediaType === 'video' ? undefined : p.storage_key,
+                            // Same `:thumb`/`:full` split as the gallery grid and viewer above —
+                            // keeps this thumbnail-resolution load from colliding with the
+                            // full-screen viewer's cache slot for the same storage_key.
+                            cacheKey: p.mediaType === 'video' ? undefined : `${p.storage_key}:${p.thumbSignedUrl ? 'thumb' : 'full'}`,
                           }}
                           style={StyleSheet.absoluteFill}
                           contentFit="cover"

@@ -11,9 +11,12 @@ const inFlight = new Map<string, Promise<unknown>>();
 function fetchOnce<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
   const existing = inFlight.get(key);
   if (existing) return existing as Promise<T>;
-  const promise = fetcher()
+  const promise: Promise<T> = fetcher()
     .then(result => {
-      cache.set(key, result);
+      // Identity-guarded: if `force` (below) already discarded this entry in
+      // favor of a newer request, a late-resolving old promise must not
+      // overwrite the newer request's fresher cache write with stale data.
+      if (inFlight.get(key) === promise) cache.set(key, result);
       return result;
     })
     .finally(() => {
