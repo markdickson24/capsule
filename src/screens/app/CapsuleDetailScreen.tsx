@@ -1509,12 +1509,21 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // pipeline, instead of enqueuing straight to the upload queue with neither.
   // targetCapsuleId preselects (not locks) this capsule in Preview's chip
   // list, so confirming lands back here without the user re-picking it.
+  //
+  // Carries each asset's real mediaType (photo vs video) — GAPS.md #1: the
+  // pickers used to request Images-only, so a video already sitting in the
+  // camera roll (weddings, baby videos — exactly the flagship personas) was
+  // invisible here even though the rest of the pipeline (upload queue,
+  // storage, viewer, upload-time thumbnails) already supports it.
   function goToPreview(assets: ImagePicker.ImagePickerAsset[]) {
     if (assets.length === 0) return;
     setUploadError('');
     setShowPickerOptions(false);
     navigation.navigate('Preview', {
-      media: assets.map(a => ({ uri: a.uri, mediaType: 'photo' as const })),
+      media: assets.map(a => ({
+        uri: a.uri,
+        mediaType: a.type === 'video' ? ('video' as const) : ('photo' as const),
+      })),
       source: 'camera',
       targetCapsuleId: capsuleId,
     });
@@ -1531,18 +1540,50 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadTasks.length]);
 
+  // Library videos are capped at 2 minutes — parity with CameraScreen's
+  // in-app recording cap (MAX_RECORD_SECONDS = 120 there).
+  const MAX_LIBRARY_VIDEO_MS = 120_000;
+
+  // expo-image-picker's ImagePickerAsset.duration is documented as
+  // milliseconds and IS milliseconds on iOS/Android, but the web shim
+  // (ExponentImagePicker.web.ts) sets it straight from HTMLVideoElement's
+  // `duration`, which the DOM defines in SECONDS — an inconsistency in the
+  // library itself, not something to "fix" here. Normalize to ms so the cap
+  // check below is correct on both platforms.
+  function durationMs(asset: ImagePicker.ImagePickerAsset): number {
+    const raw = asset.duration ?? 0;
+    return Platform.OS === 'web' ? raw * 1000 : raw;
+  }
+
+  // Drops any picked video over the cap, toasts what happened (correct
+  // singular/plural), and returns null (instead of an empty array) when
+  // every picked item was dropped so the caller can skip navigating to
+  // Preview with nothing to show.
+  function filterOversizedVideos(assets: ImagePicker.ImagePickerAsset[]): ImagePicker.ImagePickerAsset[] | null {
+    const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= MAX_LIBRARY_VIDEO_MS);
+    const droppedCount = assets.length - kept.length;
+    if (droppedCount > 0) {
+      const noun = droppedCount === 1 ? 'video' : 'videos';
+      toast.show(`${droppedCount} ${noun} over 2 minutes ${droppedCount === 1 ? 'was' : 'were'} skipped`);
+    }
+    if (kept.length === 0) return null;
+    return kept;
+  }
+
   async function pickFromLibrary() {
     // No permission prompt: launchImageLibraryAsync uses the iOS PHPicker (and the
     // Android Photo Picker), which run out-of-process and return only the items the
     // user explicitly selects — so no library-access dialog is required. Requesting
     // permission first just added a slow, confusing prompt that made it look like you
-    // couldn't add photos. (Matches the avatar pickers in Onboarding/Profile.)
+    // couldn't add media. (Matches the avatar pickers in Onboarding/Profile.)
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,
       quality: 0.8,
     });
-    if (!result.canceled) goToPreview(result.assets);
+    if (result.canceled) return;
+    const kept = filterOversizedVideos(result.assets);
+    if (kept) goToPreview(kept);
   }
 
   async function pickFromCamera() {
@@ -1552,7 +1593,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images', 'videos'],
+      // Caps a system-camera video recording at capture time — the same
+      // 2-minute ceiling enforced post-hoc on library picks above.
+      videoMaxDuration: 120,
       quality: 0.8,
     });
     if (!result.canceled) goToPreview(result.assets);
@@ -1934,7 +1978,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             <Text style={styles.startsText}>
               Capsule starts {new Date(capsule.contribution_start_at!).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </Text>
-            <Text style={styles.startsHint}>Photos can be added once it starts</Text>
+            <Text style={styles.startsHint}>Media can be added once it starts</Text>
           </View>
         )}
 
@@ -1980,7 +2024,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 style={[styles.addPhotoBtn, { backgroundColor: accentColor }]}
                 onPress={() => { setUploadError(''); setShowPickerOptions(true); }}
               >
-                <Text style={styles.addPhotoBtnText}>+ Add Photos</Text>
+                <Text style={styles.addPhotoBtnText}>+ Add Media</Text>
               </TouchableOpacity>
             )}
           </View>
