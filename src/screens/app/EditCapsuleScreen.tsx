@@ -156,16 +156,30 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
   async function confirmDelete() {
     setDeleting(true);
+    // Fetch the media keys BEFORE deleting the row — the media rows
+    // cascade-delete with the capsule, so this must happen first.
     const { data: mediaRows } = await supabase
       .from('media')
-      .select('storage_key, thumbnail_key')
+      .select('storage_key, alt_storage_key, thumbnail_key')
       .eq('capsule_id', capsuleId);
     const keys = (mediaRows ?? []).flatMap((m: any) =>
-      [m.storage_key, m.thumbnail_key].filter(Boolean)
+      [m.storage_key, m.alt_storage_key, m.thumbnail_key].filter(Boolean)
     );
-    if (keys.length) await supabase.storage.from('capsule-media').remove(keys);
-    await supabase.from('capsules').delete().eq('id', capsuleId);
+
+    const { error: deleteErr } = await supabase.from('capsules').delete().eq('id', capsuleId);
     setDeleting(false);
+    if (deleteErr) {
+      setShowDeleteConfirm(false);
+      setError('Failed to delete capsule. Please try again.');
+      return;
+    }
+
+    // Best-effort storage cleanup — a failure here just leaves orphaned,
+    // inaccessible blobs behind; it must not block navigation.
+    if (keys.length) {
+      await supabase.storage.from('capsule-media').remove(keys).catch(() => {});
+    }
+
     setShowDeleteConfirm(false);
     cache.invalidate('capsules', 'profile');
     navigation.reset({ index: 0, routes: [{ name: 'Tabs' }] });
