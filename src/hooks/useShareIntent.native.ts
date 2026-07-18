@@ -20,8 +20,8 @@ function filesToMedia(files: ShareFile[] | undefined | null): PendingMedia[] {
   if (!files) return [];
   return files.reduce<PendingMedia[]>((acc, f) => {
     if (!f?.path || !f.mimeType) return acc;
-    if (f.mimeType.startsWith('image/')) acc.push({ uri: f.path, mediaType: 'photo' });
-    else if (f.mimeType.startsWith('video/')) acc.push({ uri: f.path, mediaType: 'video' });
+    if (f.mimeType.startsWith('image/')) acc.push({ uri: f.path, mediaType: 'photo', mimeType: f.mimeType });
+    else if (f.mimeType.startsWith('video/')) acc.push({ uri: f.path, mediaType: 'video', mimeType: f.mimeType });
     return acc;
   }, []);
 }

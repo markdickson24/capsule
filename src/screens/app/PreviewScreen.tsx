@@ -68,7 +68,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
     },
   })).current;
 
-  // Set when arriving from CapsuleDetailScreen's "+ Add Photos" — preselects
+  // Set when arriving from CapsuleDetailScreen's "+ Add Media" — preselects
   // (doesn't lock) that capsule so confirming lands back there without
   // re-picking it from the chip list.
   const targetCapsuleId: string | undefined = (route.params as any)?.targetCapsuleId;
@@ -124,6 +124,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
           mediaType: item.mediaType,
           altUri: item.altUri,
           caption: captions[idx],
+          mimeType: item.mimeType,
         }))
       )
     );
