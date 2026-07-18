@@ -1740,7 +1740,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <View style={styles.memberAvatarRow}>
             {members.slice(0, 5).map((m, i) => (
               <View
-                key={i}
+                key={m.user_id}
                 style={[
                   styles.memberBubbleWrap,
                   { zIndex: 5 - i },
@@ -2120,7 +2120,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               >
                 {members.map((m, i) => (
                   <TouchableOpacity
-                    key={i}
+                    key={m.user_id}
                     style={styles.sheetMemberRow}
                     onPress={() => {
                       setShowMembersSheet(false);
