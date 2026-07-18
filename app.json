@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "capsule",
+    "name": "Capsule",
     "slug": "capsule",
     "scheme": "capsule",
     "version": "1.0.0",
@@ -14,7 +14,7 @@
       "backgroundColor": "#0A0A0A"
     },
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.markdickson.capsule",
       "buildNumber": "1",
       "infoPlist": {
@@ -32,10 +32,6 @@
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.CAMERA",
-        "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION"
       ],
       "package": "com.markdickson.capsule"
@@ -49,15 +45,21 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Capsule needs access to your photos to add them to a capsule.",
-          "cameraPermission": "Capsule needs camera access to take photos for a capsule."
+          "photosPermission": "Capsule uses your photo library so you can add your photos and videos to a capsule.",
+          "cameraPermission": "Capsule uses the camera so you can capture photos to add to a capsule."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "Capsule needs camera access for the in-app camera.",
-          "microphonePermission": "Capsule needs microphone access to record videos."
+          "cameraPermission": "Capsule uses the camera so you can capture photos and videos to seal inside your capsules.",
+          "microphonePermission": "Capsule uses the microphone to record sound when you capture a video for a capsule."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "savePhotosPermission": "Capsule saves photos, videos, and QR codes you choose to your photo library."
         }
       ],
       "expo-video",
@@ -91,7 +93,7 @@
             "image/*",
             "video/*"
           ],
-          "iosShareExtensionName": "ShareExtension"
+          "iosShareExtensionName": "Capsule"
         }
       ],
       "@sentry/react-native"
