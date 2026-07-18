@@ -283,6 +283,10 @@ export default function GroupDetailScreen() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={accentColor} />}
         ListHeaderComponent={
           <View>
+            {/* Gate on the UNFILTERED roster (memberList, not visibleMembers):
+                the nudge is about actual group size — a group whose only other
+                member is blocked is still a 2-person group, not one that needs
+                the "add members" prompt. */}
             {route.params.justCreated && !nudgeDismissed && memberList.length === 1 && (
               <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
                 <Ionicons name="person-add-outline" size={22} color={accentColor} />

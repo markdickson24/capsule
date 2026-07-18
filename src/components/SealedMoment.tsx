@@ -37,12 +37,20 @@ export default function SealedMoment({ visible, title, unlockMode, unlockDate, o
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const iconAnim = useRef(new Animated.Value(0)).current;
   const dismissedRef = useRef(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
   function dismiss() {
     if (dismissedRef.current) return;
     dismissedRef.current = true;
+    // Clear the auto-dismiss timer directly on manual tap (the effect cleanup
+    // would also catch it once the parent flips `visible`, but this doesn't
+    // depend on the parent hiding us in onDone).
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
     onDoneRef.current();
   }
 
@@ -55,15 +63,22 @@ export default function SealedMoment({ visible, title, unlockMode, unlockDate, o
     Animated.timing(overlayOpacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
     // Same spring params as OnboardingScreen's step-5 lock scale-in.
     Animated.spring(iconAnim, { toValue: 1, friction: 5, tension: 60, useNativeDriver: true }).start();
-    const timer = setTimeout(dismiss, AUTO_DISMISS_MS);
-    return () => clearTimeout(timer);
+    timerRef.current = setTimeout(dismiss, AUTO_DISMISS_MS);
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   if (!visible) return null;
 
   return (
-    <Animated.View style={[styles.scrim, { opacity: overlayOpacity }]}>
+    // accessibilityViewIsModal confines VoiceOver to the overlay so swipe
+    // navigation can't reach (and re-activate) the Lock Capsule button
+    // underneath. CreateScreen also keeps `loading` true for the overlay's
+    // lifetime as the real re-entrancy guard — this is belt and braces.
+    <Animated.View style={[styles.scrim, { opacity: overlayOpacity }]} accessibilityViewIsModal>
       <TouchableOpacity
         style={styles.touchArea}
         activeOpacity={1}

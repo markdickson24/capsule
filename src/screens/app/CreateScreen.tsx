@@ -285,16 +285,20 @@ export default function CreateScreen() {
       );
     }
 
-    setLoading(false);
     cache.invalidate('capsules', 'profile');
     // Sealed-moment ceremony (UX_POLISH.md #4) plays before the nav — onDone
     // below does the actual navigate that used to happen immediately here.
+    // `loading` deliberately stays true until onDone: the Lock Capsule button
+    // is still mounted under the overlay, and visual occlusion alone doesn't
+    // stop keyboard (web) or screen-reader activation — a second tap would
+    // create a duplicate capsule.
     setSealedCapsuleId(capsuleId);
     setSealedVisible(true);
   }
 
   function handleSealedDone() {
     setSealedVisible(false);
+    setLoading(false);
     if (sealedCapsuleId) {
       navigation.navigate('CapsuleDetail', { capsuleId: sealedCapsuleId, justCreated: true });
     }
