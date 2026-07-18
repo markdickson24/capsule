@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { resizeForUpload } from '../../lib/imageResize';
 import { haptics } from '../../lib/haptics';
 import { useIsFocused, useNavigation } from '@react-navigation/native';
@@ -215,8 +216,17 @@ export default function CameraScreen() {
     Animated.timing(flashOpacity, { toValue: 0, duration: 120, useNativeDriver: true }).start();
   }
 
-  async function processPhoto(uri: string): Promise<string> {
-    return resizeForUpload(uri);
+  // `mirror` flips the saved JPEG horizontally to match what the user saw in
+  // the front-camera viewfinder — expo-camera's `mirror` prop only affects the
+  // live preview, not the captured file. Single-camera front photos only;
+  // dual composites are already mirrored natively (modules/expo-dual-camera).
+  async function processPhoto(uri: string, mirror: boolean = false): Promise<string> {
+    const resized = await resizeForUpload(uri);
+    if (!mirror) return resized;
+    const flipped = await ImageManipulator.manipulateAsync(
+      resized, [{ flip: ImageManipulator.FlipType.Horizontal }], { compress: 1 }
+    );
+    return flipped.uri;
   }
 
   async function takePhoto() {
@@ -227,7 +237,7 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.88, skipProcessing: false });
       if (!photo?.uri) return;
-      const processedUri = await processPhoto(photo.uri);
+      const processedUri = await processPhoto(photo.uri, facing === 'front');
       goToPreview({ uri: processedUri, mediaType: 'photo' });
     } catch {} finally {
       setCapturing(false);
