@@ -63,12 +63,15 @@ export default function FriendsScreen({ navigation }: Props) {
 
   async function decline(id: string) {
     setBusy(id);
-    const snapshot = incoming;
+    const declined = incoming.find(p => p.id === id);
     setIncoming(prev => prev.filter(p => p.id !== id)); // optimistic
     const { error } = await removeFriendship(id);
     setBusy(null);
-    if (error) {
-      setIncoming(snapshot);
+    if (error && declined) {
+      // Reinsert only the declined row — restoring a whole-list snapshot
+      // here would resurrect rows a concurrent successful decline already
+      // removed from both the list and the server.
+      setIncoming(prev => (prev.some(p => p.id === id) ? prev : [declined, ...prev]));
       toast.show("Couldn't decline — try again.");
     }
   }
