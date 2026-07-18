@@ -353,7 +353,7 @@ export default function OnboardingScreen({ navigation }: Props) {
     if (!createdCapsuleId) return;
     try {
       await Share.share({
-        message: `Join my Capsule "${title}"! Tap to join: capsule://join/${createdCapsuleId}`,
+        message: `Join my Capsule "${title}" — add your photos before it locks! Open this link on your phone with Capsule installed: capsule://join/${createdCapsuleId}`,
       });
     } catch {
       // Web (or share unavailable): land them in the capsule, where the full

@@ -293,7 +293,7 @@ function InviteModal({
 
   async function shareLink() {
     await Share.share({
-      message: `Join my Capsule "${capsuleTitle}"! Tap to join: capsule://join/${capsuleId}`,
+      message: `Join my Capsule "${capsuleTitle}" — add your photos before it locks! Open this link on your phone with Capsule installed: capsule://join/${capsuleId}`,
     });
   }
 
