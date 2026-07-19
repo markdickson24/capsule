@@ -333,7 +333,7 @@ Receives photos/videos shared from other apps (Photos, Files, Messages, Instagra
 - **Config plugin** accepts images + videos, single + multi:
   - iOS activation rules: `NSExtensionActivationSupportsImageWithMaxCount: 10`, `NSExtensionActivationSupportsMovieWithMaxCount: 10`
   - Android: `androidIntentFilters: ['image/*', 'video/*']` + `androidMultiIntentFilters: ['image/*', 'video/*']`
-  - Extension display name: "Capsule"
+  - Extension display name: "Capsule Share" — via `iosShareExtensionName`. ⚠️ **This option sets BOTH the share-sheet display name (raw value) and the Xcode target name (value stripped to alphanumerics)**, so it must never sanitize to the same string as the app name: `"Capsule"` collided with the main `Capsule` target and made EAS/fastlane sign the main app with the share-extension's provisioning profile (three "profile doesn't match/support" errors, build failure). `"Capsule Share"` → target `CapsuleShare`, no collision.
 - **Provider:** `<ShareIntentProvider>` in `src/lib/ShareIntentProvider.{native,web,tsx}` — wraps `App.tsx` outside `ThemeProvider`. Native imports the real provider from `expo-share-intent`; web returns `children` as-is
 - **Hook:** `useShareIntent(session)` in `src/hooks/useShareIntent.native.ts` consumes `useShareIntentContext()` and:
   1. Filters `shareIntent.files` to image/* and video/* by `mimeType`, maps to `PendingMedia[]`
