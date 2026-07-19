@@ -997,7 +997,18 @@ const session = sessionStore.get();
 ## Native Patches (`patches/`)
 
 `patch-package` runs from the `postinstall` script (so EAS applies patches on
-every build). Current patches:
+every build). ⚠️ **A patch to React Native's iOS core source only takes effect
+if RN is actually built from source.** Expo SDK 54 ships React as a
+**precompiled `React.framework`** by default (`RCT_USE_PREBUILT_RNCORE=1`) —
+a patched `RCTTurboModule.mm` in node_modules is then never compiled and the
+crash it fixes ships anyway (this happened: build 24 contained the pristine
+prebuilt framework and crashed identically; proven by downloading the IPA and
+finding zero patch strings in the binary). `eas.json`'s production profile
+sets `RCT_USE_PREBUILT_RNCORE=0` so React builds from source and the patch is
+real. Cost: slower iOS builds (~5min → ~15-20min). If that env var is ever
+removed, the patch below silently stops applying — when in doubt, download
+the IPA and `strings` the React binary for `suppressed (would corrupt JS
+runtime off-thread)`. Current patches:
 
 - **`react-native+0.81.5.patch`** — `RCTTurboModule.mm`: an `NSException`
   thrown inside an **async void** TurboModule method used to be converted to a
