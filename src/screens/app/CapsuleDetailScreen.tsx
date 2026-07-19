@@ -1598,25 +1598,14 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (kept) goToPreview(kept);
   }
 
-  async function pickFromCamera() {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      setUploadError('Camera access denied. Enable it in Settings.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images', 'videos'],
-      // Caps a system-camera video recording at capture time — the same
-      // 2-minute ceiling enforced post-hoc on library picks below. Kept as a
-      // best-effort front line, not a guarantee: some Android camera apps
-      // don't reliably honor videoMaxDuration, so the post-hoc filter is the
-      // real backstop.
-      videoMaxDuration: 120,
-      quality: 0.8,
-    });
-    if (result.canceled) return;
-    const kept = filterOversizedVideos(result.assets);
-    if (kept) goToPreview(kept);
+  // "Open Camera" routes to the in-app camera (Camera tab) rather than the
+  // system camera — the in-app camera is the product surface (dual mode,
+  // hold-to-record, hands-free lock) and its own 2-minute cap already applies.
+  // targetCapsuleId threads through CameraScreen → Preview so the capture
+  // comes back with this capsule preselected.
+  function openInAppCamera() {
+    setShowPickerOptions(false);
+    navigation.navigate('Tabs', { screen: 'Camera', params: { targetCapsuleId: capsuleId } });
   }
 
   if (loading) {
@@ -2019,12 +2008,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </View>
             ) : showPickerOptions ? (
               <View style={styles.pickerOptions}>
-                {Platform.OS !== 'web' && (
-                  <TouchableOpacity style={styles.pickerBtn} onPress={pickFromCamera}>
-                    <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.pickerBtnText}>Take Photo</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity style={styles.pickerBtn} onPress={openInAppCamera}>
+                  <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                  <Text style={styles.pickerBtnText}>Open Camera</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.pickerBtn} onPress={pickFromLibrary}>
                   <Ionicons name="images-outline" size={18} color="#FFFFFF" />
                   <Text style={styles.pickerBtnText}>Camera Roll</Text>

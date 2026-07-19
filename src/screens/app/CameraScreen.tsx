@@ -7,11 +7,11 @@ import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resizeForUpload } from '../../lib/imageResize';
 import { haptics } from '../../lib/haptics';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { AppStackParamList } from '../../types/navigation';
+import { AppStackParamList, AppTabParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import InfoTooltip from '../../components/InfoTooltip';
 import { stitchVideos } from '../../../modules/expo-video-stitcher';
@@ -64,7 +64,19 @@ function getPinchDistance(touches: ArrayLike<{ pageX: number; pageY: number }>) 
 export default function CameraScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
+  const route = useRoute<RouteProp<AppTabParamList, 'Camera'>>();
   const isFocused = useIsFocused();
+  // Set when CapsuleDetail's "Open Camera" routed here — threads through to
+  // Preview so that capsule arrives preselected. Read at capture time (before
+  // the blur below can clear it), cleared whenever the camera loses focus so
+  // a later direct tab visit doesn't stick to a stale capsule.
+  const targetCapsuleId = route.params?.targetCapsuleId;
+  useEffect(() => {
+    if (!isFocused && route.params?.targetCapsuleId) {
+      navigation.setParams({ targetCapsuleId: undefined } as any);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
   const [cameraMode, setCameraMode] = useState<CameraMode>('back');
@@ -109,7 +121,7 @@ export default function CameraScreen() {
       AsyncStorage.setItem(CAMERA_CAPTURES_KEY, String(next)).catch(() => {});
       return next;
     });
-    navigation.navigate('Preview', params);
+    navigation.navigate('Preview', { ...params, targetCapsuleId });
   }
 
   // The single-camera CameraView only knows front/back; Dual swaps in DualCameraView.
