@@ -228,8 +228,11 @@ export default function PreviewScreen({ route, navigation }: Props) {
         </Animated.View>
       </View>
 
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
+      {/* SafeAreaView OUTER / KeyboardAvoidingView INNER, matching Login/SignUp/
+          ResetPassword — inverted nesting applies the ~34pt home-indicator inset
+          on top of the keyboard padding, floating the panel above the keyboard. */}
+      <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.panelInner}>
           <TextInput
             style={styles.captionInput}
             placeholder={itemCount > 1 ? `Caption for item ${currentIndex + 1}…` : 'Add a caption…'}
@@ -292,8 +295,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
               </Text>
             </TouchableOpacity>
           )}
-        </SafeAreaView>
-      </KeyboardAvoidingView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
 
       <Modal
         visible={showDiscard}
@@ -374,6 +377,11 @@ const styles = StyleSheet.create({
   cancelBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
   bottomPanel: {
     backgroundColor: '#000000',
+  },
+  // Layout lives on the inner KeyboardAvoidingView (the direct parent of the
+  // input/chips/button) so `gap` separates them; the outer SafeAreaView only
+  // paints the background and supplies the home-indicator inset.
+  panelInner: {
     paddingHorizontal: 24, paddingTop: 14, paddingBottom: 8,
     gap: 12,
   },
