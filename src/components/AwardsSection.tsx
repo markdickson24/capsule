@@ -9,6 +9,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
+import { randomUUID } from '../lib/uuid';
 import { sessionStore } from '../lib/sessionStore';
 import { cache } from '../lib/cache';
 import { useTheme } from '../context/ThemeContext';
@@ -106,8 +107,12 @@ export default function AwardsSection({
       setLoading(false);
     }
     fetchCategories();
+    // Unique per mount, not just per capsule — supabase-js reuses channels by
+    // topic, and a second mounted AwardsSection for the same capsule (duplicate
+    // CapsuleDetail instances on the stack) would throw "cannot add
+    // postgres_changes callbacks after subscribe()" on the reused channel.
     const channel = supabase
-      .channel(`awards-${capsuleId}`)
+      .channel(`awards-${capsuleId}-${randomUUID()}`)
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'superlative_categories', filter: `capsule_id=eq.${capsuleId}` },
