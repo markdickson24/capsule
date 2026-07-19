@@ -1,0 +1,26 @@
+diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+--- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
++++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+@@ -435,7 +435,21 @@ TraceSection s(
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      if (shouldVoidMethodsExecuteSync_) {
++        // Sync path: we are on the JS thread with a JS frame below us —
++        // converting and throwing is safe and surfaces the error to JS.
++        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      }
++      // Async path (TurboModule manager queue): touching `runtime` here races
++      // the JS thread and corrupts the Hermes heap (observed as SIGSEGV in
++      // HiddenClass::addProperty on iOS 26), and the C++ throw would escape
++      // through a dispatch block with no handler anyway. Log and continue —
++      // the module call fails, the app survives.
++      NSLog(
++          @"[TurboModule] NSException in async void method %s.%s: %@ — suppressed (would corrupt JS runtime off-thread)",
++          moduleName,
++          methodNameStr.c_str(),
++          exception);
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }

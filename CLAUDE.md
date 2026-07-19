@@ -994,6 +994,23 @@ const session = sessionStore.get();
 
 **Shadow props on web:** `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset` are deprecated in React Native Web. Wrap in `Platform.select({ default: { shadow... }, web: {} })` applied as an inline style override, and remove from `StyleSheet.create`.
 
+## Native Patches (`patches/`)
+
+`patch-package` runs from the `postinstall` script (so EAS applies patches on
+every build). Current patches:
+
+- **`react-native+0.81.5.patch`** — `RCTTurboModule.mm`: an `NSException`
+  thrown inside an **async void** TurboModule method used to be converted to a
+  JS error *on the TurboModule thread* and thrown through a dispatch block —
+  the off-thread runtime access races the JS thread and corrupts the Hermes
+  heap (observed in production: SIGSEGV in `HiddenClass::addProperty` on iOS
+  26.5.2 when adding camera-roll media to a capsule). The patch makes the
+  async-void catch `NSLog` + continue (`[TurboModule] NSException in async
+  void method …` in the device console names the thrower); the sync path is
+  unchanged. Upstream is open with no fix (facebook/react-native#54859,
+  expo/expo#44606) — when bumping React Native, check whether the void path
+  got the `isSync`-gated treatment and drop the patch only if it did.
+
 ## Environment
 
 ```
