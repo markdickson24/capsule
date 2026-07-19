@@ -310,6 +310,7 @@ Simultaneous front+back capture (Snapchat-style) with two **selectable layouts**
 ## Preview Screen (`PreviewScreen.tsx`)
 
 - Shows photo(s) or looping video(s) before adding to a capsule
+- **Layout: media above, panel below — nothing overlays the photo.** The screen is a column: a `flex: 1` media area (carousel + top bar + dots), then the bottom panel (caption, capsule chips, Add button) in normal flow underneath, not an absolutely-positioned overlay. Images/video use `contentFit="contain"` (not `"cover"`) so the whole shot is visible, letterboxed on the black background, instead of a cropped `cover` fill hidden partly behind the panel. The swipe-down-to-discard `PanResponder`/`translateY` transform is scoped to the media area only — the panel doesn't slide with it. The panel is wrapped in `KeyboardAvoidingView` (`'padding'` iOS / `'height'` Android, matching the rest of the codebase) so focusing the caption input pushes the panel up above the keyboard instead of the keyboard covering it; the media area shrinks to make room, which is fine since it's just `flex: 1` in a column.
 - Fetches user's active capsules (non-unlocked, where role is owner or contributor and `joined_at` is not null)
 - **Two route shapes** (discriminated at runtime in a `useMemo`):
   - `{ uri, mediaType, facing? }` — single-item form, used by `CameraScreen`

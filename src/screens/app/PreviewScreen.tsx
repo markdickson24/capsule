@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
   FlatList, TextInput, KeyboardAvoidingView,
-  Animated, PanResponder, Modal, Pressable, Dimensions,
+  Animated, PanResponder, Modal, Pressable, Dimensions, Platform,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -155,81 +155,84 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <Animated.View
-        style={[StyleSheet.absoluteFill, { transform: [{ translateY }] }]}
-        {...swipeResponder.panHandlers}
-      >
-        {itemCount === 0 ? (
-          <View style={[StyleSheet.absoluteFill, styles.emptyMedia]}>
-            <Text style={styles.emptyMediaText}>Nothing to preview</Text>
-          </View>
-        ) : (
-          <FlatList
-            style={StyleSheet.absoluteFill}
-            data={items}
-            keyExtractor={(_, i) => String(i)}
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            scrollEnabled={itemCount > 1}
-            onMomentumScrollEnd={e => {
-              const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
-              if (idx !== currentIndex) setCurrentIndex(idx);
-            }}
-            getItemLayout={(_, i) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * i, index: i })}
-            renderItem={({ item, index }) => (
-              <View style={styles.slide}>
-                {item.mediaType === 'photo' ? (
-                  <Image source={item.uri} style={StyleSheet.absoluteFill} contentFit="cover" />
-                ) : index === currentIndex ? (
-                  <VideoView
-                    player={player}
-                    style={StyleSheet.absoluteFill}
-                    contentFit="cover"
-                    nativeControls={false}
-                  />
-                ) : (
-                  <View style={[StyleSheet.absoluteFill, styles.videoPlaceholder]}>
-                    <Ionicons name="play-circle" size={56} color="rgba(255,255,255,0.4)" />
-                  </View>
-                )}
-              </View>
-            )}
-          />
-        )}
-
-        <SafeAreaView edges={['top']} style={styles.topBar}>
-          <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)} accessibilityRole="button" accessibilityLabel="Discard">
-            <Ionicons name="close" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
-          {itemCount > 1 ? (
-            <View style={styles.counterPill}>
-              <Text style={styles.counterText}>{currentIndex + 1} / {itemCount}</Text>
+      <View style={styles.mediaArea}>
+        <Animated.View
+          style={[StyleSheet.absoluteFill, { transform: [{ translateY }] }]}
+          {...swipeResponder.panHandlers}
+        >
+          {itemCount === 0 ? (
+            <View style={[StyleSheet.absoluteFill, styles.emptyMedia]}>
+              <Text style={styles.emptyMediaText}>Nothing to preview</Text>
             </View>
           ) : (
-            <Text style={styles.swipeHint}>Swipe down to discard</Text>
+            <FlatList
+              style={StyleSheet.absoluteFill}
+              data={items}
+              keyExtractor={(_, i) => String(i)}
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              scrollEnabled={itemCount > 1}
+              onMomentumScrollEnd={e => {
+                const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+                if (idx !== currentIndex) setCurrentIndex(idx);
+              }}
+              getItemLayout={(_, i) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * i, index: i })}
+              renderItem={({ item, index }) => (
+                <View style={styles.slide}>
+                  {item.mediaType === 'photo' ? (
+                    <Image source={item.uri} style={StyleSheet.absoluteFill} contentFit="contain" />
+                  ) : index === currentIndex ? (
+                    <VideoView
+                      player={player}
+                      style={StyleSheet.absoluteFill}
+                      contentFit="contain"
+                      nativeControls={false}
+                    />
+                  ) : (
+                    <View style={[StyleSheet.absoluteFill, styles.videoPlaceholder]}>
+                      <Ionicons name="play-circle" size={56} color="rgba(255,255,255,0.4)" />
+                    </View>
+                  )}
+                </View>
+              )}
+            />
           )}
-        </SafeAreaView>
 
-        {itemCount > 1 && (
-          <View style={styles.dotsRow} pointerEvents="none">
-            {items.map((_, i) => (
-              <View
-                key={i}
-                style={[
-                  styles.dot,
-                  i === currentIndex && [styles.dotActive, { backgroundColor: '#FFFFFF' }],
-                ]}
-              />
-            ))}
-          </View>
-        )}
+          <SafeAreaView edges={['top']} style={styles.topBar}>
+            <TouchableOpacity style={styles.discardBtn} onPress={() => setShowDiscard(true)} accessibilityRole="button" accessibilityLabel="Discard">
+              <Ionicons name="close" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+            {itemCount > 1 ? (
+              <View style={styles.counterPill}>
+                <Text style={styles.counterText}>{currentIndex + 1} / {itemCount}</Text>
+              </View>
+            ) : (
+              <Text style={styles.swipeHint}>Swipe down to discard</Text>
+            )}
+          </SafeAreaView>
 
-        <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
-          <Text style={styles.panelTitle}>
-            {itemCount > 1 ? `Add ${itemCount} items to capsule` : 'Add to capsule'}
-          </Text>
+          {itemCount > 1 && (
+            <View style={styles.dotsRow} pointerEvents="none">
+              {items.map((_, i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.dot,
+                    i === currentIndex && [styles.dotActive, { backgroundColor: '#FFFFFF' }],
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+        </Animated.View>
+      </View>
 
+      {/* SafeAreaView OUTER / KeyboardAvoidingView INNER, matching Login/SignUp/
+          ResetPassword — inverted nesting applies the ~34pt home-indicator inset
+          on top of the keyboard padding, floating the panel above the keyboard. */}
+      <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.panelInner}>
           <TextInput
             style={styles.captionInput}
             placeholder={itemCount > 1 ? `Caption for item ${currentIndex + 1}…` : 'Add a caption…'}
@@ -292,8 +295,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
               </Text>
             </TouchableOpacity>
           )}
-        </SafeAreaView>
-      </Animated.View>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
 
       <Modal
         visible={showDiscard}
@@ -325,6 +328,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
+  mediaArea: { flex: 1, backgroundColor: '#000000' },
   slide: { width: SCREEN_WIDTH, height: '100%' },
   videoPlaceholder: { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
   emptyMedia: { backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
@@ -372,12 +376,15 @@ const styles = StyleSheet.create({
   cancelBtn: { width: '100%', backgroundColor: '#2A2A2A', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   cancelBtnText: { color: '#FFFFFF', fontWeight: '600', fontSize: 16 },
   bottomPanel: {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
-    backgroundColor: 'rgba(0,0,0,0.82)',
-    paddingHorizontal: 24, paddingTop: 20, paddingBottom: 8,
-    gap: 14,
+    backgroundColor: '#000000',
   },
-  panelTitle: { fontSize: 17, fontWeight: '700', color: '#FFFFFF' },
+  // Layout lives on the inner KeyboardAvoidingView (the direct parent of the
+  // input/chips/button) so `gap` separates them; the outer SafeAreaView only
+  // paints the background and supplies the home-indicator inset.
+  panelInner: {
+    paddingHorizontal: 24, paddingTop: 14, paddingBottom: 8,
+    gap: 12,
+  },
   captionInput: {
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 10,
