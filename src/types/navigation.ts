@@ -18,7 +18,10 @@ export type PendingMedia = {
 export type AppTabParamList = {
   Home: undefined;
   Create: { presetTitle?: string; presetDescription?: string; pendingMedia?: PendingMedia[]; groupId?: string; groupUnlockHours?: number } | undefined;
-  Camera: undefined;
+  // targetCapsuleId: set by CapsuleDetail's "Open Camera" picker option so a
+  // capture made from a specific capsule preselects that capsule on Preview.
+  // Cleared by CameraScreen on blur so a later direct tab visit isn't sticky.
+  Camera: { targetCapsuleId?: string } | undefined;
   Notifications: undefined;
   Profile: undefined;
 };
@@ -28,7 +31,7 @@ export type AppStackParamList = {
   CapsuleDetail: { capsuleId: string; justCreated?: boolean };
   PublicProfile: { userId: string };
   Preview:
-    | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string }
+    | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string; targetCapsuleId?: string }
     | { media: PendingMedia[]; source?: 'share' | 'camera'; targetCapsuleId?: string };
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };
