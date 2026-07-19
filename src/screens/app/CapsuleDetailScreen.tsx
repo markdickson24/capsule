@@ -1485,8 +1485,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   );
 
   useEffect(() => {
+    // Channel name must be unique PER MOUNT, not just per capsule: supabase-js
+    // reuses realtime channels by topic, so when the same capsule's screen is
+    // mounted twice (add-media replaces Preview with a second CapsuleDetail on
+    // top of the first) the second mount would grab the first's already-
+    // subscribed channel and `.on()` throws "cannot add postgres_changes
+    // callbacks after subscribe()". On iOS 26 that error escalated into a
+    // native heap-corruption crash (see CLAUDE.md "Native Patches"). The name
+    // is only a client-side label — event filtering lives in the `.on()`
+    // config — so a unique suffix costs nothing.
     const channel = supabase
-      .channel(`capsule-${capsuleId}`)
+      .channel(`capsule-${capsuleId}-${randomUUID()}`)
       .on(
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'capsules', filter: `id=eq.${capsuleId}` },
