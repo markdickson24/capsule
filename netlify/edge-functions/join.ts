@@ -94,6 +94,7 @@ async function fetchAvatarDataUri(url: string | null): Promise<string | null> {
     const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
     if (!res.ok) return null;
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
+    if (!/^image\/(png|jpeg|jpg|gif|webp)$/.test(contentType)) return null;
     const bytes = new Uint8Array(await res.arrayBuffer());
     let binary = "";
     for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
