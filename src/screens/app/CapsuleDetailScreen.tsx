@@ -293,7 +293,7 @@ function InviteModal({
 
   async function shareLink() {
     await Share.share({
-      message: `Join my Capsule "${capsuleTitle}" — add your photos before it locks! Open this link on your phone with Capsule installed: capsule://join/${capsuleId}`,
+      message: `Join my Capsule "${capsuleTitle}" — add your photos before it locks! https://getcapsuleapp.com/join/${capsuleId}`,
     });
   }
 
@@ -436,7 +436,7 @@ function InviteModal({
             <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1 }}>
               <View style={ms.qrBox}>
                 <QRCode
-                  value={`capsule://join/${capsuleId}`}
+                  value={`https://getcapsuleapp.com/join/${capsuleId}`}
                   size={210}
                   color="#FFFFFF"
                   backgroundColor="#1A1A1A"

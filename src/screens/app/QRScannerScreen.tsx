@@ -56,7 +56,7 @@ export default function QRScannerScreen() {
     setScanned(true);
     haptics.selection();
 
-    const match = data.match(/capsule:\/\/join\/([a-zA-Z0-9-]+)/);
+    const match = data.match(/(?:capsule:\/\/join\/|https:\/\/getcapsuleapp\.com\/join\/)([a-zA-Z0-9-]+)/);
     if (!match) {
       setScanError('Not a valid Capsule invite. Try again.');
       rearmAfterError();
