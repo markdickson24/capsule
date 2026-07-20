@@ -245,55 +245,59 @@ export default function PreviewScreen({ route, navigation }: Props) {
             multiline={false}
           />
 
+          {/* Chips + Add on ONE row (was two stacked rows) — the whole point of
+              the slim panel is giving the media area enough height that a
+              portrait photo can span the full screen width. */}
           {capsules.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="cube-outline" size={24} color="#666" />
-              <Text style={styles.emptyText}>No active capsules yet</Text>
+            <View style={styles.actionRow}>
+              <View style={styles.emptyState}>
+                <Ionicons name="cube-outline" size={20} color="#666" />
+                <Text style={styles.emptyText}>No active capsules</Text>
+              </View>
+              <TouchableOpacity
+                style={[styles.addBtn, { backgroundColor: accentColor }]}
+                onPress={goCreateCapsule}
+              >
+                <Ionicons name="add" size={18} color="#FFFFFF" />
+                <Text style={styles.addBtnText}>Create</Text>
+              </TouchableOpacity>
             </View>
           ) : (
-            <FlatList
-              data={capsules}
-              keyExtractor={item => item.capsule_id}
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.chipList}
-              renderItem={({ item }) => {
-                const selected = selectedIds.has(item.capsule_id);
-                return (
-                  <TouchableOpacity
-                    style={[styles.chip, selected && [styles.chipSelected, { backgroundColor: accentColor, borderColor: accentColor }]]}
-                    onPress={() => toggleCapsule(item.capsule_id)}
-                  >
-                    {selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
-                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
-                      {item.capsules?.title ?? 'Untitled'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              }}
-            />
-          )}
-
-          {capsules.length === 0 ? (
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: accentColor }]}
-              onPress={goCreateCapsule}
-            >
-              <Ionicons name="add" size={20} color="#FFFFFF" />
-              <Text style={styles.addBtnText}>Create Capsule</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: accentColor }, !hasSelection && styles.addBtnDisabled]}
-              onPress={upload}
-              disabled={!hasSelection}
-            >
-              <Text style={styles.addBtnText}>
-                {selectedIds.size > 1
-                  ? `Add to ${selectedIds.size} Capsules`
-                  : 'Add to Capsule'}
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.actionRow}>
+              <FlatList
+                data={capsules}
+                keyExtractor={item => item.capsule_id}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipScroll}
+                contentContainerStyle={styles.chipList}
+                renderItem={({ item }) => {
+                  const selected = selectedIds.has(item.capsule_id);
+                  return (
+                    <TouchableOpacity
+                      style={[styles.chip, selected && [styles.chipSelected, { backgroundColor: accentColor, borderColor: accentColor }]]}
+                      onPress={() => toggleCapsule(item.capsule_id)}
+                    >
+                      {selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={1}>
+                        {item.capsules?.title ?? 'Untitled'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
+              />
+              <TouchableOpacity
+                style={[styles.addBtn, { backgroundColor: accentColor }, !hasSelection && styles.addBtnDisabled]}
+                onPress={upload}
+                disabled={!hasSelection}
+                accessibilityRole="button"
+                accessibilityLabel={selectedIds.size > 1 ? `Add to ${selectedIds.size} capsules` : 'Add to capsule'}
+              >
+                <Text style={styles.addBtnText}>
+                  {selectedIds.size > 1 ? `Add (${selectedIds.size})` : 'Add'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
         </KeyboardAvoidingView>
       </SafeAreaView>
@@ -382,30 +386,35 @@ const styles = StyleSheet.create({
   // input/chips/button) so `gap` separates them; the outer SafeAreaView only
   // paints the background and supplies the home-indicator inset.
   panelInner: {
-    paddingHorizontal: 24, paddingTop: 14, paddingBottom: 8,
-    gap: 12,
+    paddingHorizontal: 16, paddingTop: 10, paddingBottom: 4,
+    gap: 8,
   },
   captionInput: {
     backgroundColor: 'rgba(255,255,255,0.08)',
     borderRadius: 10,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 8,
     color: '#FFFFFF',
     fontSize: 14,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
+  // Chips scroller + Add button share one row; the scroller flexes, the
+  // button keeps its intrinsic width.
+  actionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  chipScroll: { flex: 1 },
   emptyState: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingVertical: 8,
+    flex: 1,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
   },
   emptyText: { color: '#888888', fontSize: 14 },
-  chipList: { gap: 10, paddingBottom: 2 },
+  chipList: { gap: 8, alignItems: 'center', paddingVertical: 2 },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: 'rgba(255,255,255,0.12)',
-    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 9,
+    borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8,
     borderWidth: 2, borderColor: 'transparent',
+    maxWidth: 180,
   },
   chipSelected: {
     backgroundColor: '#FF6B35', borderColor: '#FF6B35',
@@ -415,11 +424,12 @@ const styles = StyleSheet.create({
   error: { color: '#FF3B30', fontSize: 13 },
   addBtn: {
     flexDirection: 'row',
-    backgroundColor: '#FF6B35', borderRadius: 14,
-    paddingVertical: 16, alignItems: 'center', justifyContent: 'center',
-    gap: 8,
+    backgroundColor: '#FF6B35', borderRadius: 12,
+    paddingVertical: 11, paddingHorizontal: 18,
+    alignItems: 'center', justifyContent: 'center',
+    gap: 6,
   },
   addBtnDisabled: { backgroundColor: '#2A2A2A' },
-  addBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  addBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
 });
