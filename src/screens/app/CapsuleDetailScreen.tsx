@@ -499,9 +499,6 @@ const MEDIA_CACHE_TTL = 3 * 60 * 1000;
 
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '🔥', '😢', '👏', '🤯'];
 
-// Library/camera-roll videos are capped at 2 minutes — parity with
-// CameraScreen's module-level MAX_RECORD_SECONDS (=120) for in-app recording.
-const MAX_LIBRARY_VIDEO_MS = 120_000;
 
 type Reaction = { id: string; media_id: string; user_id: string; emoji: string };
 
@@ -1636,11 +1633,27 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // Preview with nothing to show. See durationMs() above for why a video with
   // no readable duration passes through uncapped rather than being dropped.
   function filterOversizedVideos(assets: ImagePicker.ImagePickerAsset[]): ImagePicker.ImagePickerAsset[] | null {
-    const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= MAX_LIBRARY_VIDEO_MS);
+    // Video length cap is host-tier-based (free=30s, pro=120s — see
+    // src/lib/tierLimits.ts), keyed off the CAPSULE OWNER's tier, not the
+    // acting uploader's — the host is who's monetized, mirrors the photoCap
+    // check in goToPreview above.
+    const capSeconds = limitsForTier(ownerTier).videoSeconds;
+    const capMs = capSeconds * 1000;
+    const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= capMs);
     const droppedCount = assets.length - kept.length;
     if (droppedCount > 0) {
       const noun = droppedCount === 1 ? 'video' : 'videos';
-      toast.show(`${droppedCount} ${noun} over 2 minutes ${droppedCount === 1 ? 'was' : 'were'} skipped`);
+      const capLabel = capSeconds >= 60
+        ? `${Math.round(capSeconds / 60)} minute${capSeconds === 60 ? '' : 's'}`
+        : `${capSeconds} seconds`;
+      let message = `${droppedCount} ${noun} over ${capLabel} ${droppedCount === 1 ? 'was' : 'were'} skipped`;
+      // Owner-facing upsell hint only — a guest upgrading wouldn't lift a
+      // host-based cap (mirrors proGateHit's host-vs-guest split), so guests
+      // just get the neutral message above.
+      if (isOwner && ownerTier !== 'pro') {
+        message += ' — Pro unlocks up to 2-minute clips.';
+      }
+      toast.show(message);
     }
     if (kept.length === 0) return null;
     return kept;
