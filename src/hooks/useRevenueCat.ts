@@ -19,12 +19,15 @@ export function useRevenueCat(userId?: string) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     if (userId && identifiedRef.current !== userId) {
-      identifiedRef.current = userId;
-      identifyUser(userId);
+      identifyUser(userId).then((ok) => {
+        if (!cancelled && ok) identifiedRef.current = userId;
+      });
     } else if (!userId && identifiedRef.current) {
       identifiedRef.current = null;
       resetUser();
     }
+    return () => { cancelled = true; };
   }, [userId]);
 }
