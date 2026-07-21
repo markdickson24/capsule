@@ -339,7 +339,7 @@ export default function CreateScreen() {
                 : m
             )
           );
-          toast.show(`Trimmed ${overCount > 1 ? `${overCount} videos` : 'your video'} to ${cap}s (free limit).`);
+          toast.show(`Trimmed ${overCount > 1 ? `${overCount} videos` : 'your video'} to the ${cap}s limit.`);
         } catch {
           // Trim unavailable (e.g. no native build yet): drop the over-cap clips
           // rather than upload full-length past the cap.
