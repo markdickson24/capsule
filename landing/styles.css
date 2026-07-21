@@ -1,0 +1,292 @@
+/* ============================================================
+   Capsule — marketing site, built directly off the real app's
+   design system (see CLAUDE.md "Design System"): flat near-black
+   background, rounded surface cards, orange accent, bold
+   system-sans type. Deliberately avoiding the generic dark-SaaS
+   template shape: no pulsing eyebrow dot, no alternating feature
+   rows, no checkmark lists, no scroll-reveal-on-everything.
+
+   Screenshot policy: this site does not recreate real app screens
+   in HTML/CSS. Every spot that shows the product is an explicitly
+   labeled placeholder (.shot-frame) reserved for a real screenshot
+   — never a fake countdown ring, fake notification list, or fake
+   device chrome standing in for actual UI.
+   ============================================================ */
+
+:root {
+  --bg: #0A0A0A;
+  --surface: #1A1A1A;
+  --surface-2: #161616;
+  --border: #2A2A2A;
+  --accent: #FC6A5B;
+  --accent-rgb: 252, 106, 91;
+  --accent-soft: #FC887A;
+  --success: #30D158;
+  --text: #FFFFFF;
+  --text-2: #888888;
+  --text-3: #555555;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --r-lg: 20px;
+  --r-md: 16px;
+  --r-sm: 12px;
+  --r-pill: 999px;
+  --maxw: 1180px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: 76px; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* ── line icons (matching the app's own Ionicons vocabulary — no emoji) ── */
+.ic { width: 22px; height: 22px; flex: none; }
+.ic-sm { width: 18px; height: 18px; flex: none; }
+
+a { color: inherit; text-decoration: none; }
+img { display: block; max-width: 100%; }
+::selection { background: var(--accent); color: #1a0a02; }
+.wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+
+/* ── buttons ── */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  font-family: var(--font); font-weight: 700; font-size: 15.5px;
+  padding: 15px 26px; border-radius: var(--r-pill); border: none;
+  cursor: pointer; transition: transform .15s ease, opacity .15s ease;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { transform: translateY(-1px); opacity: .92; }
+.btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
+.btn-ghost:hover { border-color: #3a3a3a; }
+
+/* ── nav ── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .3s, border-color .3s;
+  border-bottom: 1px solid transparent;
+}
+nav.scrolled { background: rgba(10,10,10,.9); backdrop-filter: blur(14px); border-bottom-color: var(--border); }
+.nav-inner { width: 100%; max-width: var(--maxw); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
+.brand .mark { width: 30px; height: 30px; border-radius: 9px; display: block; object-fit: cover; }
+.beta-pill { font-size: 11px; font-weight: 800; letter-spacing: .03em; color: var(--accent-soft); background: rgba(var(--accent-rgb),.12); border: 1px solid rgba(var(--accent-rgb),.3); border-radius: var(--r-pill); padding: 3px 9px; }
+@media (max-width: 480px){ .beta-pill { display: none; } }
+.nav-links { display: flex; align-items: center; gap: 28px; }
+.nav-links a.lnk { color: var(--text-2); font-size: 15px; font-weight: 600; transition: color .2s; }
+.nav-links a.lnk:hover { color: var(--text); }
+@media (max-width: 760px){ .nav-links .lnk { display: none; } }
+
+/* ── hero ── */
+header.hero { position: relative; padding: 156px 0 100px; overflow: hidden; }
+.hero-grid { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
+@media (max-width: 960px){ .hero-grid { grid-template-columns: 1fr; gap: 64px; justify-items: center; text-align: center; } .hero-sub, .hero-proof { margin-left: auto; margin-right: auto; } }
+
+h1.hero-title { font-weight: 800; font-size: clamp(38px, 5.4vw, 64px); line-height: 1.05; letter-spacing: -0.02em; }
+h1.hero-title span { color: var(--accent); }
+.hero-sub { font-size: 18.5px; color: var(--text-2); max-width: 30em; line-height: 1.6; margin-top: 20px; }
+.hero-cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
+.hero-proof { margin-top: 26px; font-size: 14px; color: var(--text-3); }
+.hero-proof strong { color: var(--text-2); font-weight: 700; }
+
+/* one orchestrated load-in for the hero only — not repeated down the page */
+.load-in { opacity: 0; transform: translateY(14px); animation: rise .8s cubic-bezier(.2,.8,.2,1) forwards; }
+@keyframes rise { to { opacity: 1; transform: none; } }
+.li1{animation-delay:.05s}.li2{animation-delay:.16s}.li3{animation-delay:.27s}.li4{animation-delay:.38s}
+
+/* ── screenshot placeholders — reserved space for real app screenshots.
+   Never a recreation of actual app UI: a dashed frame, a neutral image
+   icon, and explicit "App Screenshot" copy naming exactly what belongs
+   there once it's dropped in. ── */
+.hero-visual { display: grid; place-items: center; }
+.shot-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 9 / 18.4;
+  border-radius: 30px;
+  border: 1.5px dashed #3a3a3a;
+  background:
+    repeating-linear-gradient(135deg, rgba(255,255,255,.025) 0 2px, transparent 2px 14px),
+    var(--surface-2);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; gap: 10px; padding: 26px 20px;
+}
+.shot-frame .shot-icon { width: 30px; height: 30px; color: var(--text-3); flex: none; }
+.shot-frame .shot-tag { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--text-2); }
+.shot-frame .shot-desc { font-size: 13.5px; color: var(--text-2); line-height: 1.4; max-width: 18em; }
+.hero-visual .shot-frame { max-width: 240px; }
+.shot-frame--filled { border-style: solid; border-color: var(--surface-2); padding: 0; overflow: hidden; }
+.shot-frame--filled img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
+
+.shot-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 44px; }
+@media (max-width: 860px){ .shot-gallery { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 520px){ .shot-gallery { grid-template-columns: 1fr; max-width: 320px; margin-left: auto; margin-right: auto; } }
+.shot-item .shot-caption { margin-top: 12px; font-size: 13.5px; font-weight: 700; color: var(--text-2); text-align: center; }
+
+/* ── section scaffolding ── */
+section { padding: 88px 0; }
+.sec-eyebrow { font-size: 13px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); }
+.sec-title { font-weight: 800; font-size: clamp(28px, 3.6vw, 42px); line-height: 1.1; letter-spacing: -0.015em; margin: 12px 0 0; max-width: 17em; }
+.sec-lead { color: var(--text-2); font-size: 17px; margin-top: 14px; max-width: 34em; }
+.rule { height: 1px; background: var(--border); }
+
+/* ── how it works — a connected sequence, not disconnected boxes ── */
+.sequence { display: flex; margin-top: 48px; gap: 8px; }
+@media (max-width: 820px){ .sequence { flex-direction: column; gap: 30px; } }
+.seq-step { flex: 1; position: relative; padding-right: 34px; }
+.seq-step:not(:last-child)::after {
+  content: "―"; position: absolute; right: 2px; top: 2px; color: var(--border); font-size: 20px; font-weight: 700;
+}
+@media (max-width: 820px){ .seq-step:not(:last-child)::after { content: "↓"; right: auto; left: 0; top: auto; bottom: -24px; } }
+.seq-step .num { font-size: 13px; font-weight: 800; color: var(--accent); letter-spacing: .04em; }
+.seq-step h3 { font-size: 19px; font-weight: 800; margin: 12px 0 8px; letter-spacing: -0.01em; }
+.seq-step p { color: var(--text-2); font-size: 15px; }
+
+/* ── testimonials — horizontal strip, like an in-app carousel ── */
+.testi-strip { display: flex; gap: 16px; margin-top: 40px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 10px; scrollbar-width: thin; }
+.testi-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 22px 20px; flex: 0 0 300px; scroll-snap-align: start; }
+.testi-card .quote { font-size: 16px; line-height: 1.5; color: var(--text); }
+.testi-card .attr { margin-top: 16px; display: flex; align-items: center; gap: 10px; }
+.testi-mono { width: 30px; height: 30px; border-radius: 50%; flex: none; background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center; font-size: 11.5px; font-weight: 800; color: var(--text-2); }
+.testi-card .name { font-weight: 700; font-size: 13.5px; }
+.testi-card .ctx { font-size: 12.5px; color: var(--text-2); }
+.testi-note { color: var(--text-3); font-size: 13.5px; margin-top: 12px; }
+
+/* ── occasions — a real catalog grid (grid is the right device here) ── */
+.occasion-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 44px; }
+@media (max-width: 720px){ .occasion-grid { grid-template-columns: 1fr; } }
+.occasion { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 24px 22px 26px; }
+.occasion .ic { font-size: 22px; }
+.occasion h3 { font-size: 20px; font-weight: 800; margin: 16px 0 8px; letter-spacing: -0.01em; }
+.occasion p { color: var(--text-2); font-size: 15px; line-height: 1.55; }
+.occasion .tag-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.oc-tag { font-size: 11.5px; font-weight: 700; color: var(--text-2); background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 10px; }
+.uc-more-row { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+.uc-more { font-size: 13.5px; font-weight: 700; color: var(--accent-soft); display: inline-flex; align-items: center; gap: 6px; }
+
+/* ── features — a real notification feed, not marketing rows ── */
+.moment-list { margin-top: 40px; border-top: 1px solid var(--border); }
+.moment-row { display: flex; gap: 16px; align-items: flex-start; padding: 24px 0; border-bottom: 1px solid var(--border); }
+.moment-row .ic-circle {
+  width: 44px; height: 44px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-size: 19px;
+  background: rgba(var(--accent-rgb),.12);
+}
+.moment-row .body { flex: 1; min-width: 0; }
+.moment-row .body h3 { font-size: 17px; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.005em; }
+.moment-row .body p { color: var(--text-2); font-size: 15px; line-height: 1.55; max-width: 46em; }
+.moment-row .tag { font-size: 12px; font-weight: 700; color: var(--text-3); white-space: nowrap; padding-top: 5px; flex: none; }
+@media (max-width: 560px){ .moment-row .tag { display: none; } }
+
+/* ── together statement ── */
+.together { text-align: center; padding: 100px 0; }
+.together h2 { font-weight: 800; font-size: clamp(28px, 4.2vw, 46px); line-height: 1.15; letter-spacing: -0.015em; }
+.together p { color: var(--text-2); font-size: 17px; max-width: 30em; margin: 18px auto 0; }
+
+/* ── CTA — flat, no card chrome ── */
+.cta-band { padding: 20px 0 80px; text-align: center; }
+.cta-band h2 { font-weight: 800; font-size: clamp(26px, 3.6vw, 38px); letter-spacing: -0.015em; }
+.cta-band > .wrap > p { color: var(--text-2); margin: 12px auto 28px; max-width: 28em; font-size: 16px; }
+.cta-form { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 440px; margin: 0 auto; }
+.cta-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
+.cta-form input[type="email"] {
+  flex: 1; min-width: 220px; background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  padding: 14px 18px; border-radius: var(--r-pill); font-family: var(--font); font-size: 15px; outline: none;
+}
+.cta-form input[type="email"]:focus { border-color: var(--accent); }
+.cta-consent { display: flex; align-items: flex-start; gap: 9px; max-width: 420px; text-align: left; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.cta-consent input { width: 16px; height: 16px; margin-top: 2px; flex: none; accent-color: var(--accent); cursor: pointer; }
+.cta-consent a { color: var(--text); font-weight: 600; text-decoration: underline; }
+.cta-msg { font-size: 13.5px; font-weight: 700; min-height: 18px; }
+.cta-msg.ok { color: var(--success); }
+.cta-msg.err { color: var(--accent); }
+/* ── honest access note — replaces store badges while there is no live
+   store listing to link to; states real distribution status only ── */
+.access-note { display: flex; align-items: center; gap: 12px; text-align: left; max-width: 440px; margin: 26px auto 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 18px; }
+.access-note .ic { color: var(--accent); flex: none; }
+.access-note b { display: block; font-size: 14.5px; font-weight: 800; }
+.access-note span { display: block; font-size: 13px; color: var(--text-2); margin-top: 2px; line-height: 1.45; }
+
+/* ── footer — a single quiet row, not a 3-column enterprise footer ── */
+footer { border-top: 1px solid var(--border); padding: 36px 0; }
+.foot-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px; }
+.foot-row .brand { font-size: 16px; }
+.foot-links-flat { display: flex; gap: 24px; flex-wrap: wrap; font-size: 14px; }
+.foot-links-flat a { color: var(--text-2); }
+.foot-links-flat a:hover { color: var(--text); }
+.foot-bottom { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+
+/* ── guide pages ── */
+.wrap-in { max-width: 640px; }
+.guide-header { padding: 148px 0 20px; }
+.guide-header .sec-title { max-width: none; margin-top: 16px; }
+.guide-list { margin-top: 22px; display: flex; flex-direction: column; gap: 12px; }
+.guide-list li { list-style: none; display: flex; gap: 11px; align-items: flex-start; color: var(--text-2); font-size: 15.5px; }
+.guide-list .tick { color: var(--text-3); font-weight: 700; flex: none; }
+.guide-cta { padding: 20px 0 10px; }
+.guide-cta h2 { font-weight: 800; font-size: clamp(24px, 3.2vw, 32px); letter-spacing: -0.015em; }
+.guide-cta p { color: var(--text-2); margin: 10px 0 20px; max-width: 30em; font-size: 15.5px; }
+.more-ideas-label { font-size: 12px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+.more-ideas { display: flex; flex-wrap: wrap; gap: 10px; }
+.more-ideas a { font-size: 13.5px; font-weight: 700; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 8px 15px; }
+.more-ideas a:hover { color: var(--accent-soft); border-color: rgba(var(--accent-rgb),.4); }
+
+.field-steps { margin-top: 38px; max-width: 38em; display: flex; flex-direction: column; gap: 24px; }
+.field-step { display: grid; grid-template-columns: 46px 1fr; gap: 16px; }
+.field-step .fs-num { font-weight: 800; color: var(--accent); font-size: 18px; }
+.field-step h3 { font-size: 18.5px; font-weight: 800; margin-bottom: 6px; }
+.field-step p { color: var(--text-2); font-size: 15px; }
+
+/* ── legal / doc pages — same shared design system as the rest of the site ── */
+.doc-wrap { max-width: 760px; }
+.doc-header { padding: 148px 0 20px; }
+.doc-header .updated { color: var(--text-3); font-size: 14px; margin-top: 14px; }
+.doc-jump { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
+.doc-jump a { font-size: 13.5px; font-weight: 700; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 9px 16px; transition: border-color .2s, color .2s; }
+.doc-jump a:hover { color: var(--accent-soft); border-color: rgba(var(--accent-rgb),.4); }
+.doc { padding: 20px 0 30px; }
+.doc-block { padding: 36px 0; border-top: 1px solid var(--border); }
+.doc-block:first-child { border-top: none; }
+.doc-block h2 { font-weight: 800; font-size: clamp(24px, 3.2vw, 32px); letter-spacing: -0.015em; }
+.doc-block h3 { font-weight: 800; font-size: 18px; margin-top: 26px; letter-spacing: -0.01em; }
+.doc-block p { color: var(--text-2); margin-top: 13px; line-height: 1.6; }
+.doc-block strong { color: var(--text); font-weight: 700; }
+.doc-block ul { margin: 10px 0 0 20px; color: var(--text-2); }
+.doc-block li { margin-top: 8px; padding-left: 4px; line-height: 1.55; }
+.doc-block a { color: var(--accent-soft); text-decoration: underline; }
+.doc-block .meta { color: var(--text-3); font-size: 13.5px; margin-top: 4px; }
+@media (max-width: 720px){ .doc-header { padding: 116px 0 16px; } .doc-block { padding: 28px 0; } }
+
+/* ── responsive ── */
+@media (max-width: 720px){
+  body { font-size: 16px; }
+  .wrap { padding: 0 20px; }
+  .nav-inner { padding: 14px 20px; }
+  header.hero { padding: 116px 0 56px; }
+  section { padding: 62px 0; }
+  .together { padding: 74px 0; }
+  .cta-band { padding: 10px 0 60px; }
+  .guide-header { padding: 108px 0 16px; }
+}
+@media (max-width: 460px){
+  .wrap { padding: 0 16px; }
+  header.hero { padding: 106px 0 44px; }
+  .hero-cta { gap: 10px; justify-content: center; }
+  .hero-cta .btn { width: 100%; justify-content: center; }
+  section { padding: 50px 0; }
+  .cta-form input[type="email"] { min-width: 0; }
+  .cta-form .btn { width: 100%; justify-content: center; }
+  .occasion-grid { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  *, .load-in { animation: none !important; transition: none !important; }
+  .load-in { opacity: 1; transform: none; }
+}

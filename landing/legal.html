@@ -6,128 +6,27 @@
 <title>Privacy &amp; Legal — Capsule</title>
 <link rel="icon" type="image/png" href="favicon.png" />
 <meta name="description" content="Capsule's privacy policy, terms of service, and community guidelines." />
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-<style>
-  :root {
-    --bg: #0A0A0A; --surface: #1A1A1A; --border: #2A2A2A;
-    --accent: #2DD4BF; --accent-soft: #5EEAD4;
-    --text: #FFFFFF; --text-2: #9A958F; --text-3: #5A5550;
-    --display: "Fraunces", Georgia, serif;
-    --body: "Hanken Grotesk", system-ui, sans-serif;
-    --maxw: 880px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; scroll-padding-top: 90px; }
-  body {
-    background: var(--bg); color: var(--text); font-family: var(--body);
-    font-size: 17px; line-height: 1.6; -webkit-font-smoothing: antialiased;
-    position: relative; min-height: 100vh;
-  }
-  body::after {
-    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-    opacity: 0.04; mix-blend-mode: overlay;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  }
-  a { color: inherit; text-decoration: none; }
-  ::selection { background: var(--accent); color: #100A06; }
-  .wrap { width: 100%; max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
-
-  /* nav */
-  nav {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
-    background: rgba(10,10,10,.72); backdrop-filter: blur(16px) saturate(140%);
-    border-bottom: 1px solid var(--border);
-  }
-  .nav-inner {
-    width: 100%; max-width: 1180px; margin: 0 auto; padding: 16px 28px;
-    display: flex; align-items: center; justify-content: space-between;
-  }
-  .brand { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 19px; letter-spacing: -0.02em; }
-  .brand .mark {
-    width: 32px; height: 32px; border-radius: 9px; display: block; object-fit: cover;
-    box-shadow: 0 6px 16px -6px rgba(0,0,0,.85), inset 0 0 0 1px rgba(255,255,255,.07);
-  }
-  .back-link { color: var(--text-2); font-size: 15px; font-weight: 600; transition: color .2s; }
-  .back-link:hover { color: var(--text); }
-
-  /* header */
-  header.lh { padding: 150px 0 40px; }
-  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
-  h1 { font-family: var(--display); font-weight: 600; font-size: clamp(38px, 6vw, 58px); line-height: 1.02; letter-spacing: -0.02em; margin-top: 14px; }
-  .lead { color: var(--text-2); font-size: 18px; margin-top: 18px; max-width: 36em; }
-  .updated { color: var(--text-3); font-size: 14px; margin-top: 16px; }
-
-  /* in-page jump links */
-  .jump { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 30px; }
-  .jump a {
-    font-size: 14px; font-weight: 600; color: var(--text-2);
-    border: 1px solid var(--border); border-radius: 999px; padding: 9px 16px;
-    transition: border-color .2s, color .2s, background .2s;
-  }
-  .jump a:hover { color: var(--text); border-color: #46413b; background: rgba(255,255,255,.04); }
-
-  .rule { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); margin: 8px 0; }
-
-  /* doc sections */
-  .doc { padding: 48px 0 30px; }
-  .doc-block { padding: 36px 0; border-top: 1px solid var(--border); }
-  .doc-block:first-child { border-top: none; }
-  .doc-block h2 { font-family: var(--display); font-weight: 600; font-size: clamp(26px, 3.6vw, 36px); letter-spacing: -0.02em; }
-  .doc-block h3 { font-family: var(--display); font-weight: 600; font-size: 19px; color: var(--text); margin-top: 28px; letter-spacing: -0.01em; }
-  .doc-block p { color: var(--text-2); margin-top: 15px; }
-  .doc-block strong { color: var(--text); font-weight: 600; }
-  .doc-block ul { margin: 12px 0 0 20px; color: var(--text-2); }
-  .doc-block li { margin-top: 9px; padding-left: 4px; }
-  .doc-block a { color: var(--accent); text-decoration: underline; }
-  .doc-block .meta { color: var(--text-3); font-size: 14px; margin-top: 6px; }
-  .placeholder {
-    margin-top: 22px; border: 1.5px dashed var(--border); border-radius: 20px;
-    min-height: 180px; display: grid; place-items: center;
-    color: var(--text-3); font-size: 14px; letter-spacing: .02em;
-    background: linear-gradient(180deg, rgba(255,255,255,.012), transparent);
-  }
-
-  /* footer */
-  footer { border-top: 1px solid var(--border); padding: 40px 0; margin-top: 50px; color: var(--text-3); font-size: 14px; }
-  .foot-inner { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; }
-  .foot-inner a:hover { color: var(--accent); }
-
-  @media (max-width: 720px){
-    body { font-size: 16px; }
-    .wrap { padding: 0 20px; }
-    .nav-inner { padding: 14px 20px; }
-    header.lh { padding: 120px 0 32px; }
-    .doc { padding: 32px 0 20px; }
-    .doc-block { padding: 30px 0; }
-    .placeholder { min-height: 150px; }
-  }
-  @media (max-width: 460px){
-    .wrap { padding: 0 16px; }
-    .jump { gap: 8px; }
-    .foot-inner { flex-direction: column; align-items: flex-start; gap: 10px; }
-  }
-
-  @media (prefers-reduced-motion: reduce){ html { scroll-behavior: auto; } }
-</style>
+<link rel="canonical" href="https://getcapsuleapp.com/legal.html" />
+<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
 
-<nav>
+<nav id="nav">
   <div class="nav-inner">
     <a class="brand" href="index.html"><img class="mark" src="logo.png" alt="Capsule logo" /> Capsule</a>
-    <a class="back-link" href="index.html">← Back to site</a>
+    <div class="nav-links">
+      <a class="lnk" href="index.html">← Back to site</a>
+    </div>
   </div>
 </nav>
 
-<header class="lh">
-  <div class="wrap">
-    <div class="eyebrow">Privacy &amp; Legal</div>
-    <h1>Privacy &amp; Legal</h1>
-    <p class="lead">Everything covering how Capsule handles your data, the terms of using the app, and the rules that keep the community safe will live here.</p>
+<header class="doc-header">
+  <div class="wrap doc-wrap">
+    <div class="sec-eyebrow">Privacy &amp; Legal</div>
+    <h1 class="sec-title" style="max-width:none;">Privacy &amp; Legal</h1>
+    <p class="sec-lead">Everything covering how Capsule handles your data, the terms of using the app, and the rules that keep the community safe lives here.</p>
     <p class="updated">Last updated — June 10, 2026</p>
-    <div class="jump">
+    <div class="doc-jump">
       <a href="#privacy">Privacy Policy</a>
       <a href="#terms">Terms of Service</a>
       <a href="#guidelines">Community Guidelines</a>
@@ -138,7 +37,7 @@
 <div class="wrap"><div class="rule"></div></div>
 
 <main class="doc">
-  <div class="wrap">
+  <div class="wrap doc-wrap">
 
     <section id="privacy" class="doc-block">
       <h2>Privacy Policy</h2>
@@ -261,11 +160,31 @@
 </main>
 
 <footer>
-  <div class="wrap foot-inner">
-    <span>© 2026 Capsule. All rights reserved.</span>
-    <a href="index.html" style="color:var(--text-2)">← Back to Capsule</a>
+  <div class="wrap">
+    <div class="foot-row">
+      <a class="brand" href="index.html"><img class="mark" src="logo.png" alt="Capsule logo" /> Capsule</a>
+      <div class="foot-links-flat">
+        <a href="index.html#how">How it works</a>
+        <a href="index.html#screens">See it in action</a>
+        <a href="index.html#occasions">Occasions</a>
+        <a href="index.html#features">Features</a>
+        <a href="support.html">Support</a>
+        <a href="legal.html#privacy">Privacy</a>
+        <a href="legal.html#terms">Terms</a>
+        <a href="legal.html#guidelines">Guidelines</a>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© 2026 Capsule. All rights reserved.</span>
+      <span style="display:flex; gap:18px;">
+        <a href="index.html#" style="color:var(--text-2)">Instagram</a>
+        <a href="index.html#" style="color:var(--text-2)">TikTok</a>
+        <a href="index.html#" style="color:var(--text-2)">X</a>
+      </span>
+    </div>
   </div>
 </footer>
 
+<script src="site.js"></script>
 </body>
 </html>
