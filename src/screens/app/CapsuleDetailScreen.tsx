@@ -387,7 +387,7 @@ function InviteModal({
                     <TouchableOpacity
                       style={[ms.inviteBtn, { backgroundColor: accentColor }]}
                       onPress={() => invite(u.id)}
-                      disabled={inviting === u.id}
+                      disabled={!!inviting}
                     >
                       <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
                     </TouchableOpacity>
@@ -414,7 +414,7 @@ function InviteModal({
                   <TouchableOpacity
                     style={[ms.inviteBtn, { backgroundColor: accentColor }]}
                     onPress={() => invite(f.id)}
-                    disabled={inviting === f.id}
+                    disabled={!!inviting}
                   >
                     <Text style={ms.inviteBtnText}>{inviting === f.id ? '…' : 'Invite'}</Text>
                   </TouchableOpacity>

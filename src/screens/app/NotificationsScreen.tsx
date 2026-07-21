@@ -245,11 +245,16 @@ export default function NotificationsScreen() {
       supabase
         .from('capsule_members')
         .select('id', { count: 'exact', head: true })
-        .eq('capsule_id', capsuleId),
+        .eq('capsule_id', capsuleId)
+        // Exclude the accepting user's own already-inserted pending row —
+        // accepting only flips its joined_at, it adds no new row, so
+        // counting it here double-counts the invitee against the cap and
+        // deadlocks them out of ever accepting (see FIX 1 in review notes).
+        .neq('id', memberId),
     ]);
     const ownerTier: string = (capsuleRes.data as any)?.owner?.subscription_tier ?? 'free';
-    const memberCount = countRes.count ?? 0;
-    if (memberCount >= limitsForTier(ownerTier).membersPerCapsule) {
+    const otherMemberCount = countRes.count ?? 0;
+    if (otherMemberCount >= limitsForTier(ownerTier).membersPerCapsule) {
       toast.show('This capsule is full — its host is on the free plan.');
       return;
     }
