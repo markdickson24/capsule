@@ -48,7 +48,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
     const params: any = route.params;
     if (Array.isArray(params?.media)) return params.media;
     if (params?.uri && params?.mediaType) {
-      return [{ uri: params.uri, mediaType: params.mediaType, altUri: params.altUri }];
+      return [{ uri: params.uri, mediaType: params.mediaType, altUri: params.altUri, durationMs: params.durationMs }];
     }
     return [];
   }, [route.params]);
@@ -156,12 +156,22 @@ export default function PreviewScreen({ route, navigation }: Props) {
     // that capsule's count to 0 (fail-open, same convention as the rest of
     // this check) rather than blocking on a transient error.
     const selected = Array.from(selectedIds);
-    const counts = await Promise.all(
-      selected.map(async id => ({
-        id,
-        count: (await supabase.rpc('capsule_media_count', { p_capsule_id: id })).data ?? 0,
-      }))
-    );
+    let counts: { id: string; count: number }[];
+    try {
+      counts = await Promise.all(
+        selected.map(async id => ({
+          id,
+          count: (await supabase.rpc('capsule_media_count', { p_capsule_id: id })).data ?? 0,
+        }))
+      );
+    } catch (e) {
+      // A thrown rejection (real fetch failure, not the normal {data,error}
+      // resolution) must still release the busy lock — otherwise the Add
+      // button stays stuck disabled/spinning until the screen remounts.
+      setBusy(false);
+      toast.show('Something went wrong. Try again.');
+      return;
+    }
     const countMap = new Map(counts.map(c => [c.id, c.count]));
 
     const ids = selected.filter(id => {
