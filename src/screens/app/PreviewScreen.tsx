@@ -14,13 +14,33 @@ import { sessionStore } from '../../lib/sessionStore';
 import { AppStackParamList, PendingMedia } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { uploadQueue } from '../../lib/uploadQueue';
+import { limitsForTier } from '../../lib/tierLimits';
+import { proGateHit } from '../../lib/proGate';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Preview'>;
 
 type CapsuleOption = {
   capsule_id: string;
   role: string;
-  capsules: { id: string; title: string; status: string } | null;
+  capsules: {
+    id: string;
+    title: string;
+    status: string;
+    owner_id: string;
+    // Photo cap keys off the capsule OWNER's tier (never the acting/guest
+    // user's) — see proGateHit. Absent embed falls back to 'free' via
+    // limitsForTier's own fail-safe.
+    owner: { subscription_tier: string } | null;
+    // PostgREST count aggregate — returns `[{ count: N }]`, parsed
+    // defensively (same shape as groups.ts's `group_members(count)`).
+    // NOTE: undercounts for surprise-mode-locked capsules pre-unlock — the
+    // `media` SELECT RLS policy hides rows from everyone, owner included,
+    // while `owner_preview_locked` is true (same caveat CapsuleDetailScreen
+    // works around via the `capsule_media_count` RPC). Accepted here per
+    // spec; a locked surprise capsule's cap can't be enforced from this
+    // screen until it unlocks.
+    media: { count: number }[] | null;
+  } | null;
 };
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -79,7 +99,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
       if (!session) return;
       const { data } = await supabase
         .from('capsule_members')
-        .select('capsule_id, role, capsules(id, title, status)')
+        .select('capsule_id, role, capsules(id, title, status, owner_id, owner:users!capsules_owner_id_fkey(subscription_tier), media(count))')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null)
         .in('role', ['owner', 'contributor']);
@@ -115,7 +135,30 @@ export default function PreviewScreen({ route, navigation }: Props) {
   function upload() {
     if (selectedIds.size === 0 || items.length === 0) return;
 
-    const ids = Array.from(selectedIds);
+    const currentUserId = sessionStore.get()?.user.id;
+
+    // Pro gate: unlike CapsuleDetailScreen (always exactly one target), this
+    // screen can fan out to multiple selected capsules — each is checked
+    // against ITS OWN owner's tier + current count and skipped individually
+    // on overflow (partial fill across capsules), rather than blocking the
+    // whole batch.
+    const ids = Array.from(selectedIds).filter(id => {
+      const opt = capsules.find(c => c.capsule_id === id);
+      const cap = opt?.capsules;
+      if (!cap) return true; // shouldn't happen; fail open rather than silently drop
+      const photoCap = limitsForTier(cap.owner?.subscription_tier).photosPerCapsule;
+      const existing = cap.media?.[0]?.count ?? 0;
+      if (existing + items.length > photoCap) {
+        proGateHit({
+          currentUserIsHost: cap.owner_id === currentUserId,
+          guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+        });
+        return false;
+      }
+      return true;
+    });
+    if (ids.length === 0) return;
+
     uploadQueue.enqueue(
       ids.flatMap(id =>
         items.map((item, idx) => ({

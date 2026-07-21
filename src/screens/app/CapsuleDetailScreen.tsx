@@ -1573,6 +1573,18 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // storage, viewer, upload-time thumbnails) already supports it.
   function goToPreview(assets: ImagePicker.ImagePickerAsset[]) {
     if (assets.length === 0) return;
+    // Pro gate: this screen only ever targets its own capsule, so the whole
+    // batch is blocked up front (v1 — no partial fill) rather than letting it
+    // reach Preview's per-capsule check just to fail there. Keyed off the
+    // OWNER's tier, not the acting user's — see proGateHit.
+    const photoCap = limitsForTier(ownerTier).photosPerCapsule;
+    if (mediaCount + assets.length > photoCap) {
+      proGateHit({
+        currentUserIsHost: isOwner,
+        guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+      });
+      return;
+    }
     setUploadError('');
     setShowPickerOptions(false);
     navigation.navigate('Preview', {
