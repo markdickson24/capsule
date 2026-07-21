@@ -163,6 +163,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
         proGateHit({
           currentUserIsHost: cap.owner_id === currentUserId,
           guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+          title: 'This capsule is full',
+          ownerMessage: 'Capsule Pro raises the limit to 1000 photos.',
         });
         return false;
       }

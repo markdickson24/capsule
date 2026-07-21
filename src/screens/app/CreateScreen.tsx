@@ -193,7 +193,12 @@ export default function CreateScreen() {
       // fail-closed.
       if ((count ?? 0) >= limitsForTier('free').activeCapsules) {
         setLoading(false);
-        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        proGateHit({
+          currentUserIsHost: true,
+          guestMessage: '',
+          title: "You've reached 3 capsules",
+          ownerMessage: 'Capsule Pro unlocks unlimited active capsules.',
+        });
         return;
       }
     }
@@ -221,7 +226,12 @@ export default function CreateScreen() {
     if (capsuleError || !capsuleId) {
       setLoading(false);
       if (capsuleError?.message?.includes('CAPSULE_LIMIT_REACHED')) {
-        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        proGateHit({
+          currentUserIsHost: true,
+          guestMessage: '',
+          title: "You've reached 3 capsules",
+          ownerMessage: 'Capsule Pro unlocks unlimited active capsules.',
+        });
         return;
       }
       setErrors({ general: 'Failed to create capsule. Please try again.' });

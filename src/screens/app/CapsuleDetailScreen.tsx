@@ -283,6 +283,8 @@ function InviteModal({
       proGateHit({
         currentUserIsHost: isOwner,
         guestMessage: 'This capsule is full — its host is on the free plan.',
+        title: 'This capsule is full',
+        ownerMessage: 'Capsule Pro raises the limit to 50 members.',
       });
       return;
     }
@@ -1579,6 +1581,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       proGateHit({
         currentUserIsHost: isOwner,
         guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+        title: 'This capsule is full',
+        ownerMessage: 'Capsule Pro raises the limit to 1000 photos.',
       });
       return;
     }
