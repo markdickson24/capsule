@@ -160,57 +160,115 @@ class ExpoVideoStitcherModule : Module() {
       outputFile.absolutePath,
       MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
     )
+    var muxerStarted = false
 
-    // Phase 1: Add all tracks (video + audio) so we can start the muxer.
-    val setupExtractor = MediaExtractor()
-    setupExtractor.setDataSource(path)
-
-    val trackIndexToMuxerTrack = mutableMapOf<Int, Int>()
-    for (i in 0 until setupExtractor.trackCount) {
-      val fmt = setupExtractor.getTrackFormat(i)
-      val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
-      if (mime.startsWith("video/") || mime.startsWith("audio/")) {
-        trackIndexToMuxerTrack[i] = muxer.addTrack(fmt)
+    try {
+      // Phase 1: Add all tracks (video + audio) so we can start the muxer.
+      var muxerVideoTrack = -1
+      var muxerAudioTrack = -1
+      val setupExtractor = MediaExtractor()
+      try {
+        setupExtractor.setDataSource(path)
+        for (i in 0 until setupExtractor.trackCount) {
+          val fmt = setupExtractor.getTrackFormat(i)
+          val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
+          when {
+            mime.startsWith("video/") && muxerVideoTrack < 0 ->
+              muxerVideoTrack = muxer.addTrack(fmt)
+            mime.startsWith("audio/") && muxerAudioTrack < 0 ->
+              muxerAudioTrack = muxer.addTrack(fmt)
+          }
+        }
+      } finally {
+        setupExtractor.release()
       }
-    }
-    setupExtractor.release()
 
-    if (trackIndexToMuxerTrack.isEmpty()) {
+      if (muxerVideoTrack < 0 && muxerAudioTrack < 0) {
+        throw Exception("No video/audio tracks found to trim")
+      }
+
+      muxer.start()
+      muxerStarted = true
+
+      // Phase 2: For each track present, re-open a FRESH MediaExtractor and
+      // re-derive its track index via findTrack() on THAT instance — mirrors
+      // stitch()'s per-instance mime lookup rather than assuming track
+      // enumeration order is stable across separate MediaExtractor instances
+      // opened on the same file. Seeks to 0 and copies samples until the
+      // time bound is exceeded or the track is exhausted.
+      if (muxerVideoTrack >= 0) {
+        val ext = MediaExtractor()
+        try {
+          ext.setDataSource(path)
+          val track = ext.findTrack("video/")
+          if (track >= 0) {
+            ext.selectTrack(track)
+            ext.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+            val buf = ByteBuffer.allocate(1 * 1024 * 1024)
+            val info = MediaCodec.BufferInfo()
+
+            while (true) {
+              val sampleTime = ext.sampleTime
+              if (sampleTime < 0 || sampleTime > maxSampleTimeUs) break
+
+              info.offset = 0
+              info.size = ext.readSampleData(buf, 0)
+              if (info.size < 0) break
+              info.presentationTimeUs = sampleTime
+              info.flags = ext.sampleFlags
+              muxer.writeSampleData(muxerVideoTrack, buf, info)
+              ext.advance()
+            }
+          }
+        } finally {
+          ext.release()
+        }
+      }
+
+      if (muxerAudioTrack >= 0) {
+        val ext = MediaExtractor()
+        try {
+          ext.setDataSource(path)
+          val track = ext.findTrack("audio/")
+          if (track >= 0) {
+            ext.selectTrack(track)
+            ext.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+            val buf = ByteBuffer.allocate(512 * 1024)
+            val info = MediaCodec.BufferInfo()
+
+            while (true) {
+              val sampleTime = ext.sampleTime
+              if (sampleTime < 0 || sampleTime > maxSampleTimeUs) break
+
+              info.offset = 0
+              info.size = ext.readSampleData(buf, 0)
+              if (info.size < 0) break
+              info.presentationTimeUs = sampleTime
+              info.flags = ext.sampleFlags
+              muxer.writeSampleData(muxerAudioTrack, buf, info)
+              ext.advance()
+            }
+          }
+        } finally {
+          ext.release()
+        }
+      }
+    } finally {
+      // muxer.stop() can itself throw (e.g. no samples were ever written) —
+      // guard it separately so that failure can't mask an exception already
+      // propagating from the try block above. Only call stop() if start()
+      // actually ran; muxer.release() always runs.
+      if (muxerStarted) {
+        try {
+          muxer.stop()
+        } catch (e: Exception) {
+          // Best-effort cleanup only; the original exception (if any) wins.
+        }
+      }
       muxer.release()
-      throw Exception("No video/audio tracks found to trim")
     }
-
-    muxer.start()
-
-    // Phase 2: For each track, seek to 0 and copy samples until the time
-    // bound is exceeded or the track is exhausted.
-    for ((trackIndex, muxerTrack) in trackIndexToMuxerTrack) {
-      val ext = MediaExtractor()
-      ext.setDataSource(path)
-      ext.selectTrack(trackIndex)
-      ext.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
-
-      val buf = ByteBuffer.allocate(1 * 1024 * 1024)
-      val info = MediaCodec.BufferInfo()
-
-      while (true) {
-        val sampleTime = ext.sampleTime
-        if (sampleTime < 0 || sampleTime > maxSampleTimeUs) break
-
-        info.offset = 0
-        info.size = ext.readSampleData(buf, 0)
-        if (info.size < 0) break
-        info.presentationTimeUs = sampleTime
-        info.flags = ext.sampleFlags
-        muxer.writeSampleData(muxerTrack, buf, info)
-        ext.advance()
-      }
-
-      ext.release()
-    }
-
-    muxer.stop()
-    muxer.release()
 
     return outputFile.absolutePath
   }
