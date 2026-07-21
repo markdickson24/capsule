@@ -1443,7 +1443,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // capsule/members result, so run it in the same wave instead of
     // awaiting it afterward.
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at, owner:users!capsules_owner_id_fkey(subscription_tier)').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
         .select('user_id, role, joined_at, archived_at, users(display_name, avatar_url)')
@@ -1454,7 +1454,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
-      setCapsule(capsuleRes.data as Capsule);
+      setCapsule(capsuleRes.data as unknown as Capsule);
     }
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
@@ -1709,6 +1709,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   });
 
   const isOwner = capsule.owner_id === currentUserId;
+  // Owner's subscription tier, embedded via the capsules.owner_id FK — drives
+  // Pro-tier limit enforcement (see src/lib/tierLimits.ts). Falls back to
+  // 'free' when the embed is absent (fail safe, mirrors limitsForTier()).
+  const ownerTier: string = (capsule as any).owner?.subscription_tier ?? 'free';
   const myMember = members.find(m => m.user_id === currentUserId);
   const myRole = myMember?.role ?? null;
   // Archive is per-member (stamps the caller's own capsule_members.archived_at
