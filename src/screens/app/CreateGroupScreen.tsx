@@ -16,6 +16,8 @@ import { toast } from '../../lib/toast';
 import { haptics } from '../../lib/haptics';
 import { blockStore } from '../../lib/blocks';
 import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
+import { useEntitlements } from '../../hooks/useEntitlements';
+import { proGateHit } from '../../lib/proGate';
 import RecurrenceAnchorPicker, { describeAnchor } from '../../components/RecurrenceAnchorPicker';
 import ReminderLeadPicker from '../../components/ReminderLeadPicker';
 import InfoTooltip from '../../components/InfoTooltip';
@@ -87,6 +89,7 @@ function defaultAnchor(): RecurrenceAnchor {
 export default function CreateGroupScreen() {
   const { accentColor } = useTheme();
   const navigation = useNavigation<NavProp>();
+  const { isPro, loading: entitlementsLoading } = useEntitlements();
 
   const [name, setName] = useState('');
   const [recurrence, setRecurrence] = useState<GroupRecurrence>('manual');
@@ -189,6 +192,15 @@ export default function CreateGroupScreen() {
     if (!trimmedName) { setNameError('Give your group a name.'); return; }
     setNameError(null);
     setError(null);
+    // Recurring groups are a Pro feature. Only block on the client once
+    // entitlements have actually resolved — while loading, fall through and
+    // let the server RPC's GROUP_RECURRENCE_PRO error (mapped below) decide,
+    // so a real Pro user who submits before the fetch resolves is never
+    // falsely gated.
+    if (!entitlementsLoading && recurrence !== 'manual' && !isPro) {
+      proGateHit({ currentUserIsHost: true, guestMessage: '' });
+      return;
+    }
     setCreating(true);
     // Re-derive from the raw text in case the custom-days field is still
     // focused (no blur fired yet) when Create is tapped.
@@ -209,6 +221,10 @@ export default function CreateGroupScreen() {
     });
     setCreating(false);
     if (err || !groupId) {
+      if (err === 'GROUP_RECURRENCE_PRO') {
+        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        return;
+      }
       setError(err ?? 'Could not create group.');
       return;
     }
