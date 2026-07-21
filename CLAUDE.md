@@ -61,6 +61,8 @@ src/
     useShareIntent.native.ts        # Consumes expo-share-intent, routes to Preview or stash
     useShareIntent.web.ts           # No-op stub for web
     useShareIntent.ts               # TS fallback stub
+    useRevenueCat.ts         # App-level RevenueCat lifecycle (configure once, logIn/logOut on session). See "Monetization"
+    useEntitlements.ts       # Reactive { isPro } via CustomerInfo listener — UI-only, not the real gate. See "Monetization"
   lib/
     animations.ts           # Reusable animation hooks (useFadeIn, useSlideUp, useListItemEntrance)
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
@@ -74,6 +76,9 @@ src/
     uuid.ts                 # randomUUID() helper
     googleAuth.ts           # signInWithGoogle() via expo-auth-session
     navigationRef.ts        # Imperative nav ref for use outside components
+    purchases.native.ts     # RevenueCat SDK wrapper (native only). See "Monetization"
+    purchases.web.ts        # No-op stub for web — signatures mirror purchases.native.ts
+    purchases.ts             # TS-resolution fallback (re-exports the web stub), same split as usePushNotifications
   navigation/
     AppNavigator.tsx        # Onboarding gate + Tabs + stack screens, CustomTabBar
     AuthNavigator.tsx       # Welcome → Login → SignUp
@@ -101,6 +106,9 @@ supabase/
                              # has arrived (contribution_start_notified_at still null), inserts a
                              # capsule_started notification per joined member, and pushes inline. Auth:
                              # Bearer CRON_SECRET. Per-minute EXISTS-gated cron. See "Capsule Start Date".
+    revenuecat-webhook/      # Edge function: mirrors the Capsule Pro entitlement into users.subscription_tier.
+                             # Auth: shared-secret Authorization header (REVENUECAT_WEBHOOK_SECRET), not CRON_SECRET
+                             # — RevenueCat calls this directly, not via pg_cron. See "Monetization".
   migrations/                # Timestamped SQL migrations applied to the remote DB. supabase-schema.sql
                              # is the original schema and has drifted — the migrations are the source of truth.
 ```
@@ -508,6 +516,8 @@ Footer only exists for steps 1–3 (`Back` from 2–3; contextual `Next`/skip). 
 
 Wraps the shared `<ColorPicker>` from `src/components/ColorPicker.tsx`. Tracks a `pending` color (local state) so the user can preview/cancel before committing. Save writes to `users.accent_color` via `ThemeContext.setAccentColor` and navigates back. The original color is passed as `originalValue` to show a small "before" swatch.
 
+**Capsule Pro section** (native-only, `Platform.OS !== 'web'`) — reads `isPro` from `useEntitlements()`. Non-Pro: an "Upgrade to Capsule Pro" button (`presentPaywall()`) + a "Restore Purchases" row (`restorePurchases()`, toasts the result). Pro: a "Manage Subscription" row (`presentCustomerCenter()` — the RevenueCat-hosted manage/cancel/refund UI) instead. See "Monetization" for the full purchase stack.
+
 ## ColorPicker (`src/components/ColorPicker.tsx`)
 
 Controlled component. Props: `{ value: string; onChange: (hex) => void; originalValue?: string }`. Internals:
@@ -755,6 +765,42 @@ An optional `contribution_start_at` — the **mirror image of `contribution_lock
 - `NotificationsScreen` — renders `capsule_started` (camera-outline icon, accent color, capsule-nav) with "`<title>` is open for photos now" copy.
 
 **Shipped to production** (`ezxxvvmesegegkdeniri`) — both migrations applied, edge function deployed, cron active, bad-token 401 confirmed, and verified end-to-end against live data: a disposable capsule with a past `contribution_start_at` + two joined members produced exactly 2 `capsule_started` notifications (one per member, `pushed_at` set) via the real Vault-auth cron path, the dedup stamp landed, a second invocation returned `{"claimed":0,"notified":0}` (idempotent), and all fixtures were deleted afterward.
+
+---
+
+## Monetization (RevenueCat)
+
+Full strategy/pricing rationale lives in `docs/monetization-strategy.md`. This section covers the shipped plumbing — a single paid tier, **Capsule Pro** — not the roadmap (Event Pass, Premium, etc. are not built).
+
+### Client stack
+- **`src/lib/purchases.{native,web,ts}`** — the only module that talks to the RevenueCat SDK; every call site goes through it so the SDK is configured exactly once and the entitlement id lives in one place. Same platform-split idiom as `usePushNotifications`/`useShareIntent` (`.native.ts` real impl, `.web.ts` no-op stub, bare `.ts` re-exports the web stub for TS resolution). `PRO_ENTITLEMENT_ID = 'Capsule Pro'` — must match the RevenueCat dashboard entitlement **exactly** (case-sensitive) or `isProActive()` is always false.
+  - `configurePurchases()` — idempotent, configures the SDK anonymously. `identifyUser(userId)` / `resetUser()` — `Purchases.logIn`/`logOut`, tie the RevenueCat app-user id to the Supabase user id (needed for the webhook below to map purchases back to a row, and for Pro to follow a user across devices/reinstalls).
+  - `presentPaywall()` / `presentProPaywallIfNeeded()` — the RevenueCat-hosted paywall (built in the dashboard's Paywall AI Editor, attached to the `default` offering). `presentCustomerCenter()` — the drop-in manage/cancel/restore UI, wired to Settings' "Manage Subscription" row.
+  - `purchasePackage(pkg)` / `restorePurchases()` — escape hatches for a fully custom paywall; not currently used (the hosted paywall covers both screens that need it).
+  - **Client-side entitlement checks are UI-only.** The real gate is server-side (see webhook below) — never trust `isProActive()`/`isPro` for anything a malicious client could bypass.
+- **`useRevenueCat(userId?)`** (`src/hooks/useRevenueCat.ts`) — called once from `App.tsx` (`useRevenueCat(session?.user.id)`, alongside `usePushNotifications`). Configures the SDK on mount, then `identifyUser`/`resetUser` whenever the signed-in user id appears/changes/disappears — mirrors `usePushNotifications`'s lifecycle exactly.
+- **`useEntitlements()`** (`src/hooks/useEntitlements.ts`) — returns `{ isPro, loading, customerInfo, refresh }`. Reads `CustomerInfo` on mount and subscribes to the SDK's update listener (fires on purchase/restore/renewal/expiry), so any screen using this hook reflects a paywall purchase made anywhere else in the app with no manual refetch. Web returns `{ isPro: false, loading: false }` via the stub.
+
+### Server-side gate
+**`supabase/functions/revenuecat-webhook`** — the actual source of truth. RevenueCat POSTs entitlement lifecycle events here; the function maps `event.type` to a `users.subscription_tier` write (`'free'` | `'pro'`, the pre-existing column — see Database Schema):
+- **Auth is a shared secret**, not `CRON_SECRET` — RevenueCat sends the value configured as the webhook's "Authorization header" verbatim; the function compares it against the `REVENUECAT_WEBHOOK_SECRET` Edge Function secret and fails closed (401) if either side is unset/mismatched. Deployed with `verify_jwt: false` (RevenueCat doesn't send a Supabase JWT).
+- `event.app_user_id` is the Supabase `users.id` UUID, because `identifyUser()` always logs the client in with that id — a regex guards against writing to anonymous RevenueCat ids (`$RCAnonymousID:...`) if one ever leaks through.
+- **GRANT set** (`INITIAL_PURCHASE`, `RENEWAL`, `UNCANCELLATION`, `PRODUCT_CHANGE`, `NON_RENEWING_PURCHASE` [lifetime], `SUBSCRIPTION_EXTENDED`) → `'pro'`. **REVOKE set** (`EXPIRATION`, `SUBSCRIPTION_PAUSED`) → `'free'`. `TRANSFER` (entitlement moved between app-user-ids, e.g. anonymous→identified on first `logIn`) grants the destination id(s) and revokes the origin id(s). `CANCELLATION`/`BILLING_ISSUE` are deliberately **no-ops** — auto-renew-off or a billing grace period still means the user is entitled until an actual `EXPIRATION` arrives.
+- Any future code that needs to gate a feature by subscription tier should read `users.subscription_tier` (via RLS or a server-side check), not client-side `isPro` — nothing does this yet, see "Known gap" below.
+
+### Post-unlock upsell
+`CapsuleDetailScreen` shows a dismissible nudge — not an auto-popped paywall, which would step on the reveal moment — to a non-Pro owner once their capsule has unlocked ("Keep it forever with Pro" → `presentPaywall()`). Same visual/dismissal pattern as the existing post-create invite nudge: dismissal persists per-capsule via AsyncStorage (`cap_pro_nudge_dismissed:<capsuleId>`), native-only.
+
+### RevenueCat dashboard configuration
+Project `proj72b0a2e3`. Entitlement `entl2d972407b4` (lookup key `Capsule Pro`). Offering `default` (`$rc_monthly` / `$rc_annual` / `$rc_lifetime` packages → products `monthly` / `yearly` / `lifetime`), with a published dashboard-built paywall attached.
+
+**Two RevenueCat apps exist, same products/offering/entitlement shared across both:**
+- **Test Store** (`app3febbe6182`) — the fallback key baked into `purchases.native.ts` (`FALLBACK_TEST_KEY`, `test_...`). Drives fake purchases with no real StoreKit involved — good for exercising the full client→webhook→DB pipeline (paywall render → purchase → `isPro` flips → webhook fires → `subscription_tier` updates), useless for verifying real App Store product config.
+- **Capsule iOS** (`app7b40141214`) — the real App Store app, connected to App Store Connect via an ASC API key (Key ID + Issuer ID + `.p8`, configured in the RevenueCat dashboard — not exposed through any RevenueCat API, dashboard-only). Its public SDK key goes in `EXPO_PUBLIC_REVENUECAT_IOS_KEY` (set in `.env` for local dev and as an EAS production secret via `eas env:create`).
+
+**Real product pricing** (monthly $4.99, yearly $39.99, lifetime $79.99, full ~180-territory equalization from the US price) is live in App Store Connect for all three products. **⚠️ Known blocker:** real purchases will fail until Apple's one-time rule clears — *the first-ever In-App Purchase/subscription for an app must be submitted attached to an app version through App Store Connect's UI*, not via any API. Until someone does that (App Store Connect → app version → "In-App Purchases and Subscriptions" → attach `monthly`/`yearly`/`lifetime` → submit the version for review), only the Test Store key produces working purchases. After that first approval, all three products (and any future ones) become fully manageable via RevenueCat's API/dashboard with no further app-version dependency.
+
+**Known gap:** the free-tier usage caps described in `docs/monetization-strategy.md` (3 active hosted capsules, ~10 members/capsule, ~20 photos/capsule) are **not enforced anywhere in code**. `subscription_tier` is now correctly mirrored server-side, but nothing currently reads it to gate capsule creation, member invites, or photo uploads — that enforcement (client-side UX + RLS) is the next piece needed before Free vs. Pro means anything functionally.
 
 ---
 
@@ -1027,6 +1073,8 @@ runtime off-thread)`. Current patches:
 ```
 EXPO_PUBLIC_SUPABASE_URL=...
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+EXPO_PUBLIC_REVENUECAT_IOS_KEY=...      # appl_... — falls back to a Test Store key if unset, see "Monetization"
+EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=...  # goog_... — not yet configured (no Android app in RevenueCat yet)
 ```
 
 App config: `app.json`. Bundle ID: `com.markdickson.capsule`. EAS Project ID: `2e004e6f-2e9d-4309-a172-46b6976eb3d9`.
