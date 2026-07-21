@@ -14,6 +14,7 @@ import { ThemeProvider } from './src/context/ThemeContext';
 import { ShareIntentProvider } from './src/lib/ShareIntentProvider';
 import { LoadingBrandScreen } from './src/components/LoadingBrand';
 import ToastHost from './src/components/ToastHost';
+import { LimitSheetHost } from './src/components/LimitSheet';
 
 // Init Sentry once at module load. Skips initialization if no DSN is set,
 // so dev builds without EXPO_PUBLIC_SENTRY_DSN are no-ops.
@@ -54,6 +55,7 @@ function App() {
             <StatusBar style="light" />
             <RootNavigator />
             <ToastHost />
+            <LimitSheetHost />
           </NavigationContainer>
         </SafeAreaProvider>
       </ThemeProvider>
