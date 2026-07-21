@@ -31,15 +31,6 @@ type CapsuleOption = {
     // user's) — see proGateHit. Absent embed falls back to 'free' via
     // limitsForTier's own fail-safe.
     owner: { subscription_tier: string } | null;
-    // PostgREST count aggregate — returns `[{ count: N }]`, parsed
-    // defensively (same shape as groups.ts's `group_members(count)`).
-    // NOTE: undercounts for surprise-mode-locked capsules pre-unlock — the
-    // `media` SELECT RLS policy hides rows from everyone, owner included,
-    // while `owner_preview_locked` is true (same caveat CapsuleDetailScreen
-    // works around via the `capsule_media_count` RPC). Accepted here per
-    // spec; a locked surprise capsule's cap can't be enforced from this
-    // screen until it unlocks.
-    media: { count: number }[] | null;
   } | null;
 };
 
@@ -99,7 +90,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
       if (!session) return;
       const { data } = await supabase
         .from('capsule_members')
-        .select('capsule_id, role, capsules(id, title, status, owner_id, owner:users!capsules_owner_id_fkey(subscription_tier), media(count))')
+        .select('capsule_id, role, capsules(id, title, status, owner_id, owner:users!capsules_owner_id_fkey(subscription_tier))')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null)
         .in('role', ['owner', 'contributor']);
@@ -132,7 +123,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
   // Optimistic: hand everything to the background upload queue and navigate
   // immediately. The capsule grid renders the pending items as local-URI tiles
   // with per-item progress/retry, and the queue toasts when the batch drains.
-  function upload() {
+  async function upload() {
     if (selectedIds.size === 0 || items.length === 0) return;
 
     const currentUserId = sessionStore.get()?.user.id;
@@ -142,12 +133,32 @@ export default function PreviewScreen({ route, navigation }: Props) {
     // against ITS OWN owner's tier + current count and skipped individually
     // on overflow (partial fill across capsules), rather than blocking the
     // whole batch.
-    const ids = Array.from(selectedIds).filter(id => {
+    //
+    // The current media count must come from the `capsule_media_count` RPC,
+    // not a `media(count)` embed on the capsules query — the `media` SELECT
+    // RLS policy hides all rows (owner included) while a capsule is
+    // surprise-mode-locked (`owner_preview_locked`, the default for new
+    // capsules), which would silently collapse the cap check to only
+    // catching a single oversized batch and never accumulation across
+    // multiple uploads. Only fetched for the capsules the user actually
+    // selected, not the whole chip list. On a per-capsule RPC error, default
+    // that capsule's count to 0 (fail-open, same convention as the rest of
+    // this check) rather than blocking on a transient error.
+    const selected = Array.from(selectedIds);
+    const counts = await Promise.all(
+      selected.map(async id => ({
+        id,
+        count: (await supabase.rpc('capsule_media_count', { p_capsule_id: id })).data ?? 0,
+      }))
+    );
+    const countMap = new Map(counts.map(c => [c.id, c.count]));
+
+    const ids = selected.filter(id => {
       const opt = capsules.find(c => c.capsule_id === id);
       const cap = opt?.capsules;
       if (!cap) return true; // shouldn't happen; fail open rather than silently drop
       const photoCap = limitsForTier(cap.owner?.subscription_tier).photosPerCapsule;
-      const existing = cap.media?.[0]?.count ?? 0;
+      const existing = countMap.get(id) ?? 0;
       if (existing + items.length > photoCap) {
         proGateHit({
           currentUserIsHost: cap.owner_id === currentUserId,
