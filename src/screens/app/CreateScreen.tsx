@@ -26,6 +26,7 @@ import SealedMoment from '../../components/SealedMoment';
 import { limitsForTier } from '../../lib/tierLimits';
 import { proGateHit } from '../../lib/proGate';
 import { useEntitlements } from '../../hooks/useEntitlements';
+import { trimVideo } from '../../../modules/expo-video-stitcher';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -317,8 +318,37 @@ export default function CreateScreen() {
       // every item was added. The queue makes failures visible and retryable
       // instead of a silent, unrecoverable loss discovered at unlock months
       // later.
+      //
+      // Video-length gate: the new capsule's owner is the current user, so the
+      // cap is their own tier's. Over-cap videos are TRIMMED (first N seconds)
+      // rather than dropped or uploaded full — the interactive Trim/Upgrade/Skip
+      // sheet lives on PreviewScreen; here the capsule is already committed and
+      // the seal ceremony is about to play, so a silent trim + honest toast is
+      // the right call. Fail-open when durationMs is unknown.
+      const cap = limitsForTier(isPro ? 'pro' : 'free').videoSeconds;
+      const isOver = (m: PendingMedia) =>
+        m.mediaType === 'video' && m.durationMs != null && m.durationMs / 1000 > cap;
+      const overCount = pendingMedia.filter(isOver).length;
+      let toEnqueue = pendingMedia;
+      if (overCount > 0) {
+        try {
+          toEnqueue = await Promise.all(
+            pendingMedia.map(async (m) =>
+              isOver(m)
+                ? { ...m, uri: await trimVideo(m.uri, cap), durationMs: cap * 1000 }
+                : m
+            )
+          );
+          toast.show(`Trimmed ${overCount > 1 ? `${overCount} videos` : 'your video'} to ${cap}s (free limit).`);
+        } catch {
+          // Trim unavailable (e.g. no native build yet): drop the over-cap clips
+          // rather than upload full-length past the cap.
+          toEnqueue = pendingMedia.filter((m) => !isOver(m));
+          toast.show('Some videos were too long and were skipped.');
+        }
+      }
       uploadQueue.enqueue(
-        pendingMedia.map(m => ({
+        toEnqueue.map(m => ({
           capsuleId,
           uri: m.uri,
           mediaType: m.mediaType,

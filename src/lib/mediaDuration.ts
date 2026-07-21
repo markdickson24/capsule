@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { createVideoPlayer } from 'expo-video';
 
 // expo-image-picker's ImagePickerAsset.duration is documented as
 // milliseconds and IS milliseconds on iOS/Android, but the web shim
@@ -16,4 +17,22 @@ import * as ImagePicker from 'expo-image-picker';
 export function assetDurationMs(asset: ImagePicker.ImagePickerAsset): number {
   const raw = asset.duration ?? 0;
   return Platform.OS === 'web' ? raw * 1000 : raw;
+}
+
+/** Best-effort local-file video duration in ms. undefined on web / failure
+ * (caller then treats the clip as ungated — fail-open, client-only limit). */
+export async function probeVideoDurationMs(uri: string): Promise<number | undefined> {
+  if (Platform.OS === 'web') return undefined;
+  try {
+    const player = createVideoPlayer(uri);
+    for (let i = 0; i < 20; i++) {
+      const d = player.duration;
+      if (d && d > 0) { player.release(); return Math.round(d * 1000); }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    player.release();
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
