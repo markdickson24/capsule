@@ -37,6 +37,8 @@ import AwardsSection from '../../components/AwardsSection';
 import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import InfoTooltip from '../../components/InfoTooltip';
 import { blockStore } from '../../lib/blocks';
+import { limitsForTier } from '../../lib/tierLimits';
+import { proGateHit } from '../../lib/proGate';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
@@ -216,6 +218,7 @@ function InviteModal({
   capsuleTitle,
   existingMemberIds,
   isOwner,
+  ownerTier,
   onClose,
   onInvited,
 }: {
@@ -223,6 +226,7 @@ function InviteModal({
   capsuleTitle: string;
   existingMemberIds: string[];
   isOwner: boolean;
+  ownerTier: string;
   onClose: () => void;
   onInvited: () => void;
 }) {
@@ -269,6 +273,19 @@ function InviteModal({
   }
 
   async function invite(userId: string) {
+    // Member cap keys off the capsule OWNER's tier, not the acting user's.
+    // existingMemberIds already covers joined + pending (see the members
+    // query in load() — it has no joined_at filter); invitedIds.length adds
+    // this-session sends so a multi-invite batch can't run past the cap.
+    const memberCap = limitsForTier(ownerTier).membersPerCapsule;
+    const currentCount = existingMemberIds.length + invitedIds.length;
+    if (currentCount >= memberCap) {
+      proGateHit({
+        currentUserIsHost: isOwner,
+        guestMessage: 'This capsule is full — its host is on the free plan.',
+      });
+      return;
+    }
     const now = Date.now();
     inviteTimestamps.current = inviteTimestamps.current.filter(t => now - t < 60_000);
     if (inviteTimestamps.current.length >= 10) {
@@ -2286,6 +2303,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           capsuleTitle={capsule?.title ?? ''}
           existingMemberIds={existingMemberIds}
           isOwner={isOwner}
+          ownerTier={ownerTier}
           onClose={() => setShowInvite(false)}
           onInvited={load}
         />
