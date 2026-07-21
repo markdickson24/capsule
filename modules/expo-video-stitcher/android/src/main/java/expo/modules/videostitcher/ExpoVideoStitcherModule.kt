@@ -28,6 +28,19 @@ class ExpoVideoStitcherModule : Module() {
         }
       }
     }
+
+    // Trims a video to its first `maxSeconds` seconds, writing a NEW temp
+    // file (the source is never modified). Resolves { uri } like stitchVideos.
+    AsyncFunction("trimVideo") { uri: String, maxSeconds: Double, promise: Promise ->
+      CoroutineScope(Dispatchers.IO).launch {
+        try {
+          val outputPath = trim(uri, maxSeconds)
+          promise.resolve(mapOf("uri" to "file://$outputPath"))
+        } catch (e: Exception) {
+          promise.reject("TRIM_FAILED", e.message ?: "Trim failed", e)
+        }
+      }
+    }
   }
 
   private fun stitch(uris: List<String>): String {
@@ -123,6 +136,77 @@ class ExpoVideoStitcherModule : Module() {
         }
         ext.release()
       }
+    }
+
+    muxer.stop()
+    muxer.release()
+
+    return outputFile.absolutePath
+  }
+
+  // Trims the source at `uri` to its first `maxSeconds` seconds and writes a
+  // NEW temp MP4 (the source file is untouched). Mirrors stitch()'s
+  // MediaExtractor/MediaMuxer plumbing (cache-dir temp file, track add,
+  // read/write sample loop) but for a single input, cut at a time bound
+  // instead of concatenated across multiple inputs.
+  private fun trim(uri: String, maxSeconds: Double): String {
+    val cacheDir = appContext.reactContext?.cacheDir
+      ?: throw Exception("No Android context available")
+    val outputFile = File(cacheDir, "${UUID.randomUUID()}.mp4")
+    val path = uri.toFsPath()
+    val maxSampleTimeUs = (maxSeconds * 1_000_000).toLong()
+
+    val muxer = MediaMuxer(
+      outputFile.absolutePath,
+      MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4
+    )
+
+    // Phase 1: Add all tracks (video + audio) so we can start the muxer.
+    val setupExtractor = MediaExtractor()
+    setupExtractor.setDataSource(path)
+
+    val trackIndexToMuxerTrack = mutableMapOf<Int, Int>()
+    for (i in 0 until setupExtractor.trackCount) {
+      val fmt = setupExtractor.getTrackFormat(i)
+      val mime = fmt.getString(MediaFormat.KEY_MIME) ?: continue
+      if (mime.startsWith("video/") || mime.startsWith("audio/")) {
+        trackIndexToMuxerTrack[i] = muxer.addTrack(fmt)
+      }
+    }
+    setupExtractor.release()
+
+    if (trackIndexToMuxerTrack.isEmpty()) {
+      muxer.release()
+      throw Exception("No video/audio tracks found to trim")
+    }
+
+    muxer.start()
+
+    // Phase 2: For each track, seek to 0 and copy samples until the time
+    // bound is exceeded or the track is exhausted.
+    for ((trackIndex, muxerTrack) in trackIndexToMuxerTrack) {
+      val ext = MediaExtractor()
+      ext.setDataSource(path)
+      ext.selectTrack(trackIndex)
+      ext.seekTo(0, MediaExtractor.SEEK_TO_CLOSEST_SYNC)
+
+      val buf = ByteBuffer.allocate(1 * 1024 * 1024)
+      val info = MediaCodec.BufferInfo()
+
+      while (true) {
+        val sampleTime = ext.sampleTime
+        if (sampleTime < 0 || sampleTime > maxSampleTimeUs) break
+
+        info.offset = 0
+        info.size = ext.readSampleData(buf, 0)
+        if (info.size < 0) break
+        info.presentationTimeUs = sampleTime
+        info.flags = ext.sampleFlags
+        muxer.writeSampleData(muxerTrack, buf, info)
+        ext.advance()
+      }
+
+      ext.release()
     }
 
     muxer.stop()

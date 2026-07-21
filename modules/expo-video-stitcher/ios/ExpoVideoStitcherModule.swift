@@ -17,6 +17,19 @@ public class ExpoVideoStitcherModule: Module {
         }
       }
     }
+
+    // Trims a video to its first `maxSeconds` seconds, writing a NEW temp
+    // file (the source is never modified). Resolves { uri } like stitchVideos.
+    AsyncFunction("trimVideo") { (uri: String, maxSeconds: Double, promise: Promise) in
+      Task {
+        do {
+          let outputUri = try await ExpoVideoStitcherModule.trim(uri: uri, maxSeconds: maxSeconds)
+          promise.resolve(["uri": outputUri])
+        } catch {
+          promise.reject("TRIM_FAILED", error.localizedDescription)
+        }
+      }
+    }
   }
 
   // MARK: — Stitching
@@ -143,6 +156,75 @@ public class ExpoVideoStitcherModule: Module {
         domain: "ExpoVideoStitcher",
         code: 2,
         userInfo: [NSLocalizedDescriptionKey: "Export failed: \(msg)"]
+      )
+    }
+
+    return outputURL.absoluteString
+  }
+
+  // MARK: — Trimming
+
+  // Trims the source at `uri` to its first `maxSeconds` seconds and writes a
+  // NEW temp MP4 (the source file is untouched). Uses AVAssetExportSession
+  // with an explicit timeRange so the result duration is always <= maxSeconds
+  // (clamped to the source's actual duration when it's already shorter).
+  static func trim(uri: String, maxSeconds: Double) async throws -> String {
+    // Accept both "file:///..." and bare "/var/..." paths, same as stitch().
+    let url: URL
+    if uri.hasPrefix("file://") {
+      guard let u = URL(string: uri) else {
+        throw NSError(
+          domain: "ExpoVideoStitcher",
+          code: 3,
+          userInfo: [NSLocalizedDescriptionKey: "Invalid source URI"]
+        )
+      }
+      url = u
+    } else {
+      url = URL(fileURLWithPath: uri)
+    }
+
+    let asset = AVURLAsset(url: url)
+    let assetDuration = try await asset.load(.duration)
+    let assetDurationSeconds = CMTimeGetSeconds(assetDuration)
+
+    let clampedSeconds = min(maxSeconds, assetDurationSeconds)
+    let timeRange = CMTimeRange(
+      start: .zero,
+      duration: CMTime(seconds: clampedSeconds, preferredTimescale: 600)
+    )
+
+    // Export to a temp MP4 in the app's caches directory — mirrors stitch()'s
+    // temp-file convention (new UUID-named file, original source untouched).
+    let tmpDir = FileManager.default.temporaryDirectory
+    let outputURL = tmpDir.appendingPathComponent(UUID().uuidString + ".mp4")
+
+    // A quality preset re-encodes to the exact requested timeRange (passthrough
+    // can overshoot to the nearest keyframe), so this is what guarantees the
+    // result is <= maxSeconds rather than merely close to it.
+    guard let session = AVAssetExportSession(
+      asset: asset,
+      presetName: AVAssetExportPresetHighestQuality
+    ) else {
+      throw NSError(
+        domain: "ExpoVideoStitcher",
+        code: 4,
+        userInfo: [NSLocalizedDescriptionKey: "Could not create export session"]
+      )
+    }
+
+    session.outputURL = outputURL
+    session.outputFileType = .mp4
+    session.timeRange = timeRange
+
+    await session.export()
+
+    guard session.status == .completed else {
+      let msg = session.error?.localizedDescription ?? "status \(session.status.rawValue)"
+      throw NSError(
+        domain: "ExpoVideoStitcher",
+        code: 5,
+        userInfo: [NSLocalizedDescriptionKey: "Trim failed: \(msg)"]
       )
     }
 
