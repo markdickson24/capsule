@@ -48,7 +48,7 @@ function defaultUnlockDate() {
 
 export default function CreateScreen() {
   const { accentColor } = useTheme();
-  const { isPro } = useEntitlements();
+  const { isPro, loading: entitlementsLoading } = useEntitlements();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   // Screen is reused for both the Create tab and the CreateCapsule stack route.
   const route = useRoute<any>();
@@ -177,12 +177,20 @@ export default function CreateScreen() {
     // before ever calling the RPC, so a capped host sees the paywall instead
     // of a wasted round-trip. The RPC enforces the same cap server-side (see
     // tierLimits.ts) — this is a UX shortcut, not the source of truth.
-    if (!isPro) {
+    // Only run once entitlements have resolved — while still loading, `isPro`
+    // defaults to false, and pre-checking here would falsely paywall a real
+    // Pro user who submits before the async entitlements fetch finishes.
+    // Skipping it just defers enforcement to the RPC below, which knows the
+    // true tier server-side.
+    if (!entitlementsLoading && !isPro) {
       const { count } = await supabase
         .from('capsules')
         .select('id', { count: 'exact', head: true })
         .eq('owner_id', user.id)
         .neq('status', 'unlocked');
+      // Fail-open is intentional: an undefined/failed count falls through to
+      // the RPC, which re-enforces the cap server-side — do not flip this to
+      // fail-closed.
       if ((count ?? 0) >= limitsForTier('free').activeCapsules) {
         setLoading(false);
         proGateHit({ currentUserIsHost: true, guestMessage: '' });
