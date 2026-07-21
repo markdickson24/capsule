@@ -42,6 +42,16 @@ function json(body: object, status = 200) {
   });
 }
 
+// Constant-time string compare — avoids leaking the secret via response timing.
+function timingSafeEqual(a: string, b: string): boolean {
+  const ea = new TextEncoder().encode(a);
+  const eb = new TextEncoder().encode(b);
+  if (ea.length !== eb.length) return false;
+  let diff = 0;
+  for (let i = 0; i < ea.length; i++) diff |= ea[i] ^ eb[i];
+  return diff === 0;
+}
+
 // Events that mean "this user should have Pro now".
 const GRANT = new Set([
   'INITIAL_PURCHASE',
@@ -81,7 +91,7 @@ Deno.serve(async (req) => {
   // fail closed (401) rather than accepting unauthenticated writes.
   const expected = Deno.env.get('REVENUECAT_WEBHOOK_SECRET');
   const provided = req.headers.get('Authorization') ?? '';
-  if (!expected || provided !== expected) return json({ error: 'Unauthorized' }, 401);
+  if (!expected || !timingSafeEqual(provided, expected)) return json({ error: 'Unauthorized' }, 401);
 
   let event: any;
   try {
@@ -90,6 +100,15 @@ Deno.serve(async (req) => {
     return json({ error: 'Invalid body' }, 400);
   }
   if (!event?.type) return json({ error: 'Missing event' }, 400);
+
+  // Only production purchases mirror into subscription_tier. Test Store /
+  // sandbox events (environment SANDBOX) must never grant real Pro. RevenueCat
+  // sends event.environment on store events; TEST pings omit it and are handled
+  // below, so gate only when the field is present and non-production.
+  const environment: string | undefined = event.environment;
+  if (environment && environment !== 'PRODUCTION') {
+    return json({ ok: true, handled: `ignored (${environment})` });
+  }
 
   const type: string = event.type;
 
