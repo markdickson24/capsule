@@ -24,6 +24,7 @@ import { toast } from '../../lib/toast';
 import { requestPushPermission } from '../../hooks/usePushNotifications';
 import DatePickerField from '../../components/DatePicker';
 import type { TablesUpdate } from '../../types/supabase';
+import { proGateHit } from '../../lib/proGate';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -307,6 +308,13 @@ export default function OnboardingScreen({ navigation }: Props) {
 
     if (capsuleError || !capsuleId) {
       setSaving(false);
+      // A brand-new user is virtually never at the free-tier cap, but a
+      // server-side rejection (e.g. re-onboarding after hitting the cap
+      // elsewhere) must still route to the paywall, not a raw error.
+      if (capsuleError?.message?.includes('CAPSULE_LIMIT_REACHED')) {
+        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        return;
+      }
       setError('Could not create your capsule. Please try again.');
       return;
     }

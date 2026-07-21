@@ -23,6 +23,9 @@ import { useSlideUp, useFadeIn } from '../../lib/animations';
 import { getGroup, getGroupMembers, updateGroup } from '../../lib/groups';
 import { OCCASIONS, OccasionKey, pickDefaults } from '../../lib/awardPool';
 import SealedMoment from '../../components/SealedMoment';
+import { limitsForTier } from '../../lib/tierLimits';
+import { proGateHit } from '../../lib/proGate';
+import { useEntitlements } from '../../hooks/useEntitlements';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -45,6 +48,7 @@ function defaultUnlockDate() {
 
 export default function CreateScreen() {
   const { accentColor } = useTheme();
+  const { isPro, loading: entitlementsLoading } = useEntitlements();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   // Screen is reused for both the Create tab and the CreateCapsule stack route.
   const route = useRoute<any>();
@@ -169,6 +173,31 @@ export default function CreateScreen() {
     const user = session?.user;
     if (!user || !session) { setLoading(false); setErrors({ general: 'Not logged in — try signing out and back in.' }); return; }
 
+    // Free-tier cap: block a 4th active (non-unlocked) capsule client-side
+    // before ever calling the RPC, so a capped host sees the paywall instead
+    // of a wasted round-trip. The RPC enforces the same cap server-side (see
+    // tierLimits.ts) — this is a UX shortcut, not the source of truth.
+    // Only run once entitlements have resolved — while still loading, `isPro`
+    // defaults to false, and pre-checking here would falsely paywall a real
+    // Pro user who submits before the async entitlements fetch finishes.
+    // Skipping it just defers enforcement to the RPC below, which knows the
+    // true tier server-side.
+    if (!entitlementsLoading && !isPro) {
+      const { count } = await supabase
+        .from('capsules')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', user.id)
+        .neq('status', 'unlocked');
+      // Fail-open is intentional: an undefined/failed count falls through to
+      // the RPC, which re-enforces the cap server-side — do not flip this to
+      // fail-closed.
+      if ((count ?? 0) >= limitsForTier('free').activeCapsules) {
+        setLoading(false);
+        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        return;
+      }
+    }
+
     // Capsule + owner capsule_members row are inserted atomically inside the
     // RPC — if either insert fails, Postgres rolls back the whole function
     // call, so this can never leave behind a members-less orphan capsule
@@ -191,6 +220,10 @@ export default function CreateScreen() {
 
     if (capsuleError || !capsuleId) {
       setLoading(false);
+      if (capsuleError?.message?.includes('CAPSULE_LIMIT_REACHED')) {
+        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        return;
+      }
       setErrors({ general: 'Failed to create capsule. Please try again.' });
       return;
     }

@@ -37,6 +37,8 @@ import AwardsSection from '../../components/AwardsSection';
 import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import InfoTooltip from '../../components/InfoTooltip';
 import { blockStore } from '../../lib/blocks';
+import { limitsForTier } from '../../lib/tierLimits';
+import { proGateHit } from '../../lib/proGate';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
@@ -46,6 +48,9 @@ import { cache } from '../../lib/cache';
 import { fetchAwardsData } from '../../lib/awardsData';
 import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEntitlements } from '../../hooks/useEntitlements';
+import { presentPaywall } from '../../lib/purchases';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -213,6 +218,7 @@ function InviteModal({
   capsuleTitle,
   existingMemberIds,
   isOwner,
+  ownerTier,
   onClose,
   onInvited,
 }: {
@@ -220,6 +226,7 @@ function InviteModal({
   capsuleTitle: string;
   existingMemberIds: string[];
   isOwner: boolean;
+  ownerTier: string;
   onClose: () => void;
   onInvited: () => void;
 }) {
@@ -266,6 +273,19 @@ function InviteModal({
   }
 
   async function invite(userId: string) {
+    // Member cap keys off the capsule OWNER's tier, not the acting user's.
+    // existingMemberIds already covers joined + pending (see the members
+    // query in load() — it has no joined_at filter); invitedIds.length adds
+    // this-session sends so a multi-invite batch can't run past the cap.
+    const memberCap = limitsForTier(ownerTier).membersPerCapsule;
+    const currentCount = existingMemberIds.length + invitedIds.length;
+    if (currentCount >= memberCap) {
+      proGateHit({
+        currentUserIsHost: isOwner,
+        guestMessage: 'This capsule is full — its host is on the free plan.',
+      });
+      return;
+    }
     const now = Date.now();
     inviteTimestamps.current = inviteTimestamps.current.filter(t => now - t < 60_000);
     if (inviteTimestamps.current.length >= 10) {
@@ -367,7 +387,7 @@ function InviteModal({
                     <TouchableOpacity
                       style={[ms.inviteBtn, { backgroundColor: accentColor }]}
                       onPress={() => invite(u.id)}
-                      disabled={inviting === u.id}
+                      disabled={!!inviting}
                     >
                       <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
                     </TouchableOpacity>
@@ -394,7 +414,7 @@ function InviteModal({
                   <TouchableOpacity
                     style={[ms.inviteBtn, { backgroundColor: accentColor }]}
                     onPress={() => invite(f.id)}
-                    disabled={inviting === f.id}
+                    disabled={!!inviting}
                   >
                     <Text style={ms.inviteBtnText}>{inviting === f.id ? '…' : 'Invite'}</Text>
                   </TouchableOpacity>
@@ -479,9 +499,6 @@ const MEDIA_CACHE_TTL = 3 * 60 * 1000;
 
 const REACTION_EMOJIS = ['❤️', '😂', '😮', '🔥', '😢', '👏', '🤯'];
 
-// Library/camera-roll videos are capped at 2 minutes — parity with
-// CameraScreen's module-level MAX_RECORD_SECONDS (=120) for in-app recording.
-const MAX_LIBRARY_VIDEO_MS = 120_000;
 
 type Reaction = { id: string; media_id: string; user_id: string; emoji: string };
 
@@ -1145,6 +1162,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // creation (route param, not persisted), and only until the user acts on
   // it or dismisses it.
   const [inviteNudgeDismissed, setInviteNudgeDismissed] = useState(false);
+  // Post-unlock Pro upsell (monetization-strategy.md §"Show the paywall at the
+  // moment of success"): a dismissible nudge — not an auto-popped modal, which
+  // would step on the reveal — shown to a non-Pro owner once a capsule has
+  // unlocked. Dismissal persists per-capsule so it doesn't re-nag on every
+  // visit. Native-only (purchases don't run on web) and Pro-gated below.
+  const { isPro } = useEntitlements();
+  const [proNudgeDismissed, setProNudgeDismissed] = useState(true); // hidden until the async read resolves
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1192,6 +1216,22 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // this effect right after the close animation's own setMembersSheetMounted(false).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMembersSheet]);
+
+  // Load the per-capsule Pro-nudge dismissal flag. Starts hidden (true) and
+  // only reveals the nudge if this capsule hasn't been dismissed before.
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(`cap_pro_nudge_dismissed:${capsuleId}`)
+      .then(v => { if (active) setProNudgeDismissed(v === '1'); })
+      .catch(() => { if (active) setProNudgeDismissed(false); });
+    return () => { active = false; };
+  }, [capsuleId]);
+
+  function dismissProNudge() {
+    setProNudgeDismissed(true);
+    AsyncStorage.setItem(`cap_pro_nudge_dismissed:${capsuleId}`, '1').catch(() => {});
+  }
+
   // Scroll position of the member list, tracked via a ref (not state) so
   // reading it inside the PanResponder callbacks never triggers a re-render.
   const membersScrollY = useRef(0);
@@ -1417,7 +1457,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // capsule/members result, so run it in the same wave instead of
     // awaiting it afterward.
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at, owner:users!capsules_owner_id_fkey(subscription_tier)').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
         .select('user_id, role, joined_at, archived_at, users(display_name, avatar_url)')
@@ -1428,7 +1468,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
-      setCapsule(capsuleRes.data as Capsule);
+      setCapsule(capsuleRes.data as unknown as Capsule);
     }
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
@@ -1530,6 +1570,18 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // storage, viewer, upload-time thumbnails) already supports it.
   function goToPreview(assets: ImagePicker.ImagePickerAsset[]) {
     if (assets.length === 0) return;
+    // Pro gate: this screen only ever targets its own capsule, so the whole
+    // batch is blocked up front (v1 — no partial fill) rather than letting it
+    // reach Preview's per-capsule check just to fail there. Keyed off the
+    // OWNER's tier, not the acting user's — see proGateHit.
+    const photoCap = limitsForTier(ownerTier).photosPerCapsule;
+    if (mediaCount + assets.length > photoCap) {
+      proGateHit({
+        currentUserIsHost: isOwner,
+        guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+      });
+      return;
+    }
     setUploadError('');
     setShowPickerOptions(false);
     navigation.navigate('Preview', {
@@ -1581,11 +1633,27 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // Preview with nothing to show. See durationMs() above for why a video with
   // no readable duration passes through uncapped rather than being dropped.
   function filterOversizedVideos(assets: ImagePicker.ImagePickerAsset[]): ImagePicker.ImagePickerAsset[] | null {
-    const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= MAX_LIBRARY_VIDEO_MS);
+    // Video length cap is host-tier-based (free=30s, pro=120s — see
+    // src/lib/tierLimits.ts), keyed off the CAPSULE OWNER's tier, not the
+    // acting uploader's — the host is who's monetized, mirrors the photoCap
+    // check in goToPreview above.
+    const capSeconds = limitsForTier(ownerTier).videoSeconds;
+    const capMs = capSeconds * 1000;
+    const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= capMs);
     const droppedCount = assets.length - kept.length;
     if (droppedCount > 0) {
       const noun = droppedCount === 1 ? 'video' : 'videos';
-      toast.show(`${droppedCount} ${noun} over 2 minutes ${droppedCount === 1 ? 'was' : 'were'} skipped`);
+      const capLabel = capSeconds >= 60
+        ? `${Math.round(capSeconds / 60)} minute${capSeconds === 60 ? '' : 's'}`
+        : `${capSeconds} seconds`;
+      let message = `${droppedCount} ${noun} over ${capLabel} ${droppedCount === 1 ? 'was' : 'were'} skipped`;
+      // Owner-facing upsell hint only — a guest upgrading wouldn't lift a
+      // host-based cap (mirrors proGateHit's host-vs-guest split), so guests
+      // just get the neutral message above.
+      if (isOwner && ownerTier !== 'pro') {
+        message += ' — Pro unlocks up to 2-minute clips.';
+      }
+      toast.show(message);
     }
     if (kept.length === 0) return null;
     return kept;
@@ -1683,6 +1751,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   });
 
   const isOwner = capsule.owner_id === currentUserId;
+  // Owner's subscription tier, embedded via the capsules.owner_id FK — drives
+  // Pro-tier limit enforcement (see src/lib/tierLimits.ts). Falls back to
+  // 'free' when the embed is absent (fail safe, mirrors limitsForTier()).
+  const ownerTier: string = (capsule as any).owner?.subscription_tier ?? 'free';
   const myMember = members.find(m => m.user_id === currentUserId);
   const myRole = myMember?.role ?? null;
   // Archive is per-member (stamps the caller's own capsule_members.archived_at
@@ -1854,6 +1926,34 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               style={styles.inviteNudgeClose}
               onPress={() => setInviteNudgeDismissed(true)}
               accessibilityLabel="Dismiss invite prompt"
+              accessibilityRole="button"
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={16} color="#888888" />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Post-unlock Pro upsell — the "moment of success" gate. Shown to a
+            non-Pro owner on an unlocked capsule; tapping opens the hosted
+            paywall. Native-only; dismissal persists per-capsule. */}
+        {Platform.OS !== 'web' && isOwner && !isPro && capsule.status === 'unlocked' && !proNudgeDismissed && (
+          <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+            <Ionicons name="star" size={22} color={accentColor} />
+            <View style={styles.inviteNudgeTextWrap}>
+              <Text style={styles.inviteNudgeTitle}>Keep it forever with Pro</Text>
+              <Text style={styles.inviteNudgeSub}>Full-quality export, video, and unlimited capsules.</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
+              onPress={() => presentPaywall()}
+            >
+              <Text style={styles.inviteNudgeBtnText}>Upgrade</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.inviteNudgeClose}
+              onPress={dismissProNudge}
+              accessibilityLabel="Dismiss Pro upgrade prompt"
               accessibilityRole="button"
               hitSlop={8}
             >
@@ -2228,6 +2328,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           capsuleTitle={capsule?.title ?? ''}
           existingMemberIds={existingMemberIds}
           isOwner={isOwner}
+          ownerTier={ownerTier}
           onClose={() => setShowInvite(false)}
           onInvited={load}
         />

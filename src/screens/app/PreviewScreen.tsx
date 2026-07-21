@@ -14,13 +14,24 @@ import { sessionStore } from '../../lib/sessionStore';
 import { AppStackParamList, PendingMedia } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { uploadQueue } from '../../lib/uploadQueue';
+import { limitsForTier } from '../../lib/tierLimits';
+import { proGateHit } from '../../lib/proGate';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Preview'>;
 
 type CapsuleOption = {
   capsule_id: string;
   role: string;
-  capsules: { id: string; title: string; status: string } | null;
+  capsules: {
+    id: string;
+    title: string;
+    status: string;
+    owner_id: string;
+    // Photo cap keys off the capsule OWNER's tier (never the acting/guest
+    // user's) — see proGateHit. Absent embed falls back to 'free' via
+    // limitsForTier's own fail-safe.
+    owner: { subscription_tier: string } | null;
+  } | null;
 };
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
@@ -79,7 +90,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
       if (!session) return;
       const { data } = await supabase
         .from('capsule_members')
-        .select('capsule_id, role, capsules(id, title, status)')
+        .select('capsule_id, role, capsules(id, title, status, owner_id, owner:users!capsules_owner_id_fkey(subscription_tier))')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null)
         .in('role', ['owner', 'contributor']);
@@ -112,10 +123,53 @@ export default function PreviewScreen({ route, navigation }: Props) {
   // Optimistic: hand everything to the background upload queue and navigate
   // immediately. The capsule grid renders the pending items as local-URI tiles
   // with per-item progress/retry, and the queue toasts when the batch drains.
-  function upload() {
+  async function upload() {
     if (selectedIds.size === 0 || items.length === 0) return;
 
-    const ids = Array.from(selectedIds);
+    const currentUserId = sessionStore.get()?.user.id;
+
+    // Pro gate: unlike CapsuleDetailScreen (always exactly one target), this
+    // screen can fan out to multiple selected capsules — each is checked
+    // against ITS OWN owner's tier + current count and skipped individually
+    // on overflow (partial fill across capsules), rather than blocking the
+    // whole batch.
+    //
+    // The current media count must come from the `capsule_media_count` RPC,
+    // not a `media(count)` embed on the capsules query — the `media` SELECT
+    // RLS policy hides all rows (owner included) while a capsule is
+    // surprise-mode-locked (`owner_preview_locked`, the default for new
+    // capsules), which would silently collapse the cap check to only
+    // catching a single oversized batch and never accumulation across
+    // multiple uploads. Only fetched for the capsules the user actually
+    // selected, not the whole chip list. On a per-capsule RPC error, default
+    // that capsule's count to 0 (fail-open, same convention as the rest of
+    // this check) rather than blocking on a transient error.
+    const selected = Array.from(selectedIds);
+    const counts = await Promise.all(
+      selected.map(async id => ({
+        id,
+        count: (await supabase.rpc('capsule_media_count', { p_capsule_id: id })).data ?? 0,
+      }))
+    );
+    const countMap = new Map(counts.map(c => [c.id, c.count]));
+
+    const ids = selected.filter(id => {
+      const opt = capsules.find(c => c.capsule_id === id);
+      const cap = opt?.capsules;
+      if (!cap) return true; // shouldn't happen; fail open rather than silently drop
+      const photoCap = limitsForTier(cap.owner?.subscription_tier).photosPerCapsule;
+      const existing = countMap.get(id) ?? 0;
+      if (existing + items.length > photoCap) {
+        proGateHit({
+          currentUserIsHost: cap.owner_id === currentUserId,
+          guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+        });
+        return false;
+      }
+      return true;
+    });
+    if (ids.length === 0) return;
+
     uploadQueue.enqueue(
       ids.flatMap(id =>
         items.map((item, idx) => ({

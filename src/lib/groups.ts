@@ -138,7 +138,12 @@ export async function createGroup(params: {
     p_reminder_lead_hours: !isManual ? params.reminderLeadHours : null,
   });
 
-  if (error || !groupId) return { error: 'Could not create group.' };
+  // Surface the Pro-gate error verbatim so the caller can route it to the
+  // paywall (proGateHit) instead of a generic failure message — everything
+  // else stays masked behind the generic copy, same as before.
+  if (error || !groupId) {
+    return { error: error?.message?.includes('GROUP_RECURRENCE_PRO') ? 'GROUP_RECURRENCE_PRO' : 'Could not create group.' };
+  }
 
   // Insert other members — is_group_creator() can now resolve correctly.
   const otherIds = params.memberIds.filter(id => id !== me);

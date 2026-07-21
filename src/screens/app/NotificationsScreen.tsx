@@ -20,6 +20,7 @@ import { toast } from '../../lib/toast';
 import { acceptFriendRequest, removeFriendship } from '../../lib/friends';
 import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
+import { limitsForTier } from '../../lib/tierLimits';
 
 type Actor = { id: string; display_name: string; avatar_url: string | null };
 
@@ -222,11 +223,41 @@ export default function NotificationsScreen() {
   // rolled back and the global toast reaches the user wherever they are.
   // read_at is only persisted AFTER the write commits — persisting it up
   // front on a failed accept would orphan the invite forever.
-  function accept(notif: DisplayNotification) {
+  async function accept(notif: DisplayNotification) {
     const capsuleId = notif.capsule_id;
     if (!capsuleId) return;
     const memberId = pendingMap[capsuleId];
     if (!memberId) return;
+
+    // Member cap keys off the capsule OWNER's tier, not the accepting user's
+    // — and the accepting user is a guest by definition here, so a full
+    // capsule is only ever informational, never a paywall (see
+    // src/lib/proGate.ts / CLAUDE.md "owner vs guest"). Checked before any
+    // optimistic UI change so a blocked accept leaves the invite pending,
+    // untouched, instead of navigating into a capsule the write then fails
+    // to join.
+    const [capsuleRes, countRes] = await Promise.all([
+      supabase
+        .from('capsules')
+        .select('owner:users!capsules_owner_id_fkey(subscription_tier)')
+        .eq('id', capsuleId)
+        .single(),
+      supabase
+        .from('capsule_members')
+        .select('id', { count: 'exact', head: true })
+        .eq('capsule_id', capsuleId)
+        // Exclude the accepting user's own already-inserted pending row —
+        // accepting only flips its joined_at, it adds no new row, so
+        // counting it here double-counts the invitee against the cap and
+        // deadlocks them out of ever accepting (see FIX 1 in review notes).
+        .neq('id', memberId),
+    ]);
+    const ownerTier: string = (capsuleRes.data as any)?.owner?.subscription_tier ?? 'free';
+    const otherMemberCount = countRes.count ?? 0;
+    if (otherMemberCount >= limitsForTier(ownerTier).membersPerCapsule) {
+      toast.show('This capsule is full — its host is on the free plan.');
+      return;
+    }
 
     haptics.success();
     setNotifications(prev => prev.filter(n => n.id !== notif.id));
