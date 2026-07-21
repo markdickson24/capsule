@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Animated,
-  TouchableOpacity, Modal, Pressable, Linking, Switch,
+  TouchableOpacity, Modal, Pressable, Linking, Switch, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -15,6 +15,9 @@ import { useSlideUp } from '../../lib/animations';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
+import { toast } from '../../lib/toast';
+import { useEntitlements } from '../../hooks/useEntitlements';
+import { presentPaywall, presentCustomerCenter, restorePurchases } from '../../lib/purchases';
 import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
@@ -31,9 +34,11 @@ function appVersionLabel(): string {
 
 export default function SettingsScreen({ navigation }: Props) {
   const { accentColor, setAccentColor } = useTheme();
+  const { isPro } = useEntitlements();
   const [pending, setPending] = useState(accentColor);
   const [saving, setSaving] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const contentAnim = useSlideUp(0, 400);
 
   async function handleSaveColor() {
@@ -41,6 +46,19 @@ export default function SettingsScreen({ navigation }: Props) {
     await setAccentColor(pending);
     setSaving(false);
     navigation.goBack();
+  }
+
+  // Present the RevenueCat-hosted paywall. useEntitlements' CustomerInfo
+  // listener flips `isPro` automatically on a successful purchase — no refetch.
+  async function handleUpgrade() {
+    await presentPaywall();
+  }
+
+  async function handleRestore() {
+    setRestoring(true);
+    const ok = await restorePurchases();
+    setRestoring(false);
+    toast.show(ok ? 'Purchases restored.' : 'No purchases to restore.');
   }
 
   return (
@@ -54,6 +72,52 @@ export default function SettingsScreen({ navigation }: Props) {
           <View>
             <Text style={styles.title}>Settings</Text>
           </View>
+
+          {/* Native-only: react-native-purchases doesn't run on web, and web
+              isn't a marketed purchase surface. */}
+          {Platform.OS !== 'web' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Capsule Pro</Text>
+              {isPro ? (
+                <>
+                  <TouchableOpacity
+                    style={styles.row}
+                    activeOpacity={0.75}
+                    onPress={presentCustomerCenter}
+                  >
+                    <Ionicons name="star" size={18} color={accentColor} />
+                    <Text style={styles.rowLabel}>Manage Subscription</Text>
+                    <Ionicons name="chevron-forward" size={16} color="#555555" />
+                  </TouchableOpacity>
+                  <Text style={styles.helper}>
+                    You're on Capsule Pro — thanks for the support. Change plan, restore, or cancel anytime.
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, { backgroundColor: accentColor }]}
+                    onPress={handleUpgrade}
+                  >
+                    <Text style={styles.primaryBtnText}>Upgrade to Capsule Pro</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.helper}>
+                    Unlimited capsules, video, recurring groups, and full-quality export.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.row}
+                    activeOpacity={0.75}
+                    onPress={handleRestore}
+                    disabled={restoring}
+                  >
+                    <Ionicons name="refresh-outline" size={18} color="#AAAAAA" />
+                    <Text style={styles.rowLabel}>Restore Purchases</Text>
+                    {restoring && <LoadingBrand size="small" color="#888888" />}
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          )}
 
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Appearance</Text>

@@ -46,6 +46,9 @@ import { cache } from '../../lib/cache';
 import { fetchAwardsData } from '../../lib/awardsData';
 import { haptics } from '../../lib/haptics';
 import { useSlideUp, useFadeIn } from '../../lib/animations';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEntitlements } from '../../hooks/useEntitlements';
+import { presentPaywall } from '../../lib/purchases';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -1145,6 +1148,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // creation (route param, not persisted), and only until the user acts on
   // it or dismisses it.
   const [inviteNudgeDismissed, setInviteNudgeDismissed] = useState(false);
+  // Post-unlock Pro upsell (monetization-strategy.md §"Show the paywall at the
+  // moment of success"): a dismissible nudge — not an auto-popped modal, which
+  // would step on the reveal — shown to a non-Pro owner once a capsule has
+  // unlocked. Dismissal persists per-capsule so it doesn't re-nag on every
+  // visit. Native-only (purchases don't run on web) and Pro-gated below.
+  const { isPro } = useEntitlements();
+  const [proNudgeDismissed, setProNudgeDismissed] = useState(true); // hidden until the async read resolves
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1192,6 +1202,22 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // this effect right after the close animation's own setMembersSheetMounted(false).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showMembersSheet]);
+
+  // Load the per-capsule Pro-nudge dismissal flag. Starts hidden (true) and
+  // only reveals the nudge if this capsule hasn't been dismissed before.
+  useEffect(() => {
+    let active = true;
+    AsyncStorage.getItem(`cap_pro_nudge_dismissed:${capsuleId}`)
+      .then(v => { if (active) setProNudgeDismissed(v === '1'); })
+      .catch(() => { if (active) setProNudgeDismissed(false); });
+    return () => { active = false; };
+  }, [capsuleId]);
+
+  function dismissProNudge() {
+    setProNudgeDismissed(true);
+    AsyncStorage.setItem(`cap_pro_nudge_dismissed:${capsuleId}`, '1').catch(() => {});
+  }
+
   // Scroll position of the member list, tracked via a ref (not state) so
   // reading it inside the PanResponder callbacks never triggers a re-render.
   const membersScrollY = useRef(0);
@@ -1854,6 +1880,34 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               style={styles.inviteNudgeClose}
               onPress={() => setInviteNudgeDismissed(true)}
               accessibilityLabel="Dismiss invite prompt"
+              accessibilityRole="button"
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={16} color="#888888" />
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Post-unlock Pro upsell — the "moment of success" gate. Shown to a
+            non-Pro owner on an unlocked capsule; tapping opens the hosted
+            paywall. Native-only; dismissal persists per-capsule. */}
+        {Platform.OS !== 'web' && isOwner && !isPro && capsule.status === 'unlocked' && !proNudgeDismissed && (
+          <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
+            <Ionicons name="star" size={22} color={accentColor} />
+            <View style={styles.inviteNudgeTextWrap}>
+              <Text style={styles.inviteNudgeTitle}>Keep it forever with Pro</Text>
+              <Text style={styles.inviteNudgeSub}>Full-quality export, video, and unlimited capsules.</Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
+              onPress={() => presentPaywall()}
+            >
+              <Text style={styles.inviteNudgeBtnText}>Upgrade</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.inviteNudgeClose}
+              onPress={dismissProNudge}
+              accessibilityLabel="Dismiss Pro upgrade prompt"
               accessibilityRole="button"
               hitSlop={8}
             >
