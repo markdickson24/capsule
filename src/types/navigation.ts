@@ -34,7 +34,15 @@ export type AppStackParamList = {
   CapsuleDetail: { capsuleId: string; justCreated?: boolean };
   PublicProfile: { userId: string };
   Preview:
-    | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string; targetCapsuleId?: string }
+    | {
+        uri: string;
+        mediaType: 'photo' | 'video';
+        facing?: 'front' | 'back';
+        altUri?: string;
+        targetCapsuleId?: string;
+        /** Video length in ms when known (camera recording length). Unset = unknown → not length-gated (fail-open). */
+        durationMs?: number;
+      }
     | { media: PendingMedia[]; source?: 'share' | 'camera'; targetCapsuleId?: string };
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };

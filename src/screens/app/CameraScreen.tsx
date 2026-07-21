@@ -336,8 +336,11 @@ export default function CameraScreen() {
           goToPreview({ uri: stitchedUri, mediaType: 'video', facing: facingRef.current, durationMs: recordSecondsRef.current * 1000 });
         } else {
           // Fallback: show all clips as a multi-item Preview so no segment is lost.
+          // Per-segment duration is unknown here (recordSecondsRef is the TOTAL
+          // recording length, not any one segment's) — omit durationMs so the
+          // length gate fails open instead of misjudging a short segment as full-length.
           goToPreview({
-            media: segments.map(uri => ({ uri, mediaType: 'video' as const, durationMs: recordSecondsRef.current * 1000 })),
+            media: segments.map(uri => ({ uri, mediaType: 'video' as const })),
             source: 'camera',
           });
         }
