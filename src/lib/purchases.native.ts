@@ -26,24 +26,12 @@ import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
 // rename the entitlement, e.g. to 'pro'.
 export const PRO_ENTITLEMENT_ID = 'Capsule Pro';
 
-// Public SDK key. RevenueCat SDK keys are *publishable* (they ship in the app
-// binary), so a literal fallback is safe — but prefer the env var so the
-// production App Store key (`appl_...`) can be swapped in without a code change.
-//
-// The value below is your RevenueCat **Test Store** key (`test_` prefix): great
-// for wiring/paywall testing without App Store Connect, but it will NOT drive
-// real StoreKit sandbox/production purchases. Before TestFlight, put your
-// App Store key (Project → API Keys → your iOS app, `appl_...`) in
-// EXPO_PUBLIC_REVENUECAT_IOS_KEY.
-const FALLBACK_TEST_KEY = 'test_xwBdHgppptaUJEOdTaPTrluawct';
-
-function apiKey(): string {
-  const key = Platform.select({
+function apiKey(): string | undefined {
+  return Platform.select({
     ios: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY,
     android: process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_KEY,
     default: undefined,
   });
-  return key || FALLBACK_TEST_KEY;
 }
 
 let configured = false;
@@ -51,11 +39,19 @@ let configured = false;
 /** Configure the SDK once. Idempotent — safe to call on every launch/effect. */
 export function configurePurchases(): void {
   if (configured) return;
+  const key = apiKey();
+  if (!key) {
+    // Fail closed: never silently run on a shared Test Store key in a release
+    // build (that would grant real Pro for free). Purchases are simply disabled
+    // when no real key is configured.
+    console.warn('[Purchases] no RevenueCat key set — purchases disabled');
+    return;
+  }
   try {
     if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.DEBUG);
     // Configure anonymously; identifyUser() aliases to the Supabase id once the
     // session resolves (auth restore is async, so we rarely have the id here).
-    Purchases.configure({ apiKey: apiKey() });
+    Purchases.configure({ apiKey: key });
     configured = true;
   } catch (e) {
     console.warn('[Purchases] configure failed:', e);
@@ -72,12 +68,21 @@ function ensureConfigured(): void {
  * Pro follow them across devices/reinstalls. logIn merges the prior anonymous
  * user into the identified one.
  */
-export async function identifyUser(userId: string): Promise<void> {
+export async function identifyUser(userId: string): Promise<boolean> {
   ensureConfigured();
+  if (!configured) return false;
   try {
     await Purchases.logIn(userId);
+    return true;
   } catch (e) {
-    console.warn('[Purchases] logIn failed:', e);
+    console.warn('[Purchases] logIn failed, retrying once:', e);
+    try {
+      await Purchases.logIn(userId);
+      return true;
+    } catch (e2) {
+      console.warn('[Purchases] logIn retry failed:', e2);
+      return false;
+    }
   }
 }
 

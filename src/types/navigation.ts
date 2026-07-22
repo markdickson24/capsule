@@ -13,6 +13,9 @@ export type PendingMedia = {
   /** Real source mimeType when known (picker/share-intent) — lets uploadQueue derive a
    * coherent storage-key extension/Content-Type instead of falling back to a guessed default. */
   mimeType?: string;
+  /** Video length in ms when known (camera recording length / picker asset.duration).
+   * Unset = unknown (share intent) → not length-gated (fail-open). */
+  durationMs?: number;
 };
 
 export type AppTabParamList = {
@@ -31,7 +34,15 @@ export type AppStackParamList = {
   CapsuleDetail: { capsuleId: string; justCreated?: boolean };
   PublicProfile: { userId: string };
   Preview:
-    | { uri: string; mediaType: 'photo' | 'video'; facing?: 'front' | 'back'; altUri?: string; targetCapsuleId?: string }
+    | {
+        uri: string;
+        mediaType: 'photo' | 'video';
+        facing?: 'front' | 'back';
+        altUri?: string;
+        targetCapsuleId?: string;
+        /** Video length in ms when known (camera recording length). Unset = unknown → not length-gated (fail-open). */
+        durationMs?: number;
+      }
     | { media: PendingMedia[]; source?: 'share' | 'camera'; targetCapsuleId?: string };
   ResetPassword: undefined;
   EditCapsule: { capsuleId: string };

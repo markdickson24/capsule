@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity,
   FlatList, TextInput, KeyboardAvoidingView,
   Animated, PanResponder, Modal, Pressable, Dimensions, Platform,
+  ActivityIndicator,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
@@ -16,6 +17,10 @@ import { useTheme } from '../../context/ThemeContext';
 import { uploadQueue } from '../../lib/uploadQueue';
 import { limitsForTier } from '../../lib/tierLimits';
 import { proGateHit } from '../../lib/proGate';
+import { limitSheet } from '../../lib/limitSheet';
+import { toast } from '../../lib/toast';
+import { presentPaywall } from '../../lib/purchases';
+import { trimVideo } from '../../../modules/expo-video-stitcher';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Preview'>;
 
@@ -43,7 +48,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
     const params: any = route.params;
     if (Array.isArray(params?.media)) return params.media;
     if (params?.uri && params?.mediaType) {
-      return [{ uri: params.uri, mediaType: params.mediaType, altUri: params.altUri }];
+      return [{ uri: params.uri, mediaType: params.mediaType, altUri: params.altUri, durationMs: params.durationMs }];
     }
     return [];
   }, [route.params]);
@@ -61,6 +66,11 @@ export default function PreviewScreen({ route, navigation }: Props) {
   // Per-item captions keyed by index
   const [captions, setCaptions] = useState<Record<number, string>>({});
   const [showDiscard, setShowDiscard] = useState(false);
+  // Busy while the pre-enqueue gate checks (photo/video cap RPCs, and a
+  // trim-then-post round trip) are in flight — the sheet itself dismisses
+  // immediately on any action tap (see limitSheet host), so "Trimming…"
+  // has to be represented on this screen, not inside the sheet.
+  const [busy, setBusy] = useState(false);
 
   const translateY = useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 100;
@@ -124,9 +134,10 @@ export default function PreviewScreen({ route, navigation }: Props) {
   // immediately. The capsule grid renders the pending items as local-URI tiles
   // with per-item progress/retry, and the queue toasts when the batch drains.
   async function upload() {
-    if (selectedIds.size === 0 || items.length === 0) return;
+    if (busy || selectedIds.size === 0 || items.length === 0) return;
 
     const currentUserId = sessionStore.get()?.user.id;
+    setBusy(true);
 
     // Pro gate: unlike CapsuleDetailScreen (always exactly one target), this
     // screen can fan out to multiple selected capsules — each is checked
@@ -145,12 +156,22 @@ export default function PreviewScreen({ route, navigation }: Props) {
     // that capsule's count to 0 (fail-open, same convention as the rest of
     // this check) rather than blocking on a transient error.
     const selected = Array.from(selectedIds);
-    const counts = await Promise.all(
-      selected.map(async id => ({
-        id,
-        count: (await supabase.rpc('capsule_media_count', { p_capsule_id: id })).data ?? 0,
-      }))
-    );
+    let counts: { id: string; count: number }[];
+    try {
+      counts = await Promise.all(
+        selected.map(async id => ({
+          id,
+          count: (await supabase.rpc('capsule_media_count', { p_capsule_id: id })).data ?? 0,
+        }))
+      );
+    } catch (e) {
+      // A thrown rejection (real fetch failure, not the normal {data,error}
+      // resolution) must still release the busy lock — otherwise the Add
+      // button stays stuck disabled/spinning until the screen remounts.
+      setBusy(false);
+      toast.show('Something went wrong. Try again.');
+      return;
+    }
     const countMap = new Map(counts.map(c => [c.id, c.count]));
 
     const ids = selected.filter(id => {
@@ -163,31 +184,114 @@ export default function PreviewScreen({ route, navigation }: Props) {
         proGateHit({
           currentUserIsHost: cap.owner_id === currentUserId,
           guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+          title: 'This capsule is full',
+          ownerMessage: 'Capsule Pro raises the limit to 1000 photos.',
         });
         return false;
       }
       return true;
     });
-    if (ids.length === 0) return;
+    if (ids.length === 0) {
+      setBusy(false);
+      return;
+    }
 
-    uploadQueue.enqueue(
-      ids.flatMap(id =>
-        items.map((item, idx) => ({
-          capsuleId: id,
-          uri: item.uri,
-          mediaType: item.mediaType,
-          altUri: item.altUri,
-          caption: captions[idx],
-          mimeType: item.mimeType,
-        }))
-      )
+    // Video-length gate: keyed off the STRICTEST tier among the capsules that
+    // will actually receive this batch (i.e. `ids`, post-photo-gate — a
+    // capsule already excluded above for being full gets no media either
+    // way, so its tier shouldn't tighten/loosen the cap for the rest).
+    const targets = ids
+      .map(id => capsules.find(c => c.capsule_id === id)?.capsules)
+      .filter((c): c is NonNullable<typeof c> => !!c);
+    const effectiveVideoCap = targets.length > 0
+      ? Math.min(...targets.map(t => limitsForTier(t.owner?.subscription_tier).videoSeconds))
+      : limitsForTier('free').videoSeconds;
+    // Whether the current user owns one of the targets driving the strictest
+    // cap — only then is "Upgrade" a meaningful action (upgrading a tier the
+    // user doesn't own wouldn't lift this particular cap).
+    const ownerOfStrictest = targets.some(
+      t => t.owner_id === currentUserId && limitsForTier(t.owner?.subscription_tier).videoSeconds === effectiveVideoCap
     );
 
-    if (ids.length === 1) {
-      navigation.replace('CapsuleDetail', { capsuleId: ids[0] });
-    } else {
-      navigation.replace('Tabs', { screen: 'Home' });
+    const isOverCap = (item: PendingMedia) =>
+      item.mediaType === 'video' && item.durationMs != null && item.durationMs / 1000 > effectiveVideoCap;
+    const overCapCount = items.filter(isOverCap).length;
+
+    // Shared enqueue+navigate implementation — used by the no-gate path below
+    // and by both sheet actions (trim / skip), so there's exactly one place
+    // that builds the upload-queue payload and decides where to land.
+    function enqueueItems(pairs: { item: PendingMedia; idx: number }[]) {
+      uploadQueue.enqueue(
+        ids.flatMap(id =>
+          pairs.map(({ item, idx }) => ({
+            capsuleId: id,
+            uri: item.uri,
+            mediaType: item.mediaType,
+            altUri: item.altUri,
+            caption: captions[idx],
+            mimeType: item.mimeType,
+          }))
+        )
+      );
+      if (ids.length === 1) {
+        navigation.replace('CapsuleDetail', { capsuleId: ids[0] });
+      } else {
+        navigation.replace('Tabs', { screen: 'Home' });
+      }
     }
+
+    if (overCapCount === 0) {
+      enqueueItems(items.map((item, idx) => ({ item, idx })));
+      return;
+    }
+
+    // Some clip(s) exceed the cap — don't enqueue anything yet. The limit
+    // sheet host fires an action's onPress then unconditionally dismisses,
+    // so the sheet itself can't stay open across the async trim; the
+    // "Trimming…" state instead lives on this screen via `busy`.
+    async function trimThenPost() {
+      setBusy(true);
+      try {
+        const trimmed = await Promise.all(
+          items.map(async (item, idx) => {
+            if (isOverCap(item)) {
+              const outUri = await trimVideo(item.uri, effectiveVideoCap);
+              return { item: { ...item, uri: outUri, durationMs: effectiveVideoCap * 1000 }, idx };
+            }
+            return { item, idx };
+          })
+        );
+        enqueueItems(trimmed);
+      } catch (e) {
+        toast.show('Couldn’t trim the video. Try again.');
+        setBusy(false);
+      }
+    }
+
+    function postSkippingOverCap() {
+      const kept = items
+        .map((item, idx) => ({ item, idx }))
+        .filter(({ item }) => !isOverCap(item));
+      if (kept.length === 0) return; // nothing left to post — stay on Preview
+      enqueueItems(kept);
+    }
+
+    setBusy(false);
+    limitSheet.show({
+      title: 'Video too long',
+      message: overCapCount > 1
+        ? `${overCapCount} of these clips are longer than the ${effectiveVideoCap}s limit for this capsule.`
+        : `This clip is longer than the ${effectiveVideoCap}s limit for this capsule.`,
+      icon: 'videocam',
+      actions: [
+        { label: 'Trim to first ' + effectiveVideoCap + 's & post', style: 'primary', onPress: trimThenPost },
+        ...(ownerOfStrictest
+          ? [{ label: 'Upgrade to post full', style: 'secondary' as const, onPress: () => { presentPaywall(); } }]
+          : []),
+        { label: 'Skip these ' + overCapCount + ' clip(s)', style: 'secondary', onPress: postSkippingOverCap },
+        { label: 'Cancel', style: 'secondary', onPress: () => {} },
+      ],
+    });
   }
 
   function goCreateCapsule() {
@@ -341,15 +445,19 @@ export default function PreviewScreen({ route, navigation }: Props) {
                 }}
               />
               <TouchableOpacity
-                style={[styles.addBtn, { backgroundColor: accentColor }, !hasSelection && styles.addBtnDisabled]}
+                style={[styles.addBtn, { backgroundColor: accentColor }, (!hasSelection || busy) && styles.addBtnDisabled]}
                 onPress={upload}
-                disabled={!hasSelection}
+                disabled={!hasSelection || busy}
                 accessibilityRole="button"
                 accessibilityLabel={selectedIds.size > 1 ? `Add to ${selectedIds.size} capsules` : 'Add to capsule'}
               >
-                <Text style={styles.addBtnText}>
-                  {selectedIds.size > 1 ? `Add (${selectedIds.size})` : 'Add'}
-                </Text>
+                {busy ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.addBtnText}>
+                    {selectedIds.size > 1 ? `Add (${selectedIds.size})` : 'Add'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           )}

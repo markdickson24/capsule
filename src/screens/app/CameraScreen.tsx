@@ -15,11 +15,6 @@ import { AppStackParamList, AppTabParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import InfoTooltip from '../../components/InfoTooltip';
 import { stitchVideos } from '../../../modules/expo-video-stitcher';
-import { supabase } from '../../lib/supabase';
-import { sessionStore } from '../../lib/sessionStore';
-import { toast } from '../../lib/toast';
-import { limitsForTier, tierFromIsPro } from '../../lib/tierLimits';
-import { useEntitlements } from '../../hooks/useEntitlements';
 import {
   DualCameraView,
   isDualCameraSupported,
@@ -41,9 +36,8 @@ const CAMERA_CAPTURES_KEY = 'cap_camera_captures';
 // for run one, chrome by run N. The recording-state copy still always shows.
 const HINT_HIDE_AFTER = 3;
 
-// Video clip length cap is now tier-aware (see the `maxSeconds`/`maxSecondsRef`
-// resolution in the component body, sourced from src/lib/tierLimits.ts) —
-// free=30s, pro=120s. No module-level constant here anymore.
+// Max video recording length, in seconds — applies to both single and dual capture.
+const MAX_RECORD_SECONDS = 120;
 const HOLD_THRESHOLD_MS = 300;
 const DOUBLE_TAP_MS = 300;
 // Snapchat-style drag-to-zoom: dragging up ~75% of the screen height covers the
@@ -84,78 +78,6 @@ export default function CameraScreen() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFocused]);
-
-  // Video clip length cap — host-tier-based (free=30s, pro=120s, see
-  // src/lib/tierLimits.ts). With a targetCapsuleId (Add Media to an existing
-  // capsule) the host is THAT capsule's owner, fetched below; recording for a
-  // brand-new capsule makes the current user the prospective owner, so their
-  // own entitlement applies directly.
-  const { isPro, loading: entitlementsLoading } = useEntitlements();
-  const [targetOwnerInfo, setTargetOwnerInfo] = useState<{ tier: string; ownerId: string } | null>(null);
-  const [targetOwnerLoading, setTargetOwnerLoading] = useState(false);
-  useEffect(() => {
-    if (!targetCapsuleId) {
-      setTargetOwnerInfo(null);
-      setTargetOwnerLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setTargetOwnerLoading(true);
-    (async () => {
-      try {
-        const { data } = await supabase
-          .from('capsules')
-          .select('owner_id, owner:users!capsules_owner_id_fkey(subscription_tier)')
-          .eq('id', targetCapsuleId)
-          .single();
-        if (cancelled) return;
-        setTargetOwnerInfo({
-          tier: (data as any)?.owner?.subscription_tier ?? 'free',
-          ownerId: (data as any)?.owner_id ?? '',
-        });
-      } catch {
-        // Fetch failed — targetOwnerInfo stays null, which keeps maxSeconds
-        // at the permissive Pro default until it either resolves or the
-        // recording completes under that default.
-      } finally {
-        if (!cancelled) setTargetOwnerLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [targetCapsuleId]);
-  // Effective cap in seconds. Errs PERMISSIVE (the Pro value) while any tier
-  // lookup is still in flight — this is a soft client-side guardrail with no
-  // server enforcement, so a free host briefly recording longer during the
-  // unknown window is harmless, while cutting off a paying Pro user's take
-  // because entitlements hadn't resolved yet would not be.
-  const maxSeconds = targetCapsuleId
-    ? (targetOwnerLoading || !targetOwnerInfo
-        ? limitsForTier('pro').videoSeconds
-        : limitsForTier(targetOwnerInfo.tier).videoSeconds)
-    : (entitlementsLoading
-        ? limitsForTier('pro').videoSeconds
-        : limitsForTier(tierFromIsPro(isPro)).videoSeconds);
-  // Read inside the async recording loops (which can outlive a re-render) via a ref.
-  const maxSecondsRef = useRef(maxSeconds);
-  maxSecondsRef.current = maxSeconds;
-  // Whether the CURRENT user is the (prospective or actual) host whose tier
-  // drives the cap above — gates the free-cap upsell toast to the host only;
-  // a guest recording into someone else's capsule shouldn't be upsold on a
-  // host-based limit their own upgrade wouldn't lift.
-  const currentUserId = sessionStore.get()?.user?.id ?? null;
-  const isHost = targetCapsuleId
-    ? !!currentUserId && currentUserId === targetOwnerInfo?.ownerId
-    : true;
-  const isHostRef = useRef(isHost);
-  isHostRef.current = isHost;
-  // One-shot per screen mount — don't nag on every recording.
-  const hasShownFreeCapToastRef = useRef(false);
-  function notifyFreeCapHitIfHost() {
-    if (!isHostRef.current || hasShownFreeCapToastRef.current) return;
-    if (maxSecondsRef.current >= limitsForTier('pro').videoSeconds) return; // already Pro/permissive
-    hasShownFreeCapToastRef.current = true;
-    toast.show('Free capsules allow 30-second clips — Pro unlocks up to 2 minutes.');
-  }
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const [micPermission, requestMicPermission] = useMicrophonePermissions();
@@ -355,9 +277,6 @@ export default function CameraScreen() {
       // recording that no gesture is left to stop.
       if (!pressActiveRef.current) { cleanupRecording(); return; }
     }
-    // Snapshot the tier-resolved cap for the lifetime of this recording so it
-    // can't shift mid-take (e.g. entitlements finish loading a beat late).
-    const effectiveMaxSeconds = maxSecondsRef.current;
     isRecordingRef.current = true;
     segmentsRef.current = [];
     recordSecondsRef.current = 0;
@@ -371,12 +290,12 @@ export default function CameraScreen() {
         return next;
       });
     }, 1000);
-    maxDurationTimer.current = setTimeout(stopRecording, effectiveMaxSeconds * 1000);
+    maxDurationTimer.current = setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
 
     // Segment loop: keeps recording across camera flips until the user stops or
-    // the tier-based total cap (effectiveMaxSeconds) is reached.
+    // the app-max total cap (MAX_RECORD_SECONDS) is reached.
     while (isRecordingRef.current) {
-      const remaining = effectiveMaxSeconds - recordSecondsRef.current;
+      const remaining = MAX_RECORD_SECONDS - recordSecondsRef.current;
       if (remaining <= 0) break;
       try {
         const video = await cameraRef.current!.recordAsync({ maxDuration: remaining });
@@ -402,16 +321,10 @@ export default function CameraScreen() {
       }
     }
 
-    // Recording ran the (near) full length of the cap → the cap, not the
-    // user, ended it. Surface the free-host upsell toast (one-shot per mount).
-    if (recordSecondsRef.current >= effectiveMaxSeconds - 1) {
-      notifyFreeCapHitIfHost();
-    }
-
     const segments = segmentsRef.current;
     if (segments.length > 0) {
       if (segments.length === 1) {
-        goToPreview({ uri: segments[0], mediaType: 'video', facing: facingRef.current });
+        goToPreview({ uri: segments[0], mediaType: 'video', facing: facingRef.current, durationMs: recordSecondsRef.current * 1000 });
       } else {
         let stitchedUri: string | null = null;
         try {
@@ -420,9 +333,12 @@ export default function CameraScreen() {
         } catch { /* native module not yet built, or stitching failed */ }
 
         if (stitchedUri) {
-          goToPreview({ uri: stitchedUri, mediaType: 'video', facing: facingRef.current });
+          goToPreview({ uri: stitchedUri, mediaType: 'video', facing: facingRef.current, durationMs: recordSecondsRef.current * 1000 });
         } else {
           // Fallback: show all clips as a multi-item Preview so no segment is lost.
+          // Per-segment duration is unknown here (recordSecondsRef is the TOTAL
+          // recording length, not any one segment's) — omit durationMs so the
+          // length gate fails open instead of misjudging a short segment as full-length.
           goToPreview({
             media: segments.map(uri => ({ uri, mediaType: 'video' as const })),
             source: 'camera',
@@ -461,24 +377,23 @@ export default function CameraScreen() {
       // while the permission prompt was up.
       if (!pressActiveRef.current) { cleanupRecording(); return; }
     }
-    const effectiveMaxSeconds = maxSecondsRef.current;
     isRecordingRef.current = true;
+    recordSecondsRef.current = 0;
     setIsRecording(true);
     setRecordSeconds(0);
     animateShutter(1);
-    recordInterval.current = setInterval(() => setRecordSeconds(s => s + 1), 1000);
-    maxDurationTimer.current = setTimeout(stopDualRecording, effectiveMaxSeconds * 1000);
-    const startedAt = Date.now();
+    recordInterval.current = setInterval(() => {
+      setRecordSeconds(s => {
+        const next = s + 1;
+        recordSecondsRef.current = next;
+        return next;
+      });
+    }, 1000);
+    maxDurationTimer.current = setTimeout(stopDualRecording, MAX_RECORD_SECONDS * 1000);
     try {
-      const video = await dualRef.current.recordAsync({ maxDuration: effectiveMaxSeconds });
+      const video = await dualRef.current.recordAsync({ maxDuration: MAX_RECORD_SECONDS });
       if (video?.uri) {
-        // Ran the (near) full length of the cap → the cap, not the user,
-        // ended it. No per-segment recordSecondsRef here (dual has no
-        // segment loop), so infer from wall-clock elapsed time instead.
-        if ((Date.now() - startedAt) / 1000 >= effectiveMaxSeconds - 1) {
-          notifyFreeCapHitIfHost();
-        }
-        goToPreview({ uri: video.uri, mediaType: 'video' });
+        goToPreview({ uri: video.uri, mediaType: 'video', durationMs: recordSecondsRef.current * 1000 });
       }
     } catch (e: any) {
       setDualError(e?.message ?? 'Recording failed. Try again.');

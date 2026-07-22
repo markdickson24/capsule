@@ -21,6 +21,7 @@ import { acceptFriendRequest, removeFriendship } from '../../lib/friends';
 import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 import { limitsForTier } from '../../lib/tierLimits';
+import { proGateHit } from '../../lib/proGate';
 
 type Actor = { id: string; display_name: string; avatar_url: string | null };
 
@@ -255,7 +256,11 @@ export default function NotificationsScreen() {
     const ownerTier: string = (capsuleRes.data as any)?.owner?.subscription_tier ?? 'free';
     const otherMemberCount = countRes.count ?? 0;
     if (otherMemberCount >= limitsForTier(ownerTier).membersPerCapsule) {
-      toast.show('This capsule is full — its host is on the free plan.');
+      proGateHit({
+        currentUserIsHost: false,
+        guestMessage: 'This capsule is full — its host is on the free plan.',
+        title: 'This capsule is full',
+      });
       return;
     }
 

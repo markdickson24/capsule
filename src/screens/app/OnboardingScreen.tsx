@@ -317,7 +317,12 @@ export default function OnboardingScreen({ navigation }: Props) {
       // server-side rejection (e.g. re-onboarding after hitting the cap
       // elsewhere) must still route to the paywall, not a raw error.
       if (capsuleError?.message?.includes('CAPSULE_LIMIT_REACHED')) {
-        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        proGateHit({
+          currentUserIsHost: true,
+          guestMessage: '',
+          title: "You've reached 3 capsules",
+          ownerMessage: 'Capsule Pro unlocks unlimited active capsules.',
+        });
         return;
       }
       setError('Could not create your capsule. Please try again.');

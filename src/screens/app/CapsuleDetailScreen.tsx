@@ -39,6 +39,7 @@ import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import InfoTooltip from '../../components/InfoTooltip';
 import { blockStore } from '../../lib/blocks';
 import { limitsForTier } from '../../lib/tierLimits';
+import { assetDurationMs } from '../../lib/mediaDuration';
 import { proGateHit } from '../../lib/proGate';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
@@ -287,6 +288,8 @@ function InviteModal({
       proGateHit({
         currentUserIsHost: isOwner,
         guestMessage: 'This capsule is full — its host is on the free plan.',
+        title: 'This capsule is full',
+        ownerMessage: 'Capsule Pro raises the limit to 50 members.',
       });
       return;
     }
@@ -1589,6 +1592,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       proGateHit({
         currentUserIsHost: isOwner,
         guestMessage: `This capsule is full — free capsules hold up to ${photoCap} photos.`,
+        title: 'This capsule is full',
+        ownerMessage: 'Capsule Pro raises the limit to 1000 photos.',
       });
       return;
     }
@@ -1602,6 +1607,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         // coherent storage-key extension/Content-Type (e.g. a web-picked
         // .webm/.ogg video) instead of always defaulting to video/mp4.
         mimeType: a.mimeType ?? undefined,
+        // Video length when known, so Preview can length-gate (Task 5).
+        durationMs: a.type === 'video' ? assetDurationMs(a) : undefined,
       })),
       source: 'camera',
       targetCapsuleId: capsuleId,
@@ -1619,56 +1626,6 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [uploadTasks.length]);
 
-  // expo-image-picker's ImagePickerAsset.duration is documented as
-  // milliseconds and IS milliseconds on iOS/Android, but the web shim
-  // (ExponentImagePicker.web.ts) sets it straight from HTMLVideoElement's
-  // `duration`, which the DOM defines in SECONDS — an inconsistency in the
-  // library itself, not something to "fix" here. Normalize to ms so the cap
-  // check below is correct on both platforms.
-  //
-  // Missing/unreadable duration (null/undefined) deliberately fails OPEN —
-  // it's treated as 0ms and passes the cap rather than being dropped. A video
-  // whose metadata the picker couldn't read is far more likely to be a picker
-  // quirk than an actual multi-hour file, and punishing missing metadata by
-  // silently discarding the user's video would be a worse outcome than
-  // letting an edge case through uncapped.
-  function durationMs(asset: ImagePicker.ImagePickerAsset): number {
-    const raw = asset.duration ?? 0;
-    return Platform.OS === 'web' ? raw * 1000 : raw;
-  }
-
-  // Drops any picked video over the cap, toasts what happened (correct
-  // singular/plural), and returns null (instead of an empty array) when
-  // every picked item was dropped so the caller can skip navigating to
-  // Preview with nothing to show. See durationMs() above for why a video with
-  // no readable duration passes through uncapped rather than being dropped.
-  function filterOversizedVideos(assets: ImagePicker.ImagePickerAsset[]): ImagePicker.ImagePickerAsset[] | null {
-    // Video length cap is host-tier-based (free=30s, pro=120s — see
-    // src/lib/tierLimits.ts), keyed off the CAPSULE OWNER's tier, not the
-    // acting uploader's — the host is who's monetized, mirrors the photoCap
-    // check in goToPreview above.
-    const capSeconds = limitsForTier(ownerTier).videoSeconds;
-    const capMs = capSeconds * 1000;
-    const kept = assets.filter(a => a.type !== 'video' || durationMs(a) <= capMs);
-    const droppedCount = assets.length - kept.length;
-    if (droppedCount > 0) {
-      const noun = droppedCount === 1 ? 'video' : 'videos';
-      const capLabel = capSeconds >= 60
-        ? `${Math.round(capSeconds / 60)} minute${capSeconds === 60 ? '' : 's'}`
-        : `${capSeconds} seconds`;
-      let message = `${droppedCount} ${noun} over ${capLabel} ${droppedCount === 1 ? 'was' : 'were'} skipped`;
-      // Owner-facing upsell hint only — a guest upgrading wouldn't lift a
-      // host-based cap (mirrors proGateHit's host-vs-guest split), so guests
-      // just get the neutral message above.
-      if (isOwner && ownerTier !== 'pro') {
-        message += ' — Pro unlocks up to 2-minute clips.';
-      }
-      toast.show(message);
-    }
-    if (kept.length === 0) return null;
-    return kept;
-  }
-
   async function pickFromLibrary() {
     // No permission prompt: launchImageLibraryAsync uses the iOS PHPicker (and the
     // Android Photo Picker), which run out-of-process and return only the items the
@@ -1681,8 +1638,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       quality: 0.8,
     });
     if (result.canceled) return;
-    const kept = filterOversizedVideos(result.assets);
-    if (kept) goToPreview(kept);
+    // Over-cap videos are no longer dropped here — they pass through to
+    // Preview unchanged (with durationMs set above), where the length gate +
+    // trim sheet handle them (Task 5).
+    goToPreview(result.assets);
   }
 
   // "Open Camera" routes to the in-app camera (Camera tab) rather than the
