@@ -409,6 +409,25 @@ export default function CameraScreen() {
     else stopRecording();
   }
 
+  // If the tab loses focus mid-recording (e.g. the user switches tabs), the
+  // native camera view unmounts (see the `isFocused &&` guards below) while
+  // recordAsync()/dualRef's recordAsync may still be awaiting — expo-camera's
+  // promise doesn't reliably settle once its view is torn down, so without
+  // this the JS-side recording state (isRecordingRef, timers, shutter
+  // animation) can be left stuck as if still recording even though nothing
+  // is on screen. Dispatches to the same stop functions a manual tap-to-stop
+  // uses, then forces the same state reset every recording path already
+  // funnels through at the end, rather than waiting on a promise that may
+  // never resolve.
+  useEffect(() => {
+    if (isFocused) return;
+    if (!isRecordingRef.current) return;
+    if (isDualRef.current) stopDualRecording();
+    else stopRecording();
+    cleanupRecording();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
+
   function cleanupRecording() {
     isRecordingRef.current = false;
     lockedRef.current = false;
