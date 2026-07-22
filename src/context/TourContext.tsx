@@ -3,6 +3,7 @@ import { navigationRef } from '../lib/navigationRef';
 import { buildTourSteps, TourStep } from '../lib/tourSteps';
 import { waitForTarget, Rect, MeasureFn } from '../lib/waitForTarget';
 import { markTourSeen } from '../lib/tourStorage';
+import TourOverlay from '../components/TourOverlay';
 
 type TourContextType = {
   active: boolean;
@@ -95,6 +96,7 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
   return (
     <TourContext.Provider value={{ active, steps, stepIndex, currentRect, startTour, next, back, skip, registerTarget, unregisterTarget }}>
       {children}
+      {active && <TourOverlay />}
     </TourContext.Provider>
   );
 }
