@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { toast } from '../lib/toast';
+import { parseGradient, serializeGradient } from '../lib/accentPresets';
 
 const DEFAULT_ACCENT = '#FF6B35';
 const DEFAULT_HOME_LAYOUT: HomeLayout = 'list';
@@ -11,7 +12,7 @@ const THEME_CACHE_PREFIX = 'cap_theme_v1:';
 
 export type HomeLayout = 'list' | 'grid';
 
-type CachedTheme = { accentColor?: string; homeLayout?: HomeLayout };
+type CachedTheme = { accentColor?: string; homeLayout?: HomeLayout; accentGradient?: string | null };
 
 // Mirrors sessionStore's readWebSessionSync — reads directly from
 // localStorage (synchronous, unlike AsyncStorage) so it can seed the
@@ -44,7 +45,7 @@ async function readCachedTheme(userId: string): Promise<CachedTheme | null> {
   }
 }
 
-function writeCachedTheme(userId: string, prefs: Required<CachedTheme>) {
+function writeCachedTheme(userId: string, prefs: { accentColor: string; homeLayout: HomeLayout; accentGradient: string | null }) {
   const value = JSON.stringify(prefs);
   if (Platform.OS === 'web') {
     try { window.localStorage.setItem(`${THEME_CACHE_PREFIX}${userId}`, value); } catch {}
@@ -58,6 +59,8 @@ type ThemeContextType = {
   setAccentColor: (color: string) => Promise<void>;
   homeLayout: HomeLayout;
   setHomeLayout: (layout: HomeLayout) => Promise<void>;
+  accentGradient: [string, string] | null;
+  setAccentGradient: (g: [string, string] | null) => Promise<void>;
 };
 
 const ThemeContext = createContext<ThemeContextType>({
@@ -65,6 +68,8 @@ const ThemeContext = createContext<ThemeContextType>({
   setAccentColor: async () => {},
   homeLayout: DEFAULT_HOME_LAYOUT,
   setHomeLayout: async () => {},
+  accentGradient: null,
+  setAccentGradient: async () => {},
 });
 
 // Lazy useState initializers run synchronously during the first render — this
@@ -92,9 +97,19 @@ function initialHomeLayout(): HomeLayout {
   return DEFAULT_HOME_LAYOUT;
 }
 
+function initialAccentGradient(): [string, string] | null {
+  const session = sessionStore.get();
+  if (session?.user) {
+    const cached = readCachedThemeSync(session.user.id);
+    if (cached?.accentGradient) return parseGradient(cached.accentGradient);
+  }
+  return null;
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [accentColor, setAccentColorState] = useState(initialAccentColor);
   const [homeLayout, setHomeLayoutState] = useState<HomeLayout>(initialHomeLayout);
+  const [accentGradient, setAccentGradientState] = useState<[string, string] | null>(initialAccentGradient);
 
   useEffect(() => {
     let loaded = false;
@@ -108,21 +123,25 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (cached?.homeLayout === 'grid' || cached?.homeLayout === 'list') {
         setHomeLayoutState(cached.homeLayout);
       }
+      if (cached?.accentGradient !== undefined) setAccentGradientState(parseGradient(cached.accentGradient));
 
       try {
         const { data } = await supabase
           .from('users')
-          .select('accent_color, home_layout')
+          .select('accent_color, home_layout, accent_gradient')
           .eq('id', userId)
           .single();
         const accent = (data as any)?.accent_color;
         const layout = (data as any)?.home_layout;
         if (accent) setAccentColorState(accent);
         if (layout === 'grid' || layout === 'list') setHomeLayoutState(layout);
+        const grad = parseGradient((data as any)?.accent_gradient);
+        setAccentGradientState(grad);
         if (accent || layout === 'grid' || layout === 'list') {
           writeCachedTheme(userId, {
             accentColor: accent ?? cached?.accentColor ?? DEFAULT_ACCENT,
             homeLayout: (layout === 'grid' || layout === 'list') ? layout : (cached?.homeLayout ?? DEFAULT_HOME_LAYOUT),
+            accentGradient: (data as any)?.accent_gradient ?? null,
           });
         }
         loaded = true;
@@ -136,6 +155,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       if (event === 'SIGNED_OUT') {
         setAccentColorState(DEFAULT_ACCENT);
         setHomeLayoutState(DEFAULT_HOME_LAYOUT);
+        setAccentGradientState(null);
         loaded = false;
       } else if (event === 'SIGNED_IN' && session?.user) {
         loadPrefs(session.user.id);
@@ -148,10 +168,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   async function setAccentColor(color: string) {
     setAccentColorState(color);
+    setAccentGradientState(null);
     const session = sessionStore.get();
     if (session) {
-      writeCachedTheme(session.user.id, { accentColor: color, homeLayout });
-      const { error } = await supabase.from('users').update({ accent_color: color }).eq('id', session.user.id);
+      writeCachedTheme(session.user.id, { accentColor: color, homeLayout, accentGradient: null });
+      const { error } = await supabase.from('users').update({ accent_color: color, accent_gradient: null }).eq('id', session.user.id);
       // State/local cache already updated, so the color still looks saved on
       // this device — but it won't survive a fresh sign-in elsewhere or a
       // cache-miss without this toast telling the user the write didn't land.
@@ -163,14 +184,29 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setHomeLayoutState(layout);
     const session = sessionStore.get();
     if (session) {
-      writeCachedTheme(session.user.id, { accentColor, homeLayout: layout });
+      writeCachedTheme(session.user.id, { accentColor, homeLayout: layout, accentGradient: accentGradient ? serializeGradient(accentGradient) : null });
       const { error } = await supabase.from('users').update({ home_layout: layout }).eq('id', session.user.id);
       if (error) toast.show("Couldn't save your layout preference — try again.");
     }
   }
 
+  // Pro-only (gate is in the UI). Persists the gradient AND sets accent_color to
+  // its first color, so every non-gradient surface keeps a coherent solid.
+  async function setAccentGradient(g: [string, string] | null) {
+    setAccentGradientState(g);
+    const solid = g ? g[0] : accentColor;
+    if (g) setAccentColorState(solid);
+    const session = sessionStore.get();
+    if (session) {
+      const serialized = g ? serializeGradient(g) : null;
+      writeCachedTheme(session.user.id, { accentColor: solid, homeLayout, accentGradient: serialized });
+      const { error } = await supabase.from('users').update({ accent_gradient: serialized, accent_color: solid }).eq('id', session.user.id);
+      if (error) toast.show("Couldn't save your theme — try again.");
+    }
+  }
+
   return (
-    <ThemeContext.Provider value={{ accentColor, setAccentColor, homeLayout, setHomeLayout }}>
+    <ThemeContext.Provider value={{ accentColor, setAccentColor, homeLayout, setHomeLayout, accentGradient, setAccentGradient }}>
       {children}
     </ThemeContext.Provider>
   );
