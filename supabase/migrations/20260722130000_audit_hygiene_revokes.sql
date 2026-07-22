@@ -21,8 +21,12 @@ revoke execute on function public.enforce_photo_limit()     from public, anon, a
 revoke execute on function public.guard_group_recurrence()  from public, anon, authenticated;
 revoke execute on function public.guard_subscription_tier() from public, anon, authenticated;
 
--- BS-5: the anon role still has column grants (incl. SELECT) on users' PII
--- columns. Dead today (the only users SELECT policy is scoped to authenticated),
--- but it removes the last non-RLS safety net for anon. Align anon with the same
--- PII column scoping already applied to authenticated.
-revoke select (email, phone, push_token) on public.users from anon;
+-- BS-5: the anon role still had a TABLE-LEVEL SELECT grant on users (which
+-- covers every column, incl. email/phone/push_token, and masks any column-level
+-- revoke). Dead today (the only users SELECT policy is scoped to authenticated,
+-- so anon reads return zero rows regardless), but it removes the last non-RLS
+-- safety net for anon and aligns it with authenticated (whose table-wide SELECT
+-- was already revoked — that's why authenticated needs per-column grants). A
+-- column-level `revoke select (...) from anon` is a no-op while the table grant
+-- exists, so revoke at the table level.
+revoke select on public.users from anon;
