@@ -45,6 +45,15 @@ export default function SettingsScreen({ navigation }: Props) {
   const contentAnim = useSlideUp(0, 400);
 
   async function handleSaveColor() {
+    // A gradient is already persisted the moment it's tapped (and sets
+    // pending=g[0]). If the user hasn't since picked a different solid, "Save"
+    // must NOT clear the gradient — just leave. Picking any solid preset/custom
+    // color moves `pending` off accentColor, which re-enables a real solid save
+    // (setAccentColor clears the gradient, as intended for a solid choice).
+    if (accentGradient && pending === accentColor) {
+      navigation.goBack();
+      return;
+    }
     setSaving(true);
     await setAccentColor(pending);
     setSaving(false);
@@ -145,7 +154,9 @@ export default function SettingsScreen({ navigation }: Props) {
             </View>
 
             {/* Pro: custom picker + gradients. Free: a locked upsell row.
-                Gate on !loading && !isPro so a real Pro user isn't briefly locked. */}
+                The free row is disabled while entitlements load so a real Pro
+                user (briefly isPro=false) can't trigger the paywall before the
+                listener resolves. */}
             {isPro ? (
               <>
                 <Text style={styles.helper}>Custom color</Text>
@@ -157,7 +168,7 @@ export default function SettingsScreen({ navigation }: Props) {
                     return (
                       <TouchableOpacity
                         key={g.join('')}
-                        onPress={() => { setAccentGradient(g); }}
+                        onPress={() => { setAccentGradient(g); setPending(g[0]); }}
                         accessibilityRole="button"
                         accessibilityLabel={`Gradient theme ${g[0]} to ${g[1]}`}
                         style={[styles.gradSwatchWrap, isSel && styles.swatchSelected]}
