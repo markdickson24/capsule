@@ -23,6 +23,8 @@ import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 import { listMyGroups, GroupRow, recurrenceLabel } from '../../lib/groups';
+import { useTour, useTourTarget, buildTourSteps } from '../../context/TourContext';
+import { consumeTourPending, tourSeen } from '../../lib/tourStorage';
 
 type CapsuleWithCountdown = Capsule;
 
@@ -87,7 +89,7 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
   return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{hoursLeft}h left</Text>;
 }
 
-function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number; variant?: HomeLayout }) {
+function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list', innerRef }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number; variant?: HomeLayout; innerRef?: (node: any) => void }) {
   const { accentColor } = useTheme();
   const isLocked = capsule.status !== 'unlocked';
   const entrance = useListItemEntrance(index);
@@ -98,7 +100,7 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }:
   const contributionStartAt = (capsule as any).contribution_start_at as string | null | undefined;
   const notStartedYet = !!contributionStartAt && capsule.status !== 'unlocked' && new Date(contributionStartAt) > new Date();
   return (
-    <Animated.View style={[entrance, isGrid && styles.gridCell]}>
+    <Animated.View ref={innerRef} collapsable={false} style={[entrance, isGrid && styles.gridCell]}>
       <TouchableOpacity
         style={[styles.card, isGrid && styles.cardGrid, !isLocked && { borderColor: `${accentColor}40` }]}
         onPress={onPress}
@@ -208,6 +210,9 @@ function GroupsSection({ groups, onCreatePress, onGroupPress }: {
 
 export default function HomeScreen() {
   const { accentColor, homeLayout, setHomeLayout } = useTheme();
+  const { startTour } = useTour();
+  const capsuleCardRef = useTourTarget('capsule-card');
+  const scanRef = useTourTarget('home-scan');
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [refreshing, setRefreshing] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -256,6 +261,21 @@ export default function HomeScreen() {
   // member-row flag — so this section is exactly the capsules this user
   // personally archived.
   const archivedCapsules = (allCapsules ?? []).filter(c => c.archived_at && !restoringIds.has(c.id));
+
+  // Fire the one-time new-user tour the first time Home loads after onboarding.
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    (async () => {
+      if (!(await consumeTourPending())) return;   // read-and-clear; runs at most once
+      if (await tourSeen()) return;
+      if (cancelled) return;
+      const active = (allCapsules ?? []).filter(c => !c.archived_at);
+      const cap = active[0] ?? null;
+      startTour(buildTourSteps({ hasCapsule: !!cap, capsuleId: cap?.id ?? null }));
+    })();
+    return () => { cancelled = true; };
+  }, [loading]);
 
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
 
@@ -360,6 +380,7 @@ export default function HomeScreen() {
             </View>
           )}
           <TouchableOpacity
+            ref={scanRef}
             onPress={() => navigation.navigate('QRScanner')}
             hitSlop={8}
             style={styles.scanBtn}
@@ -408,6 +429,7 @@ export default function HomeScreen() {
               capsule={item}
               index={index}
               variant={homeLayout}
+              innerRef={index === 0 ? capsuleCardRef : undefined}
               onPress={() => navigation.navigate('CapsuleDetail', { capsuleId: item.id })}
               onLongPress={() => { haptics.light(); setMenuCapsule(item); }}
             />
