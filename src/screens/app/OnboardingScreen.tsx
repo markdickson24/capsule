@@ -25,6 +25,7 @@ import { requestPushPermission } from '../../hooks/usePushNotifications';
 import DatePickerField from '../../components/DatePicker';
 import type { TablesUpdate } from '../../types/supabase';
 import { proGateHit } from '../../lib/proGate';
+import { setTourPending } from '../../lib/tourStorage';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -240,6 +241,7 @@ export default function OnboardingScreen({ navigation }: Props) {
       return false;
     }
     sessionStore.markOnboarded(userId);
+    setTourPending(); // arm the one-time new-user tour; Home consumes it on first load
     return true;
   }
 
