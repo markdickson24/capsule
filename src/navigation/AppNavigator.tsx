@@ -12,6 +12,7 @@ import { sessionStore } from '../lib/sessionStore';
 import { cache } from '../lib/cache';
 import { haptics } from '../lib/haptics';
 import { useTheme } from '../context/ThemeContext';
+import { useTour, measureNode } from '../context/TourContext';
 import AccentSurface from '../components/AccentSurface';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
@@ -49,6 +50,12 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { accentColor } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
+  const { registerTarget, unregisterTarget } = useTour();
+  const makeTabRef = React.useCallback((routeName: string) => (node: any) => {
+    const id = `tab:${routeName}`;
+    if (node) registerTarget(id, () => measureNode(node));
+    else unregisterTarget(id);
+  }, [registerTarget, unregisterTarget]);
 
   // Badge is derived from the `notifications` cache the Alerts screen already
   // fills, instead of an independent per-tab-switch query throttled to 60s (which
@@ -98,6 +105,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               <View key={route.key} style={styles.cameraSlot}>
                 <View style={styles.cameraRing}>
                   <TouchableOpacity
+                    ref={makeTabRef(route.name)}
+                    {...({ collapsable: false } as any)}
                     style={[styles.cameraBtn, isFocused && styles.cameraBtnActive, Platform.select({
                       default: { shadowColor: accentColor, shadowOpacity: isFocused ? 0.75 : 0.5, shadowRadius: isFocused ? 16 : 12, shadowOffset: { width: 0, height: 4 } },
                       web: {},
@@ -121,6 +130,8 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           return (
             <TouchableOpacity
               key={route.key}
+              ref={makeTabRef(route.name)}
+              {...({ collapsable: false } as any)}
               style={styles.tab}
               onPress={onPress}
               activeOpacity={0.7}

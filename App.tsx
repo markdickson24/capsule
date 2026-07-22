@@ -11,6 +11,7 @@ import { navigationRef } from './src/lib/navigationRef';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
 import { ThemeProvider } from './src/context/ThemeContext';
+import { TourProvider } from './src/context/TourContext';
 import { ShareIntentProvider } from './src/lib/ShareIntentProvider';
 import { LoadingBrandScreen } from './src/components/LoadingBrand';
 import ToastHost from './src/components/ToastHost';
@@ -50,11 +51,13 @@ function App() {
             (e.g. ToastHost) can read insets — RN Navigation only provides one
             around the navigator's screens, not its sibling children. */}
         <SafeAreaProvider>
-          <NavigationContainer ref={navigationRef} linking={linking}>
-            <StatusBar style="light" />
-            <RootNavigator />
-            <ToastHost />
-          </NavigationContainer>
+          <TourProvider>
+            <NavigationContainer ref={navigationRef} linking={linking}>
+              <StatusBar style="light" />
+              <RootNavigator />
+              <ToastHost />
+            </NavigationContainer>
+          </TourProvider>
         </SafeAreaProvider>
       </ThemeProvider>
     </ShareIntentProvider>
@@ -64,4 +67,3 @@ function App() {
 // Wraps the root component so Sentry captures unhandled errors and
 // React render exceptions. When DSN is unset, this is a passthrough.
 export default SENTRY_DSN ? Sentry.wrap(App) : App;
-

@@ -25,6 +25,7 @@ import { requestPushPermission } from '../../hooks/usePushNotifications';
 import DatePickerField from '../../components/DatePicker';
 import type { TablesUpdate } from '../../types/supabase';
 import { proGateHit } from '../../lib/proGate';
+import { setTourPending } from '../../lib/tourStorage';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -240,6 +241,10 @@ export default function OnboardingScreen({ navigation }: Props) {
       return false;
     }
     sessionStore.markOnboarded(userId);
+    // Await so the flag is durably written before we navigate to Home, whose
+    // effect immediately consumes it — otherwise the very first trigger could be
+    // missed (it'd fire on the next Home visit instead). Best-effort internally.
+    await setTourPending(); // arm the one-time new-user tour; Home consumes it on first load
     return true;
   }
 
