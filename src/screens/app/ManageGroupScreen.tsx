@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
   ActivityIndicator, Keyboard, Platform, LayoutAnimation, UIManager,
@@ -89,6 +89,12 @@ export default function ManageGroupScreen() {
   const [searching, setSearching] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingRemoval, setPendingRemoval] = useState<{ userId: string; name: string } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
+  }, []);
 
   // Snapshot of the schedule as loaded, so handleSave can tell whether the
   // user actually changed the recurrence/anchor — passing them unconditionally

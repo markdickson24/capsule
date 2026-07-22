@@ -249,6 +249,12 @@ function InviteModal({
   const viewShotRef = useRef<any>(null);
 
   useEffect(() => {
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
+  }, []);
+
+  useEffect(() => {
     listFriends().then(fs =>
       setFriends(fs.filter(f => !existingMemberIds.includes(f.id) && !blockStore.has(f.id)))
     );

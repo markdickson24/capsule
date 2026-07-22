@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView,
   ActivityIndicator, FlatList, Keyboard, Platform, LayoutAnimation, UIManager,
@@ -111,6 +111,12 @@ export default function CreateGroupScreen() {
   const [nameError, setNameError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    };
+  }, []);
 
   const myId = sessionStore.get()?.user?.id ?? null;
   const selectedIds = new Set(selectedMembers.map(m => m.id));
