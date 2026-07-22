@@ -184,6 +184,8 @@ The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also 
 
 **Never query `capsule_members` inside a `capsule_members` policy.** Always go through a security definer function or use the `capsules` table directly.
 
+**Client UPDATE on `capsule_members` and `media` is column-grant-scoped** (`20260722120000_audit_rls_hardening.sql`). The July 2026 audit found both UPDATE policies had no column-level `WITH CHECK`: a `viewer` could self-promote their `role` to contributor/owner (gaining upload rights the owner withheld), and an uploader could reassign their media's `capsule_id` (cross-capsule injection, bypassing the photo cap) or clear `is_flagged`. Fixed by revoking table-wide UPDATE from `authenticated`/`anon` and granting back **only** the columns clients legitimately write: `capsule_members(joined_at)` (accept-invite, `NotificationsScreen`) and `media(caption)` (`saveCaption`). Everything else — `role`, `capsule_id`, `storage_key`, `is_flagged` — is now un-writable by clients; legitimate `role` changes happen only via SECURITY DEFINER RPCs (e.g. `delete_my_account`'s owner transfer), which run as the function owner and are unaffected by column grants. **If a new client flow needs to UPDATE a new column on these tables, add a column-level `grant update (col)` for it** (the table-wide grant is gone). Low-severity hygiene follow-ups (revoke direct RPC execute on `_superlative_target_valid` + the four trigger functions; revoke `anon` PII column grants) are staged in `20260722130000_audit_hygiene_revokes.sql`.
+
 All RLS policies use `(select auth.uid())` not `auth.uid()` directly — avoids query planner issues. `get_my_capsule_ids()`, `can_insert_capsule_member()`, and the `capsules`/`capsule_members` policies above were live on production for an unknown period without ever being committed to a migration — another out-of-band dashboard/MCP change, like the missing `home_layout` grant below but for an entire policy redesign rather than one grant. Captured in `20260515232500_capture_capsule_rls_and_helpers.sql`. If you find another RLS policy or function that doesn't match what `mcp__supabase__execute_sql` shows is actually live, assume the live DB is correct and the migration is the one that's stale — verify with `pg_policies`/`pg_get_functiondef` before changing behavior.
 
 **Contribution lock — AND the mirror-image start date — are enforced at TWO layers** (both must allow):
@@ -199,6 +201,8 @@ The `contribution_start_at` half was added in `20260716120000_capsule_start_date
 Two buckets:
 - `capsule-media` (private) — photos and videos
 - `avatars` (public) — user profile pictures; cache-bust URLs with `?t=${Date.now()}`
+
+**`capsule-media` SELECT is membership-gated** (`20260722120000_audit_rls_hardening.sql`, "Members can read their capsule media"). The July 2026 audit found the bucket had two out-of-band dashboard SELECT policies both `USING (bucket_id = 'capsule-media')` with **no membership check** — any authenticated user could list/download/sign every capsule's private media (critical live exposure). The replacement policy mirrors the `media` table's own SELECT gate exactly (`joined` membership + `(unlocked OR (owner/contributor AND NOT owner_preview_locked))`), so a signed URL can only be minted for an object whose `media` row the caller can already read. Storage-level SELECT governs `list()`, direct download, AND `createSignedUrl` — all three now require membership. If you add a new capsule-media read flow, it inherits this gate.
 
 **Raw REST uploads require both headers:**
 ```
