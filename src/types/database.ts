@@ -28,7 +28,7 @@ export type CapsuleOccasion = 'wedding' | 'vacation' | 'party' | 'baby' | 'miles
 
 // ---------- Row shapes (generated) — narrowed to the literal-union aliases ----------
 
-export type User = Tables<'users'> & { subscription_tier: SubscriptionTier };
+export type User = Tables<'users'> & { subscription_tier: SubscriptionTier; accent_gradient: string | null };
 export type Capsule = Tables<'capsules'> & {
   status: CapsuleStatus;
   visibility: CapsuleVisibility;
