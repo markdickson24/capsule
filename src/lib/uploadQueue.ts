@@ -189,18 +189,18 @@ async function runTask(task: UploadTask): Promise<void> {
   // draw a grid cell. Native only — VideoThumbnails has no web implementation.
   // Best-effort: a failure here just means this row falls back to the
   // client-side on-device generation in fetchPhotos, same as pre-existing rows.
-  let thumbnailKey: string | null = null;
+  let thumbEntry: CachedUpload | null = null;
   if (task.mediaType === 'video' && Platform.OS !== 'web') {
     try {
-      const thumbEntry = await copyOrUpload(thumbUploadCache, task.uri, task.capsuleId, async () => {
+      thumbEntry = await copyOrUpload(thumbUploadCache, task.uri, task.capsuleId, async () => {
         const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 });
         return { uri: thumbUri, mimeType: 'image/jpeg' };
       });
-      thumbnailKey = thumbEntry.key;
     } catch {
-      thumbnailKey = null;
+      thumbEntry = null;
     }
   }
+  const thumbnailKey = thumbEntry?.key ?? null;
 
   const { error } = await supabase.from('media').insert({
     capsule_id: task.capsuleId,
@@ -212,7 +212,46 @@ async function runTask(task: UploadTask): Promise<void> {
     size_bytes: sizeBytes,
     caption: task.caption?.trim() || null,
   });
-  if (error) throw new Error(error.message);
+  if (error) {
+    await cleanupOrphanedUploads([
+      { cacheMap: mainUploadCache, sourceUri: task.uri, entry: main },
+      ...(altEntry ? [{ cacheMap: altUploadCache, sourceUri: task.altUri!, entry: altEntry }] : []),
+      ...(thumbEntry ? [{ cacheMap: thumbUploadCache, sourceUri: task.uri, entry: thumbEntry }] : []),
+    ]);
+    throw new Error(error.message);
+  }
+}
+
+// Called when the `media` row insert fails AFTER the storage upload(s) for
+// this task already succeeded — without this, the just-uploaded object(s)
+// (main/alt/thumb) are never referenced by any row and leak in the bucket
+// forever, since dismiss()/retry() never touch storage.
+//
+// Each entry may be either the object THIS task freshly produced (a real
+// upload) or one it merely copied from another task's cached object (see
+// copyOrUpload). Deleting the object is safe either way — it's always this
+// task's own key, never a shared one (a copy always mints a fresh key). But
+// if this task's upload was the one that populated the dedup cache for its
+// source uri (i.e. it was the first/producing task, not a copier), that
+// cache entry now points at an object we're about to delete — so it must be
+// invalidated first, or a later retry/copy in the same batch would try to
+// copy from a deleted key and fail. A copying task's own key is never the
+// cached entry (copies always mint a new key), so this check is a no-op for
+// copiers and correctly leaves the shared cached object untouched.
+async function cleanupOrphanedUploads(
+  entries: { cacheMap: Map<string, CachedUpload>; sourceUri: string; entry: CachedUpload }[]
+) {
+  for (const { cacheMap, sourceUri, entry } of entries) {
+    if (cacheMap.get(sourceUri)?.key === entry.key) {
+      cacheMap.delete(sourceUri);
+    }
+  }
+  try {
+    await supabase.storage.from('capsule-media').remove(entries.map(e => e.entry.key));
+  } catch {
+    // Best-effort — an orphaned blob here is preferable to masking the
+    // original insert failure that triggered this cleanup.
+  }
 }
 
 // Hard ceiling on a single upload task. RN network primitives (web `fetch`,

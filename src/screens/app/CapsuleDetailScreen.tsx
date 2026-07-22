@@ -249,6 +249,12 @@ function InviteModal({
   const viewShotRef = useRef<any>(null);
 
   useEffect(() => {
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
+  }, []);
+
+  useEffect(() => {
     listFriends().then(fs =>
       setFriends(fs.filter(f => !existingMemberIds.includes(f.id) && !blockStore.has(f.id)))
     );
@@ -633,7 +639,11 @@ function MediaViewerModal({
 
   useEffect(() => {
     loadReactions();
-  }, []);
+    // items.length (not the whole `items` array) — re-run when media is
+    // appended to the capsule while the viewer is open (e.g. a background
+    // upload landing), without re-fetching on every parent re-render that
+    // hands down a new-but-same-length `items` reference.
+  }, [items.length]);
 
   async function loadReactions() {
     const mediaIds = items.map(i => i.id);
@@ -720,17 +730,18 @@ function MediaViewerModal({
     const item = items[currentIndex];
     if (!item) return;
     const trimmed = captionDraft.trim() || null;
-    await supabase.from('media').update({ caption: trimmed }).eq('id', item.id);
+    const previousCaption = item.caption ?? null;
+
+    // Optimistic: patch the viewer's state + the raw `media:${capsuleId}`
+    // cache immediately, roll both back if the write fails. Patching the
+    // cache in place (not invalidating) is deliberate — a non-forced
+    // fetchPhotos() within the next 3min (MEDIA_CACHE_TTL) would otherwise
+    // rebuild `photos` from a stale cached row list and silently revert the
+    // caption the user just saw save. No invalidate() here either: that
+    // would also blow away the signed-URL cache derivation cost for no
+    // reason (this update doesn't touch storage keys).
     onCaptionSave(item.id, trimmed);
     setEditingCaption(false);
-
-    // Patch the raw `media:${capsuleId}` cache in place rather than
-    // invalidating it — a non-forced fetchPhotos() within the next 3min
-    // (MEDIA_CACHE_TTL) would otherwise rebuild `photos` from this
-    // now-stale cached row list and silently revert the caption the user
-    // just saw save. No invalidate() here: that would also blow away the
-    // signed-URL cache derivation cost for no reason (this update doesn't
-    // touch storage keys).
     const mediaCacheKey = `media:${capsuleId}`;
     const cachedMedia = cache.get<any[]>(mediaCacheKey, MEDIA_CACHE_TTL);
     if (cachedMedia) {
@@ -738,6 +749,19 @@ function MediaViewerModal({
         mediaCacheKey,
         cachedMedia.map(m => (m.id === item.id ? { ...m, caption: trimmed } : m))
       );
+    }
+
+    const { error } = await supabase.from('media').update({ caption: trimmed }).eq('id', item.id);
+    if (error) {
+      onCaptionSave(item.id, previousCaption);
+      const freshCachedMedia = cache.get<any[]>(mediaCacheKey, MEDIA_CACHE_TTL);
+      if (freshCachedMedia) {
+        cache.set(
+          mediaCacheKey,
+          freshCachedMedia.map(m => (m.id === item.id ? { ...m, caption: previousCaption } : m))
+        );
+      }
+      toast.show("Couldn't save caption — try again.");
     }
   }
 

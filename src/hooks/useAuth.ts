@@ -5,6 +5,8 @@ import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { cache } from '../lib/cache';
 import { blockStore } from '../lib/blocks';
+import { pendingJoinStash } from '../lib/pendingJoinStash';
+import { shareIntentStash } from '../lib/shareIntentStash';
 
 export function useAuth() {
   // On web, `sessionStore` has already done a synchronous localStorage read at
@@ -58,6 +60,10 @@ export function useAuth() {
       if (event === 'SIGNED_OUT') {
         cache.clear();
         blockStore.clear();
+        // A shared/handed-off device: don't let the next signed-in user drain
+        // this user's stashed capsule-join or shared-media intent.
+        pendingJoinStash.clear();
+        shareIntentStash.clear();
         // If the user didn't trigger this (Sign Out button / account deletion),
         // mark the boot so WelcomeScreen can show a "session expired" banner.
         if (!sessionStore.consumeIntentionalSignOut()) {

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
   TextInput, Modal, Keyboard, ActivityIndicator,
@@ -210,6 +210,12 @@ function FindPeopleModal({
   const [searching, setSearching] = useState(false);
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const myId = sessionStore.get()?.user?.id ?? null;
+
+  useEffect(() => {
+    return () => {
+      if (debounce.current) clearTimeout(debounce.current);
+    };
+  }, []);
 
   function handleSearchChange(text: string) {
     setSearch(text);

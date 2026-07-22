@@ -201,6 +201,22 @@ async function processGroup(group: any) {
     return;
   }
 
+  // PN-1 — recurring groups require Pro at creation time (guard_group_recurrence
+  // blocks a free creator from setting a real recurrence), but nothing re-checked
+  // it here: if the creator's Pro later lapses, the cron kept auto-creating
+  // capsules forever, and the member fan-out below runs as service_role, which
+  // bypasses enforce_member_limit — so unlimited members too. Re-check the
+  // creator's tier every tick and skip creating a capsule (and never reach the
+  // member fan-out) if they're no longer Pro. Deliberately do NOT release the
+  // claim above — next_capsule_at/last_capsule_at already advanced to the next
+  // cycle, so a lapsed group is silently skipped once per cycle instead of
+  // retrying (and re-logging) every minute until the creator re-subscribes.
+  const ownerTier = group.owner?.subscription_tier;
+  if (ownerTier !== 'pro') {
+    console.log(`skipping group ${group.id}: creator ${group.created_by} is no longer Pro (tier=${ownerTier ?? 'unknown'})`);
+    return;
+  }
+
   const capsuleId = crypto.randomUUID();
   const unlockAt = new Date(now.getTime() + group.unlock_duration_hours * 3_600_000);
 
@@ -369,7 +385,8 @@ Deno.serve(async (req: Request) => {
     .from('groups')
     .select(
       'id, name, created_by, recurrence_interval, unlock_duration_hours, next_capsule_at, last_capsule_at, ' +
-      'anchor_weekday, anchor_day_of_month, anchor_month, anchor_day, anchor_hour, anchor_minute, next_reminder_sent_at'
+      'anchor_weekday, anchor_day_of_month, anchor_month, anchor_day, anchor_hour, anchor_minute, next_reminder_sent_at, ' +
+      'owner:users(subscription_tier)'
     )
     .neq('recurrence_interval', 'manual')
     .is('recurrence_paused_at', null)

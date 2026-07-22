@@ -151,6 +151,12 @@ export default function CameraScreen() {
   const lockedRef = useRef(false);
   const willLockRef = useRef(false);
   const hasFiredLockHapticRef = useRef(false);
+  // Set by the blur effect below when it force-stops an in-progress recording
+  // because the tab lost focus. The in-flight recordAsync() promise inside
+  // startRecording()/startDualRecording() can still settle after that force-stop
+  // — this flag tells their tail not to navigate into Preview for a recording
+  // the user already left. Reset at the start of each fresh recording.
+  const abortedByBlurRef = useRef(false);
 
   // Multi-segment recording (flip during recording).
   const segmentsRef = useRef<string[]>([]);
@@ -269,6 +275,7 @@ export default function CameraScreen() {
 
   async function startRecording() {
     if (!cameraRef.current || isRecordingRef.current) return;
+    abortedByBlurRef.current = false;
     if (!micPermission?.granted) {
       const result = await requestMicPermission();
       if (!result.granted) return;
@@ -322,7 +329,10 @@ export default function CameraScreen() {
     }
 
     const segments = segmentsRef.current;
-    if (segments.length > 0) {
+    // If the tab lost focus while recordAsync() was still awaiting, the blur
+    // effect below already force-stopped and cleaned up this recording — don't
+    // navigate the user into Preview for a recording they've already left.
+    if (segments.length > 0 && !abortedByBlurRef.current) {
       if (segments.length === 1) {
         goToPreview({ uri: segments[0], mediaType: 'video', facing: facingRef.current, durationMs: recordSecondsRef.current * 1000 });
       } else {
@@ -370,6 +380,7 @@ export default function CameraScreen() {
 
   async function startDualRecording() {
     if (!dualRef.current || isRecordingRef.current) return;
+    abortedByBlurRef.current = false;
     if (!micPermission?.granted) {
       const result = await requestMicPermission();
       if (!result.granted) return;
@@ -392,7 +403,10 @@ export default function CameraScreen() {
     maxDurationTimer.current = setTimeout(stopDualRecording, MAX_RECORD_SECONDS * 1000);
     try {
       const video = await dualRef.current.recordAsync({ maxDuration: MAX_RECORD_SECONDS });
-      if (video?.uri) {
+      // If the tab lost focus while recordAsync() was still awaiting, the blur
+      // effect below already force-stopped and cleaned up this recording —
+      // don't navigate the user into Preview for a recording they've already left.
+      if (video?.uri && !abortedByBlurRef.current) {
         goToPreview({ uri: video.uri, mediaType: 'video', durationMs: recordSecondsRef.current * 1000 });
       }
     } catch (e: any) {
@@ -408,6 +422,29 @@ export default function CameraScreen() {
     if (isDual) stopDualRecording();
     else stopRecording();
   }
+
+  // If the tab loses focus mid-recording (e.g. the user switches tabs), the
+  // native camera view unmounts (see the `isFocused &&` guards below) while
+  // recordAsync()/dualRef's recordAsync may still be awaiting — expo-camera's
+  // promise doesn't reliably settle once its view is torn down, so without
+  // this the JS-side recording state (isRecordingRef, timers, shutter
+  // animation) can be left stuck as if still recording even though nothing
+  // is on screen. Dispatches to the same stop functions a manual tap-to-stop
+  // uses, then forces the same state reset every recording path already
+  // funnels through at the end, rather than waiting on a promise that may
+  // never resolve.
+  useEffect(() => {
+    if (isFocused) return;
+    if (!isRecordingRef.current) return;
+    // Mark this recording as aborted so the in-flight recordAsync() promise's
+    // tail (inside startRecording/startDualRecording) skips navigating into
+    // Preview if/when it settles after this force-stop.
+    abortedByBlurRef.current = true;
+    if (isDualRef.current) stopDualRecording();
+    else stopRecording();
+    cleanupRecording();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFocused]);
 
   function cleanupRecording() {
     isRecordingRef.current = false;
