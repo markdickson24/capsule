@@ -76,7 +76,7 @@ nav {
 nav.scrolled { background: rgba(10,10,10,.9); backdrop-filter: blur(14px); border-bottom-color: var(--border); }
 .nav-inner { width: 100%; max-width: var(--maxw); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
-.brand .mark { width: 30px; height: 30px; border-radius: 9px; display: block; object-fit: cover; }
+.brand .mark { width: 36px; height: 36px; border-radius: 9px; display: block; object-fit: cover; }
 .beta-pill { font-size: 11px; font-weight: 800; letter-spacing: .03em; color: var(--accent-soft); background: rgba(var(--accent-rgb),.12); border: 1px solid rgba(var(--accent-rgb),.3); border-radius: var(--r-pill); padding: 3px 9px; }
 @media (max-width: 480px){ .beta-pill { display: none; } }
 .nav-links { display: flex; align-items: center; gap: 28px; }
