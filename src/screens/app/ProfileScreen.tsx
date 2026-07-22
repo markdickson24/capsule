@@ -18,12 +18,15 @@ import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import { SkeletonProfileCard } from '../../components/Skeleton';
+import AccentSurface from '../../components/AccentSurface';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { countFriends } from '../../lib/friends';
 import { useSlideUp } from '../../lib/animations';
+import ProBadge from '../../components/ProBadge';
+import { useEntitlements } from '../../hooks/useEntitlements';
 
 type Profile = {
   id: string;
@@ -274,6 +277,7 @@ export default function ProfileScreen() {
   const [showEdit, setShowEdit] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const { isPro } = useEntitlements();
 
   const { loading, refresh } = useCachedFetch<ProfileData>(
     'profile',
@@ -355,12 +359,15 @@ export default function ProfileScreen() {
       >
         {/* Hero Card */}
         <Animated.View style={[styles.heroCard, heroAnim]}>
-          <View style={[styles.heroGlow, { backgroundColor: accentColor }]} />
+          <AccentSurface style={styles.heroGlow} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
           <View style={styles.heroContent}>
             <View style={[styles.avatarRing, { borderColor: `${accentColor}40` }]}>
               <Avatar url={profile?.avatar_url ?? null} name={profile?.display_name ?? '?'} size={100} />
             </View>
-            <Text style={styles.name}>{profile?.display_name}</Text>
+            <View style={styles.nameRow}>
+              <Text style={styles.name}>{profile?.display_name}</Text>
+              {isPro && <ProBadge size="md" />}
+            </View>
             {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
             {memberSince ? (
               <View style={styles.memberSinceRow}>
@@ -476,6 +483,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   scroll: { paddingHorizontal: 20, paddingTop: 24, paddingBottom: 40, gap: 16 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
   heroCard: {
     backgroundColor: '#111111',

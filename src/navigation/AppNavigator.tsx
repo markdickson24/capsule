@@ -12,6 +12,7 @@ import { sessionStore } from '../lib/sessionStore';
 import { cache } from '../lib/cache';
 import { haptics } from '../lib/haptics';
 import { useTheme } from '../context/ThemeContext';
+import AccentSurface from '../components/AccentSurface';
 import HomeScreen from '../screens/app/HomeScreen';
 import CreateScreen from '../screens/app/CreateScreen';
 import CameraScreen from '../screens/app/CameraScreen';
@@ -97,14 +98,18 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
               <View key={route.key} style={styles.cameraSlot}>
                 <View style={styles.cameraRing}>
                   <TouchableOpacity
-                    style={[styles.cameraBtn, { backgroundColor: accentColor }, isFocused && styles.cameraBtnActive, Platform.select({
+                    style={[styles.cameraBtn, isFocused && styles.cameraBtnActive, Platform.select({
                       default: { shadowColor: accentColor, shadowOpacity: isFocused ? 0.75 : 0.5, shadowRadius: isFocused ? 16 : 12, shadowOffset: { width: 0, height: 4 } },
                       web: {},
                     })]}
                     onPress={onPress}
                     activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open camera"
                   >
-                    <Ionicons name="camera" size={26} color="#FFFFFF" />
+                    <AccentSurface style={styles.cameraBtnFill}>
+                      <Ionicons name="camera" size={26} color="#FFFFFF" />
+                    </AccentSurface>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -218,7 +223,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 8,
+    overflow: 'hidden',
   },
+  cameraBtnFill: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
   cameraBtnActive: {},
 });
 

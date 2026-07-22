@@ -830,6 +830,7 @@ export type Database = {
       users: {
         Row: {
           accent_color: string
+          accent_gradient: string | null
           auth_provider: string
           avatar_url: string | null
           bio: string | null
@@ -845,6 +846,7 @@ export type Database = {
         }
         Insert: {
           accent_color?: string
+          accent_gradient?: string | null
           auth_provider?: string
           avatar_url?: string | null
           bio?: string | null
@@ -860,6 +862,7 @@ export type Database = {
         }
         Update: {
           accent_color?: string
+          accent_gradient?: string | null
           auth_provider?: string
           avatar_url?: string | null
           bio?: string | null
