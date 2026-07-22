@@ -74,6 +74,9 @@ export function TourProvider({ children }: { children: React.ReactNode }) {
     if (token !== runToken.current) return;            // superseded
     if (i < 0 || i >= list.length || skips > list.length) { finish(); return; }
     const step = list[i];
+    // Clear the spotlight before a cross-screen hop so the previous step's hole/
+    // tooltip doesn't linger over the incoming screen while its target measures.
+    if (currentRouteName() !== step.screen) setCurrentRect(null);
     navigateForStep(step);
     if (step.targetId == null) { setStepIndex(i); setCurrentRect(null); return; } // finish card
     const rect = await waitForTarget(step.targetId, (id) => registry.get(id));

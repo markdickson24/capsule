@@ -270,6 +270,11 @@ export default function HomeScreen() {
       if (!(await consumeTourPending())) return;   // read-and-clear; runs at most once
       if (await tourSeen()) return;
       if (cancelled) return;
+      // Single-shot branch pick: consumeTourPending() already cleared the flag, so
+      // we choose has-capsule vs join-first from whatever's loaded right now. On the
+      // cold post-onboarding load the just-created capsule is present (useCachedFetch
+      // sets data + loading:false together), so this is safe in practice; a rare
+      // empty warm snapshot would fall to the join-first branch and can't re-correct.
       const active = (allCapsules ?? []).filter(c => !c.archived_at);
       const cap = active[0] ?? null;
       startTour(buildTourSteps({ hasCapsule: !!cap, capsuleId: cap?.id ?? null }));

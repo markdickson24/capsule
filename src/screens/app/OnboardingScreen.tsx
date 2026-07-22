@@ -241,7 +241,10 @@ export default function OnboardingScreen({ navigation }: Props) {
       return false;
     }
     sessionStore.markOnboarded(userId);
-    setTourPending(); // arm the one-time new-user tour; Home consumes it on first load
+    // Await so the flag is durably written before we navigate to Home, whose
+    // effect immediately consumes it — otherwise the very first trigger could be
+    // missed (it'd fire on the next Home visit instead). Best-effort internally.
+    await setTourPending(); // arm the one-time new-user tour; Home consumes it on first load
     return true;
   }
 
