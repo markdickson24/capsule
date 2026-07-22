@@ -5,6 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { useAuth } from './src/hooks/useAuth';
 import { usePushNotifications } from './src/hooks/usePushNotifications';
+import { useRevenueCat } from './src/hooks/useRevenueCat';
 import { useDeepLinks } from './src/hooks/useDeepLinks';
 import { useShareIntent } from './src/hooks/useShareIntent';
 import { navigationRef } from './src/lib/navigationRef';
@@ -31,6 +32,10 @@ if (SENTRY_DSN) {
 function RootNavigator() {
   const { session, loading } = useAuth();
   usePushNotifications(session?.user.id);
+  // Configure RevenueCat once and log the user in/out as the session changes,
+  // so purchases tie to the Supabase user id (and the webhook can map them).
+  // Mirrors usePushNotifications' lifecycle. No-op on web via the stub.
+  useRevenueCat(session?.user.id);
   useDeepLinks(session);
   useShareIntent(session);
 
