@@ -1,11 +1,23 @@
-import { Platform } from 'react-native';
+import { Platform, NativeModules, TurboModuleRegistry } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 export type ExportItem = { url: string; filename: string };
 
 // react-native-zip-archive is a native module — absent in Expo Go / on web.
-// Guard the require so those environments degrade instead of crashing.
+// require() alone does NOT prove it's linked: the JS wrapper resolves the native
+// module lazily (TurboModuleRegistry/NativeModules) at call time, so a bare
+// require succeeds even when unlinked. Probe the native module eagerly, mirroring
+// the library's own resolution order, so isExportSupported() is truthful (same
+// intent as the eager-probe pattern in modules/expo-dual-camera/index.ts).
+function nativeZipLinked(): boolean {
+  try {
+    if (TurboModuleRegistry?.get?.('RNZipArchive') != null) return true;
+    if ((NativeModules as any)?.RNZipArchive != null) return true;
+  } catch {}
+  return false;
+}
+
 let zipFolder: ((source: string, target: string) => Promise<string>) | null = null;
 try {
   // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -15,7 +27,7 @@ try {
 }
 
 export function isExportSupported(): boolean {
-  return Platform.OS !== 'web' && zipFolder !== null;
+  return Platform.OS !== 'web' && zipFolder !== null && nativeZipLinked();
 }
 
 // Exported for signature-parity with the web module; unused on native (the web
@@ -46,9 +58,10 @@ export async function exportCapsule(opts: {
     const safe = (title || 'capsule').replace(/[^\w\-. ]+/g, '_').trim() || 'capsule';
     const target = `${FileSystem.cacheDirectory}${safe}.zip`;
     await zipFolder(work, target);
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(target, { mimeType: 'application/zip', dialogTitle: `Export ${title}` });
+    if (!(await Sharing.isAvailableAsync())) {
+      throw new Error('Sharing is not available on this device.');
     }
+    await Sharing.shareAsync(target, { mimeType: 'application/zip', dialogTitle: `Export ${title}` });
   } finally {
     // Best-effort cleanup of the working dir.
     FileSystem.deleteAsync(work, { idempotent: true }).catch(() => {});
