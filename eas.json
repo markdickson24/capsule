@@ -16,8 +16,8 @@
     },
     "production": {
       "env": {
-        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
-        "RCT_USE_PREBUILT_RNCORE": "0"
+        "RCT_USE_PREBUILT_RNCORE": "0",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "ios": {
         "simulator": false,
