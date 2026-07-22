@@ -53,10 +53,19 @@ export function usePushNotifications(userId?: string) {
       if (navigationRef.isReady()) {
         navigate();
       } else {
+        // Bounded poll (mirrors useDeepLinks' navigateWhenReady-style waits) —
+        // a cold-launch tap that never sees navigationRef become ready must
+        // not leak a forever-running interval.
+        let attempts = 0;
+        const maxAttempts = 50; // ~5s at 100ms
         const interval = setInterval(() => {
+          attempts++;
           if (navigationRef.isReady()) {
             clearInterval(interval);
             navigate();
+          } else if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            console.warn('[PushNotifications] gave up waiting for navigationRef to be ready');
           }
         }, 100);
       }
