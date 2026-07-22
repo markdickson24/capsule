@@ -42,6 +42,8 @@ import { proGateHit } from '../../lib/proGate';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
 import ProBadge from '../../components/ProBadge';
+import ExportProgressModal from '../../components/ExportProgressModal';
+import { exportCapsule, isExportSupported, ExportItem } from '../../lib/exportCapsule';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
@@ -1170,6 +1172,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // visit. Native-only (purchases don't run on web) and Pro-gated below.
   const { isPro } = useEntitlements();
   const [proNudgeDismissed, setProNudgeDismissed] = useState(true); // hidden until the async read resolves
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1777,6 +1781,38 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const canUpload = !notStartedYet && (isOwner || (myRole === 'contributor' && !contributionLocked));
   const existingMemberIds = members.map(m => m.user_id);
 
+  async function handleExport() {
+    if (ownerTier !== 'pro') {
+      proGateHit({
+        currentUserIsHost: true,
+        title: 'Export your capsule',
+        ownerMessage: 'Upgrade to Capsule Pro to download this whole capsule as a zip.',
+        guestMessage: '',
+      });
+      return;
+    }
+    const items: ExportItem[] = photos
+      .filter(p => !!p.signedUrl)
+      .map((p, i) => {
+        const ext = p.mediaType === 'video' ? 'mp4' : 'jpg';
+        return { url: p.signedUrl as string, filename: `${String(i + 1).padStart(3, '0')}.${ext}` };
+      });
+    if (items.length === 0) { toast.show('Nothing to export yet.'); return; }
+    setExportProgress({ done: 0, total: items.length });
+    setExporting(true);
+    try {
+      await exportCapsule({
+        title: capsule?.title ?? '',
+        items,
+        onProgress: (done, total) => setExportProgress({ done, total }),
+      });
+    } catch (e: any) {
+      toast.show(e?.message ? `Export failed: ${e.message}` : 'Export failed. Try again.');
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.topBar}>
@@ -1943,7 +1979,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             <Ionicons name="star" size={22} color={accentColor} />
             <View style={styles.inviteNudgeTextWrap}>
               <Text style={styles.inviteNudgeTitle}>Keep it forever with Pro</Text>
-              <Text style={styles.inviteNudgeSub}>Full-quality export, video, and unlimited capsules.</Text>
+              <Text style={styles.inviteNudgeSub}>Longer videos and unlimited capsules.</Text>
             </View>
             <TouchableOpacity
               style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
@@ -1966,9 +2002,24 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         {/* Media */}
         <View style={styles.sectionRow}>
           <Text style={styles.sectionTitle}>Media</Text>
-          {photos.length > 0 && canSeePhotos && (
-            <Text style={styles.photoCount}>{photos.length}</Text>
-          )}
+          <View style={styles.mediaHeaderRight}>
+            {photos.length > 0 && canSeePhotos && (
+              <Text style={styles.photoCount}>{photos.length}</Text>
+            )}
+            {isOwner && capsule.status === 'unlocked' && isExportSupported() && photos.length > 0 && (
+              <TouchableOpacity
+                onPress={handleExport}
+                disabled={exporting}
+                hitSlop={8}
+                style={styles.exportBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Export capsule as zip"
+              >
+                <Ionicons name="download-outline" size={18} color={accentColor} />
+                <Text style={[styles.exportBtnText, { color: accentColor }]}>Export</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
         {canSeePhotos && uploadTasks.length > 0 && (
@@ -2357,6 +2408,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         onConfirm={confirmDelete}
         onCancel={() => setShowDeleteConfirm(false)}
       />
+
+      <ExportProgressModal visible={exporting} done={exportProgress.done} total={exportProgress.total} />
     </SafeAreaView>
   );
 }
@@ -2406,6 +2459,9 @@ const styles = StyleSheet.create({
   },
   sectionTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   photoCount: { fontSize: 14, color: '#888888' },
+  mediaHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  exportBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  exportBtnText: { fontSize: 14, fontWeight: '600' },
   memberActions: { flexDirection: 'row', gap: 8 },
   manageBtn: {
     backgroundColor: '#1A1A1A', borderRadius: 8,
