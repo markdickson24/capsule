@@ -1,11 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, PanResponder,
-  TouchableOpacity, Animated, Dimensions, Platform, ActivityIndicator,
+  TouchableOpacity, Animated, Dimensions, Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { resizeForUpload } from '../../lib/imageResize';
 import { haptics } from '../../lib/haptics';
 import { useIsFocused, useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -235,10 +234,6 @@ export default function CameraScreen() {
     Animated.timing(flashOpacity, { toValue: 0, duration: 120, useNativeDriver: true }).start();
   }
 
-  async function processPhoto(uri: string): Promise<string> {
-    return resizeForUpload(uri);
-  }
-
   async function takePhoto() {
     if (!cameraRef.current || capturing) return;
     triggerCaptureFlash();
@@ -247,8 +242,11 @@ export default function CameraScreen() {
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.88, skipProcessing: false });
       if (!photo?.uri) return;
-      const processedUri = await processPhoto(photo.uri);
-      goToPreview({ uri: processedUri, mediaType: 'photo' });
+      // Go straight to Preview with the raw capture — no resize/spinner here, so
+      // it feels instant. The background upload queue resizes to 1920px at upload
+      // time (uploadQueue.prepareForUpload → resizeForUpload), so nothing is
+      // skipped, just deferred to where there's already progress UI.
+      goToPreview({ uri: photo.uri, mediaType: 'photo' });
     } catch {} finally {
       setCapturing(false);
     }
@@ -262,10 +260,9 @@ export default function CameraScreen() {
     setCapturing(true);
     try {
       const res = await dualRef.current.capturePhoto();
-      const processedUri = await processPhoto(res.uri);
-      // PiP returns a swapped composite too — resize it the same way for tap-to-swap.
-      const altUri = res.altUri ? await processPhoto(res.altUri) : undefined;
-      goToPreview({ uri: processedUri, mediaType: 'photo', altUri });
+      // Raw composite(s) straight to Preview — resize is deferred to the upload
+      // queue (which resizes altUri too), so dual capture feels instant as well.
+      goToPreview({ uri: res.uri, mediaType: 'photo', altUri: res.altUri });
     } catch (e: any) {
       setDualError(e?.message ?? 'Dual capture failed. Try again.');
     } finally {
@@ -666,14 +663,6 @@ export default function CameraScreen() {
         style={[StyleSheet.absoluteFill, styles.captureFlash, { opacity: flashOpacity }]}
       />
 
-      {/* Processing overlay — capture + resize take a beat; without this it looks
-          like nothing happened. Blocks input so a second tap can't double-fire. */}
-      {capturing && (
-        <View style={[StyleSheet.absoluteFill, styles.processingOverlay]}>
-          <ActivityIndicator size="large" color="#FFFFFF" />
-          <Text style={styles.processingText}>Saving…</Text>
-        </View>
-      )}
 
       {/* First-run gesture coach — tap anywhere to dismiss, shown once per install. */}
       {showCoach && (
@@ -857,14 +846,6 @@ export default function CameraScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   captureFlash: { backgroundColor: '#FFFFFF' },
-  processingOverlay: {
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 14,
-    zIndex: 20,
-  },
-  processingText: { color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
   coachOverlay: {
     backgroundColor: 'rgba(0,0,0,0.7)',
     alignItems: 'center',
