@@ -639,7 +639,11 @@ function MediaViewerModal({
 
   useEffect(() => {
     loadReactions();
-  }, []);
+    // items.length (not the whole `items` array) — re-run when media is
+    // appended to the capsule while the viewer is open (e.g. a background
+    // upload landing), without re-fetching on every parent re-render that
+    // hands down a new-but-same-length `items` reference.
+  }, [items.length]);
 
   async function loadReactions() {
     const mediaIds = items.map(i => i.id);
