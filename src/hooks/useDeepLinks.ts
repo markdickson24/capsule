@@ -92,7 +92,11 @@ async function handleUrl(url: string | null) {
     const access_token = params.get('access_token');
     const refresh_token = params.get('refresh_token');
     if (!access_token || !refresh_token) return;
-    await supabase.auth.setSession({ access_token, refresh_token });
+    const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+    if (error) {
+      toast.show('This password reset link is invalid or expired — request a new one.');
+      return;
+    }
     // Signed-out is the canonical case here — setSession just triggered a
     // sign-in that swaps AuthNavigator for AppNavigator a tick later, and
     // ResetPassword only exists in the latter. Retry until it's actually
