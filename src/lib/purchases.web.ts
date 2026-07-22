@@ -10,7 +10,7 @@ import type { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-na
 export const PRO_ENTITLEMENT_ID = 'Capsule Pro';
 
 export function configurePurchases(): void {}
-export async function identifyUser(_userId: string): Promise<void> {}
+export async function identifyUser(_userId: string): Promise<boolean> { return false; }
 export async function resetUser(): Promise<void> {}
 export function isProActive(_info: CustomerInfo | null): boolean {
   return false;

@@ -198,7 +198,12 @@ export default function CreateGroupScreen() {
     // so a real Pro user who submits before the fetch resolves is never
     // falsely gated.
     if (!entitlementsLoading && recurrence !== 'manual' && !isPro) {
-      proGateHit({ currentUserIsHost: true, guestMessage: '' });
+      proGateHit({
+        currentUserIsHost: true,
+        guestMessage: '',
+        title: 'Recurring groups are a Pro feature',
+        ownerMessage: 'Capsule Pro unlocks auto-scheduled group capsules.',
+      });
       return;
     }
     setCreating(true);
@@ -222,7 +227,12 @@ export default function CreateGroupScreen() {
     setCreating(false);
     if (err || !groupId) {
       if (err === 'GROUP_RECURRENCE_PRO') {
-        proGateHit({ currentUserIsHost: true, guestMessage: '' });
+        proGateHit({
+          currentUserIsHost: true,
+          guestMessage: '',
+          title: 'Recurring groups are a Pro feature',
+          ownerMessage: 'Capsule Pro unlocks auto-scheduled group capsules.',
+        });
         return;
       }
       setError(err ?? 'Could not create group.');

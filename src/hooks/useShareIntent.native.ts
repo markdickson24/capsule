@@ -4,6 +4,7 @@ import { useShareIntentContext } from 'expo-share-intent';
 import { navigationRef } from '../lib/navigationRef';
 import { shareIntentStash } from '../lib/shareIntentStash';
 import { PendingMedia } from '../types/navigation';
+import { probeVideoDurationMs } from '../lib/mediaDuration';
 
 function navigateWhenReady(fn: () => void, attemptsLeft = 50) {
   if (navigationRef.isReady()) {
@@ -16,14 +17,19 @@ function navigateWhenReady(fn: () => void, attemptsLeft = 50) {
 
 type ShareFile = { path?: string; mimeType?: string };
 
-function filesToMedia(files: ShareFile[] | undefined | null): PendingMedia[] {
+async function filesToMedia(files: ShareFile[] | undefined | null): Promise<PendingMedia[]> {
   if (!files) return [];
-  return files.reduce<PendingMedia[]>((acc, f) => {
-    if (!f?.path || !f.mimeType) return acc;
-    if (f.mimeType.startsWith('image/')) acc.push({ uri: f.path, mediaType: 'photo', mimeType: f.mimeType });
-    else if (f.mimeType.startsWith('video/')) acc.push({ uri: f.path, mediaType: 'video', mimeType: f.mimeType });
-    return acc;
-  }, []);
+  const out: PendingMedia[] = [];
+  for (const f of files) {
+    if (!f?.path || !f.mimeType) continue;
+    if (f.mimeType.startsWith('image/')) {
+      out.push({ uri: f.path, mediaType: 'photo', mimeType: f.mimeType });
+    } else if (f.mimeType.startsWith('video/')) {
+      const durationMs = await probeVideoDurationMs(f.path);
+      out.push({ uri: f.path, mediaType: 'video', mimeType: f.mimeType, durationMs });
+    }
+  }
+  return out;
 }
 
 export function useShareIntent(session: Session | null) {
@@ -31,19 +37,21 @@ export function useShareIntent(session: Session | null) {
 
   useEffect(() => {
     if (!hasShareIntent) return;
-    const media = filesToMedia(shareIntent?.files as ShareFile[] | undefined);
-    if (media.length === 0) {
+    let cancelled = false;
+    (async () => {
+      const media = await filesToMedia(shareIntent?.files as ShareFile[] | undefined);
+      if (cancelled) return;
+      if (media.length === 0) { resetShareIntent(); return; }
+      if (session) {
+        navigateWhenReady(() => {
+          (navigationRef as any).navigate('Preview', { media, source: 'share' });
+        });
+      } else {
+        shareIntentStash.set(media);
+      }
       resetShareIntent();
-      return;
-    }
-    if (session) {
-      navigateWhenReady(() => {
-        (navigationRef as any).navigate('Preview', { media, source: 'share' });
-      });
-    } else {
-      shareIntentStash.set(media);
-    }
-    resetShareIntent();
+    })();
+    return () => { cancelled = true; };
   }, [hasShareIntent, shareIntent, session, resetShareIntent]);
 
   useEffect(() => {
