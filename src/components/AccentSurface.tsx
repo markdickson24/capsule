@@ -7,8 +7,8 @@ import { useTheme } from '../context/ThemeContext';
  * A surface tinted by the user's accent. Renders a LinearGradient when the user
  * (Pro) has a gradient theme set, otherwise a solid View backed by accentColor.
  * Drop-in replacement for an accent-colored View — same style/children props.
- * Used only on the three "premium showcase" surfaces (profile hero glow, camera
- * tab button, Settings save button); the rest of the app uses the solid
+ * Used only on the two "premium showcase" surfaces (profile hero glow and the
+ * camera tab button); the rest of the app uses the solid
  * accentColor token directly.
  */
 export default function AccentSurface({
