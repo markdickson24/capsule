@@ -58,7 +58,7 @@ Every durable consumer subscription follows the same shape: the core loop is fre
 | **Duolingo** | Full curriculum, ad-supported, hearts-limited | Super (no ads, unlimited hearts) → Max (AI tutor) | Super ~$7.99/mo; Max $29.99/mo | 11M+ subs; **AI as a premium-price ceiling-raiser** (2025). An AI feature (capsule recap film, auto-highlights) can anchor a future higher tier — additive, never a wall. |
 | **Strava** | Record, share, basic feed | Analytics, segments, route planning, safety | $11.99/mo; $79.99/yr | Only ~4% pay, yet nearing **$500M revenue** at a $2.2B valuation (2025). A **small paying % of a large free base is a real business** — don't panic about 2% conversion. |
 | **Tinder / Bumble** | Core swiping/matching | See-who-likes-you, boosts, unlimited swipes; weekly + à-la-carte | $25–$50/mo; Select $499 | Extracts max ARPU via tiers + consumables + **weekly plans**. Mechanics work but the **register is wrong for Capsule** — aggressive pricing poisons a sentimental keepsake brand. Borrow the à-la-carte idea (Event Pass), skip the predatory feel. |
-| **VSCO** | Basic camera + a few presets | Full preset library, editing tools, unlimited | $29.99/yr | Sells **creative depth & aesthetics** annually. Capsule themes, premium accent palettes, film-look filters are a natural, high-margin cosmetic upsell. |
+| **VSCO** | Basic camera + a few presets | Full preset library, editing tools, unlimited | $29.99/yr | Sells **creative depth & aesthetics** annually. Capsule themes and premium accent palettes are a natural, high-margin cosmetic upsell. |
 | **Tinybeans** | Private family album, limited | Unlimited storage/video, printbook discounts, more members | $7.99/mo; $74.99/yr | Your **closest comp**: family memory-keeping, host pays. Proves the willingness-to-pay exists — and that **storage + video + members** are the natural gates. |
 
 > **The pattern:** access and participation are free; friction, power, storage, status, and aesthetics are paid. The two apps *without* a clean paid lever (BeReal) or with the *wrong* register (dating apps) are the cautionary bookends. Capsule should sit closest to **Notion + Tinybeans** for its subscription, borrow **Snapchat+'s cosmetic/status playbook**, and reframe **Tinder's à-la-carte idea** as the Event Pass.
@@ -93,11 +93,11 @@ Every feature sorts into one of five buckets. The discipline is deciding *why* �
 
 **① Always free — the core loop.** Anything a user must do to get value or generate an invite: join / view / contribute / react, vote in awards, see the unlock reveal, create capsules (a real quota, not 1), invite by link & QR, add friends.
 
-**② Nice upgrades — ceiling-raisers.** Quotas a happy user eventually bumps into; cost-justified and easy to explain: unlimited capsules (past ~3 active), video, more storage & higher member caps, original-quality export.
+**② Nice upgrades — ceiling-raisers.** Quotas a happy user eventually bumps into; cost-justified and easy to explain: unlimited capsules (past ~3 active), video, more storage & higher member caps, ZIP export (download your whole capsule).
 
 **③ Power-user — depth & automation.** Features only the most invested hosts want; high WTP, low reach cost: recurring groups (auto-capsules), custom voting windows / advanced awards, bulk ZIP export, proximity-unlock for big events.
 
-**④ Luxury / convenience — cosmetic & status.** Pure margin; nobody *needs* them: premium accent palettes & capsule themes, film-look filters, branded title cards, premium badge, custom app icons.
+**④ Luxury / convenience — cosmetic & status.** Pure margin; nobody *needs* them: premium accent palettes & capsule themes, branded title cards, premium badge, custom app icons.
 
 **⑤ Never paywall — growth-critical.** Gating any throttles the network: being invited / joining, uploading to a capsule you're in, the unlock & reveal moment, sharing links / QR / basic notifications.
 
@@ -168,8 +168,8 @@ Microtransactions and bundles round it out: cosmetic packs (theme bundles) are p
 - **Video** — obvious cost story, obvious value; the single clearest gate.
 - **Unlimited capsules & higher member/photo caps** — the engaged host bumps these constantly.
 - **Recurring groups** — your most defensible upsell; automation nobody else offers.
-- **Original-quality export & ZIP download** — "let me keep my memories in full res" is an easy yes.
-- **Cosmetics** — premium palettes, themes, filters, a badge. High margin, brand-appropriate.
+- **ZIP export — download your whole capsule** — "let me keep every photo, in one tap" is an easy yes.
+- **Cosmetics** — premium palettes, themes, a badge. High margin, brand-appropriate.
 
 **The differentiated bet: Event Passes.** You already have QR joins, groups, proximity unlock, and time-locking — the exact primitives a **wedding, reunion, or team-season capsule** needs. Package that as a **one-time Event Pass**: unlimited guests, unlimited photos, custom unlock date, QR sharing, and (higher tier) video + branded title card + ZIP download. A wedding couple who'd never subscribe will pay **$25–$50 once** without blinking — price sensitivity collapses around the occasion, it dodges subscription fatigue, and *no competitor owns this flow.* Expect it to rival or beat subscription revenue in year one.
 
@@ -178,7 +178,7 @@ Microtransactions and bundles round it out: cosmetic packs (theme bundles) are p
 - Never interrupt a cold open with a paywall. Gates appear only when a host *reaches* a limit mid-action.
 - Every gate has a plain-language reason ("Videos use more storage — Pro unlocks them"). Cost-justified gates feel fair; arbitrary ones feel greedy.
 - Guests never see a paywall, ever. Most people experience Capsule entirely for free — that's the point.
-- Frame Pro around *the memories*, not features — "keep every capsule forever, in full quality."
+- Frame Pro around *the memories*, not features — "keep every capsule forever, and take it with you."
 
 **When to introduce it.** Not during beta — instrument first, learn where free users hit walls, build goodwill. Introduce **Pro + Lifetime at public launch**. Add the **Event Pass and Premium tier ~3–6 months in**, and the **web-checkout discount + B2B host tier** once you have MRR to protect.
 
@@ -191,7 +191,7 @@ Microtransactions and bundles round it out: cosmetic packs (theme bundles) are p
 | Tier | Price | What it is | Highlights |
 |---|---|---|---|
 | **Free** | $0 | The real product, no card | 3 active hosted capsules · unlimited joining/contributing · photos · ~10 members · ~20 photos/capsule · QR, invites, friends, awards, surprise mode · 14-day Pro trial |
-| **Capsule Pro** *(lead with this)* | **$39.99/yr** or $4.99/mo | Recurring host value; feature annual ("just $3.33/mo") | Unlimited capsules · video (≤2 min) · recurring groups · ~50 members · larger caps · 5GB · original-quality export · all palettes/themes |
+| **Capsule Pro** *(lead with this)* | **$39.99/yr** or $4.99/mo | Recurring host value; feature annual ("just $3.33/mo") | Unlimited capsules · video (≤2 min) · recurring groups · ~50 members · larger caps · 5GB · ZIP export (download your whole capsule) · all palettes/themes |
 | **Event Pass** | **$29.99** one-time (Pro $49.99) | The differentiator — one big occasion | One capsule, unlimited guests & photos · custom unlock date · QR · +$49.99: video, branded title card, ZIP export · no subscription |
 | **Premium** | **$74.99/yr** or $9.99/mo | Anchor tier — makes Pro feel sensible | Everything in Pro · 50GB · unlimited video & members · premium badge · custom app icon · earliest access |
 
@@ -207,8 +207,8 @@ Microtransactions and bundles round it out: cosmetic packs (theme bundles) are p
 | Photos per capsule | ~20 | high | ∞ | Tastes free, pays to scale |
 | Video | — | 2 min | Pro pass | Clearest gate |
 | Recurring groups | — | ✅ | — | Power-user upsell |
-| Original-quality export / ZIP | Compressed | Full | Pro pass | Partial (quality) |
-| Premium themes / palettes / filters | 1 accent | All | Branded card | Luxury / margin |
+| ZIP export (download your whole capsule) | — | ✅ | Pro pass | Bulk-download convenience, not a quality tier |
+| Premium themes / palettes | 1 accent | All | Branded card | Luxury / margin |
 | Invites · QR · share links · friends | ✅ | ✅ | ✅ | Virality — sacred |
 | Surprise mode · proximity unlock · awards | ✅ | ✅ | ✅ | Core magic, free |
 

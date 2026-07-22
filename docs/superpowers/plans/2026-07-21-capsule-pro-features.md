@@ -1323,3 +1323,9 @@ git commit -m "Scrub full-res/original-quality claims; document Pro perks in CLA
 **2. Placeholder scan:** No "TBD"/"handle edge cases"/"similar to Task N". Each code step shows complete code. The one soft spot — Task 9's dependence on `MediaItem` field names (`signedUrl`, `media_type`) — is explicitly flagged to verify against the real type rather than assume, which is correct guidance, not a placeholder.
 
 **3. Type consistency:** `ExportItem`/`exportCapsule`/`isExportSupported`/`buildZipBlobParts` identical across Tasks 8→9. `accentGradient: [string,string] | null` + `setAccentGradient` identical across Tasks 4→5→6. `parseGradient`/`serializeGradient` identical across Tasks 3→4. `ProBadge({ size })` identical across Task 1 call sites. `writeCachedTheme`'s new third field threaded through every caller in Task 4.
+
+---
+
+## Post-implementation note (Task 10)
+
+**Paywall copy (manual, RevenueCat dashboard):** remove any "original quality / full-res" bullet from the hosted paywall; reword to "Download your whole capsule." Leave as an unpublished draft for the user to publish (same as the prior paywall redesign). Not done by this task — no code/dashboard-API path touches the hosted paywall's copy; `docs/monetization-strategy.md` and `CLAUDE.md` are scrubbed, but the dashboard-built paywall itself (Paywall AI Editor, attached to the `default` offering — see CLAUDE.md → Monetization → "RevenueCat dashboard configuration") is a separate artifact that still needs a human edit + republish.
