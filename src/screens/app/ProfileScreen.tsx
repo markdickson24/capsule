@@ -18,6 +18,7 @@ import { sessionStore } from '../../lib/sessionStore';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
 import { SkeletonProfileCard } from '../../components/Skeleton';
+import AccentSurface from '../../components/AccentSurface';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
@@ -358,7 +359,7 @@ export default function ProfileScreen() {
       >
         {/* Hero Card */}
         <Animated.View style={[styles.heroCard, heroAnim]}>
-          <View style={[styles.heroGlow, { backgroundColor: accentColor }]} />
+          <AccentSurface style={styles.heroGlow} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} />
           <View style={styles.heroContent}>
             <View style={[styles.avatarRing, { borderColor: `${accentColor}40` }]}>
               <Avatar url={profile?.avatar_url ?? null} name={profile?.display_name ?? '?'} size={100} />
