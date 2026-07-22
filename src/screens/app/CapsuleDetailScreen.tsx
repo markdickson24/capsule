@@ -41,6 +41,7 @@ import { limitsForTier } from '../../lib/tierLimits';
 import { proGateHit } from '../../lib/proGate';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
+import ProBadge from '../../components/ProBadge';
 import SkeletonBox, { SkeletonCircle, SkeletonText, SkeletonMemberRow, SkeletonMediaGrid } from '../../components/Skeleton';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
@@ -2308,6 +2309,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                       <Text style={styles.memberName}>{m.users?.display_name ?? 'Member'}</Text>
                       {m.joined_at === null && <Text style={styles.pendingLabel}>pending invite</Text>}
                     </View>
+                    {m.role === 'owner' && ownerTier === 'pro' && <ProBadge />}
                     <View style={styles.roleBadge}>
                       <Ionicons name={roleIonicon[m.role] ?? 'person-outline'} size={11} color="#888888" />
                       <Text style={styles.roleText}>{roleLabel[m.role]}</Text>

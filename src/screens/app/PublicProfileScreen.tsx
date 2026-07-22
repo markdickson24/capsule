@@ -18,6 +18,7 @@ import RetryPrompt from '../../components/RetryPrompt';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import ReportModal from '../../components/ReportModal';
 import ConfirmModal from '../../components/ConfirmModal';
+import ProBadge from '../../components/ProBadge';
 import { blockStore } from '../../lib/blocks';
 import { cache } from '../../lib/cache';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
@@ -28,7 +29,7 @@ import {
 
 type Props = NativeStackScreenProps<AppStackParamList, 'PublicProfile'>;
 
-type Profile = { id: string; display_name: string; bio: string | null; avatar_url: string | null };
+type Profile = { id: string; display_name: string; bio: string | null; avatar_url: string | null; subscription_tier?: string };
 type MutualCapsule = { capsule_id: string; capsules: { id: string; title: string; status: string } };
 type OwnedCapsule = { id: string; title: string };
 
@@ -209,7 +210,7 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
     // already restricted by RLS to capsules I also belong to — the intersection is
     // computed server-side. No separate "my memberships" fetch or `.in(ids)` list.
     const [profileRes, mutualRes] = await Promise.all([
-      supabase.from('users').select('id, display_name, bio, avatar_url').eq('id', userId).single(),
+      supabase.from('users').select('id, display_name, bio, avatar_url, subscription_tier').eq('id', userId).single(),
       supabase
         .from('capsule_members')
         .select('capsule_id, capsules(id, title, status)')
@@ -277,7 +278,10 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.body}>
         <Avatar url={profile?.avatar_url ?? null} name={profile?.display_name ?? '?'} size={88} />
-        <Text style={styles.name}>{profile?.display_name}</Text>
+        <View style={styles.nameRow}>
+          <Text style={styles.name}>{profile?.display_name}</Text>
+          {profile?.subscription_tier === 'pro' && <ProBadge size="md" />}
+        </View>
         {profile?.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
 
         {!isOwnProfile && !isBlocked && (
@@ -436,6 +440,7 @@ const styles = StyleSheet.create({
   back: { color: '#FF6B35', fontSize: 16, fontWeight: '600' },
   body: { alignItems: 'center', paddingTop: 24, paddingBottom: 40, paddingHorizontal: 24, gap: 10 },
   name: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', marginTop: 8 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   bio: { fontSize: 14, color: '#888888', textAlign: 'center' },
   inviteBtn: { marginTop: 8, width: '100%', backgroundColor: '#FF6B35', borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
   inviteBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },

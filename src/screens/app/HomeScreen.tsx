@@ -18,6 +18,7 @@ import { useTheme, type HomeLayout } from '../../context/ThemeContext';
 import { SkeletonCard } from '../../components/Skeleton';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useCachedFetch } from '../../hooks/useCachedFetch';
+import ProBadge from '../../components/ProBadge';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
 import { cache } from '../../lib/cache';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
@@ -110,7 +111,10 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list' }:
             size={isGrid ? 20 : 24}
             color={isLocked ? '#888888' : '#30D158'}
           />
-          <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={contributionStartAt} />
+          <View style={styles.cardTopRight}>
+            {(capsule as any).owner?.subscription_tier === 'pro' && <ProBadge />}
+            <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={contributionStartAt} />
+          </View>
         </View>
         <Text style={[styles.cardTitle, isGrid && styles.cardTitleGrid]} numberOfLines={isGrid ? 2 : undefined}>{capsule.title}</Text>
         {!isGrid && capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
@@ -234,7 +238,7 @@ export default function HomeScreen() {
       // member archiving never changes what other members see.
       const { data, error } = await supabase
         .from('capsule_members')
-        .select('capsule_id, archived_at, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode, contribution_start_at)')
+        .select('capsule_id, archived_at, capsules(id, owner_id, title, description, status, unlock_at, unlock_mode, contribution_start_at, owner:users!capsules_owner_id_fkey(subscription_tier))')
         .eq('user_id', session.user.id)
         .not('joined_at', 'is', null);
 
@@ -520,6 +524,7 @@ const styles = StyleSheet.create({
   gridRow: { gap: 12 },
   cardTitleGrid: { fontSize: 15 },
   cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  cardTopRight: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto' },
   countdownText: { fontSize: 13, fontWeight: '700', color: '#FF6B35' },
   unlockedBadge: { flexDirection: 'row', alignItems: 'center' },
   unlockedBadgeText: { fontSize: 13, fontWeight: '700', color: '#30D158' },
