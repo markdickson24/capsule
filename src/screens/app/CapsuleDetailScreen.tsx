@@ -31,6 +31,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
 import { AppStackParamList } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
+import { useTourTarget } from '../../context/TourContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import ReportModal from '../../components/ReportModal';
 import AwardsSection from '../../components/AwardsSection';
@@ -1181,6 +1182,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
+  const countdownTourRef = useTourTarget('capsule-countdown');
+  const addMediaTourRef = useTourTarget('capsule-add-media');
+  const inviteTourRef = useTourTarget('capsule-invite');
+  const awardsTourRef = useTourTarget('capsule-awards');
 
   async function onRefresh() {
     setRefreshing(true);
@@ -1864,7 +1869,9 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         {isLocked ? (
           <>
             {capsule.unlock_mode !== 'proximity' && (
-              <CountdownRing unlockAt={capsule.unlock_at} createdAt={(capsule as any).created_at} />
+              <View ref={countdownTourRef} collapsable={false}>
+                <CountdownRing unlockAt={capsule.unlock_at} createdAt={(capsule as any).created_at} />
+              </View>
             )}
             {capsule.unlock_mode !== 'time' && (
               <CheckInCard
@@ -1887,11 +1894,13 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             there), so this is the owner's one chance to review/regenerate
             them — the RPC refuses changes once status flips to 'unlocked'. */}
         {isOwner && isLocked && (
-          <DefaultAwardsCard
-            mode="manage"
-            capsuleId={capsule.id}
-            occasion={capsule.occasion}
-          />
+          <View ref={awardsTourRef} collapsable={false}>
+            <DefaultAwardsCard
+              mode="manage"
+              capsuleId={capsule.id}
+              occasion={capsule.occasion}
+            />
+          </View>
         )}
 
         {/* Members */}
@@ -1905,7 +1914,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               >
                 <Text style={styles.manageBtnText}>Manage</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: `${accentColor}20` }]} onPress={() => setShowInvite(true)}>
+              <TouchableOpacity ref={inviteTourRef} style={[styles.inviteBtn, { backgroundColor: `${accentColor}20` }]} onPress={() => setShowInvite(true)}>
                 <Text style={[styles.inviteBtnText, { color: accentColor }]}>+ Invite</Text>
               </TouchableOpacity>
             </View>
@@ -2186,6 +2195,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               </View>
             ) : (
               <TouchableOpacity
+                ref={addMediaTourRef}
                 style={[styles.addPhotoBtn, { backgroundColor: accentColor }]}
                 onPress={() => { setUploadError(''); setShowPickerOptions(true); }}
               >
