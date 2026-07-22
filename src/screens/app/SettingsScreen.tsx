@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import LoadingBrand from '../../components/LoadingBrand';
 import { useTheme } from '../../context/ThemeContext';
 import { AppStackParamList } from '../../types/navigation';
@@ -19,6 +20,8 @@ import { toast } from '../../lib/toast';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall, presentCustomerCenter, restorePurchases } from '../../lib/purchases';
 import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
+import { ACCENT_PRESETS, ACCENT_GRADIENTS } from '../../lib/accentPresets';
+import { proGateHit } from '../../lib/proGate';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
@@ -33,8 +36,8 @@ function appVersionLabel(): string {
 }
 
 export default function SettingsScreen({ navigation }: Props) {
-  const { accentColor, setAccentColor } = useTheme();
-  const { isPro } = useEntitlements();
+  const { accentColor, setAccentColor, accentGradient, setAccentGradient } = useTheme();
+  const { isPro, loading: entitlementsLoading } = useEntitlements();
   const [pending, setPending] = useState(accentColor);
   const [saving, setSaving] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -102,7 +105,7 @@ export default function SettingsScreen({ navigation }: Props) {
                     <Text style={styles.primaryBtnText}>Upgrade to Capsule Pro</Text>
                   </TouchableOpacity>
                   <Text style={styles.helper}>
-                    Unlimited capsules, video, recurring groups, and full-quality export.
+                    Unlimited capsules, longer videos, recurring groups, bigger capsules, and one-tap capsule export.
                   </Text>
                   <TouchableOpacity
                     style={styles.row}
@@ -122,7 +125,73 @@ export default function SettingsScreen({ navigation }: Props) {
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>Appearance</Text>
             <Text style={styles.helper}>Choose your accent color</Text>
-            <ColorPicker value={accentColor} onChange={setPending} originalValue={accentColor} />
+
+            {/* Preset swatches — available to everyone. */}
+            <View style={styles.swatchGrid}>
+              {ACCENT_PRESETS.map((hex) => {
+                const selected = !accentGradient && pending.toLowerCase() === hex.toLowerCase();
+                return (
+                  <TouchableOpacity
+                    key={hex}
+                    style={[styles.swatch, { backgroundColor: hex }, selected && styles.swatchSelected]}
+                    onPress={() => { setPending(hex); }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Accent color ${hex}`}
+                  >
+                    {selected && <Ionicons name="checkmark" size={16} color="#fff" />}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Pro: custom picker + gradients. Free: a locked upsell row.
+                Gate on !loading && !isPro so a real Pro user isn't briefly locked. */}
+            {isPro ? (
+              <>
+                <Text style={styles.helper}>Custom color</Text>
+                <ColorPicker value={pending} onChange={setPending} originalValue={accentColor} />
+                <Text style={styles.helper}>Gradient themes</Text>
+                <View style={styles.swatchGrid}>
+                  {ACCENT_GRADIENTS.map((g) => {
+                    const isSel = !!accentGradient && accentGradient[0] === g[0] && accentGradient[1] === g[1];
+                    return (
+                      <TouchableOpacity
+                        key={g.join('')}
+                        onPress={() => { setAccentGradient(g); }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Gradient theme ${g[0]} to ${g[1]}`}
+                        style={[styles.gradSwatchWrap, isSel && styles.swatchSelected]}
+                      >
+                        <LinearGradient colors={g} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.gradSwatch}>
+                          {isSel && <Ionicons name="checkmark" size={16} color="#fff" />}
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={styles.lockedRow}
+                activeOpacity={0.75}
+                disabled={entitlementsLoading}
+                onPress={() => proGateHit({
+                  currentUserIsHost: true,
+                  title: 'Custom colors & gradients',
+                  ownerMessage: 'Upgrade to Capsule Pro for a custom color picker and gradient themes.',
+                  guestMessage: '',
+                })}
+                accessibilityRole="button"
+                accessibilityLabel="Unlock custom colors and gradients with Capsule Pro"
+              >
+                <Ionicons name="sparkles" size={18} color={accentColor} />
+                <Text style={styles.lockedRowLabel}>Custom color & gradient themes</Text>
+                <View style={[styles.proTag, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}55` }]}>
+                  <Text style={[styles.proTagText, { color: accentColor }]}>PRO</Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.primaryBtn, { backgroundColor: pending }]}
               onPress={handleSaveColor}
@@ -326,6 +395,15 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#2A2A2A',
   },
   rowLabel: { flex: 1, color: '#FFFFFF', fontSize: 15, fontWeight: '600' },
+  swatchGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginVertical: 8 },
+  swatch: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'transparent' },
+  swatchSelected: { borderColor: '#FFFFFF' },
+  gradSwatchWrap: { width: 44, height: 44, borderRadius: 22, borderWidth: 2, borderColor: 'transparent', overflow: 'hidden' },
+  gradSwatch: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 4 },
+  lockedRowLabel: { color: '#FFFFFF', fontSize: 15, flex: 1 },
+  proTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1 },
+  proTagText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   destructiveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 14, paddingVertical: 16,
