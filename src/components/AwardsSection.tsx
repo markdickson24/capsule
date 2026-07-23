@@ -37,11 +37,13 @@ type Props = {
   media: VoteSheetMedia[];
   votingClosesAt: string | null;
   votingFinalizedAt: string | null;
+  /** Open a media item full-screen by its id (wired to the parent's viewer). */
+  onOpenMedia?: (mediaId: string) => void;
 };
 
 export default function AwardsSection({
   capsuleId, joinedMemberCount, members, media,
-  votingClosesAt, votingFinalizedAt,
+  votingClosesAt, votingFinalizedAt, onOpenMedia,
 }: Props) {
   const { accentColor } = useTheme();
   const session = sessionStore.get();
@@ -264,6 +266,7 @@ export default function AwardsSection({
                 memberById={memberById}
                 mediaById={mediaById}
                 index={i}
+                onOpenMedia={onOpenMedia}
               />
             ))}
           </View>
@@ -479,13 +482,14 @@ function LiveCard({
 }
 
 function WinnerCard({
-  category, winners, memberById, mediaById, index,
+  category, winners, memberById, mediaById, index, onOpenMedia,
 }: {
   category: CategoryUI;
   winners: WinnerRow[];
   memberById: Map<string, VoteSheetMember>;
   mediaById: Map<string, VoteSheetMedia>;
   index: number;
+  onOpenMedia?: (mediaId: string) => void;
 }) {
   const { accentColor } = useTheme();
   const anim = useListItemEntrance(index, 40);
@@ -520,6 +524,7 @@ function WinnerCard({
               winner={w}
               memberById={memberById}
               mediaById={mediaById}
+              onOpenMedia={onOpenMedia}
             />
           ))}
         </View>
@@ -536,12 +541,13 @@ function WinnerCard({
 }
 
 function WinnerEntry({
-  targetType, winner, memberById, mediaById,
+  targetType, winner, memberById, mediaById, onOpenMedia,
 }: {
   targetType: SuperlativeTargetType;
   winner: WinnerRow;
   memberById: Map<string, VoteSheetMember>;
   mediaById: Map<string, VoteSheetMedia>;
+  onOpenMedia?: (mediaId: string) => void;
 }) {
   const { accentColor } = useTheme();
 
@@ -565,9 +571,18 @@ function WinnerEntry({
 
   const item = winner.target_media_id ? mediaById.get(winner.target_media_id) : null;
   const src = item ? (item.mediaType === 'video' ? item.thumbnailUri : item.signedUrl) : undefined;
+  // Tappable only when the item is actually loaded — a placeholder can't open.
+  const canOpen = !!(item && onOpenMedia);
   return (
     <View style={styles.winnerEntry}>
-      <View style={[styles.winnerThumb, { borderColor: accentColor }]}>
+      <TouchableOpacity
+        style={[styles.winnerThumb, { borderColor: accentColor }]}
+        activeOpacity={0.8}
+        disabled={!canOpen}
+        onPress={canOpen ? () => onOpenMedia!(item!.id) : undefined}
+        accessibilityRole={canOpen ? 'button' : undefined}
+        accessibilityLabel={canOpen ? `View winning ${item!.mediaType === 'video' ? 'video' : 'photo'} full screen` : undefined}
+      >
         {src ? (
           <Image source={src} style={StyleSheet.absoluteFill} contentFit="cover" />
         ) : (
@@ -578,7 +593,7 @@ function WinnerEntry({
             <Ionicons name="play" size={12} color="#FFFFFF" />
           </View>
         )}
-      </View>
+      </TouchableOpacity>
       <Text style={styles.winnerName}>{item?.mediaType === 'video' ? 'Video' : 'Photo'}</Text>
     </View>
   );
