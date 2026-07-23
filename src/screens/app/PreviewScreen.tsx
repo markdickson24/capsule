@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  FlatList, TextInput, KeyboardAvoidingView,
+  FlatList, TextInput, Keyboard,
   Animated, PanResponder, Modal, Pressable, Dimensions, Platform,
   ActivityIndicator,
 } from 'react-native';
@@ -71,6 +71,19 @@ export default function PreviewScreen({ route, navigation }: Props) {
   // immediately on any action tap (see limitSheet host), so "Trimming…"
   // has to be represented on this screen, not inside the sheet.
   const [busy, setBusy] = useState(false);
+
+  // Lift the bottom panel above the keyboard by its live height. We do this
+  // manually rather than with KeyboardAvoidingView because KAV is broken on
+  // iOS under the New Architecture (newArchEnabled) — it simply doesn't move
+  // the panel, leaving the caption field under the keyboard.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const s = Keyboard.addListener(showEvt, e => setKbHeight(e.endCoordinates?.height ?? 0));
+    const h = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => { s.remove(); h.remove(); };
+  }, []);
 
   const translateY = useRef(new Animated.Value(0)).current;
   const SWIPE_THRESHOLD = 100;
@@ -386,11 +399,12 @@ export default function PreviewScreen({ route, navigation }: Props) {
         </Animated.View>
       </View>
 
-      {/* SafeAreaView OUTER / KeyboardAvoidingView INNER, matching Login/SignUp/
-          ResetPassword — inverted nesting applies the ~34pt home-indicator inset
-          on top of the keyboard padding, floating the panel above the keyboard. */}
-      <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.panelInner}>
+      {/* Panel lifts above the keyboard via translateY: -kbHeight (see the
+          Keyboard listener above) — KeyboardAvoidingView is unreliable on iOS
+          under the New Architecture, so we drive the offset from the real
+          keyboard height instead. */}
+      <SafeAreaView edges={['bottom']} style={[styles.bottomPanel, { transform: [{ translateY: -kbHeight }] }]}>
+        <View style={styles.panelInner}>
           <TextInput
             style={styles.captionInput}
             placeholder={itemCount > 1 ? `Caption for item ${currentIndex + 1}…` : 'Add a caption…'}
@@ -461,7 +475,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             </View>
           )}
-        </KeyboardAvoidingView>
+        </View>
       </SafeAreaView>
 
       <Modal
