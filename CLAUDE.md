@@ -392,7 +392,7 @@ Large file (~2200 lines). Key sub-components and patterns:
 - Rotation formula: `rightRot = -135 + min(deg, 180)`, `leftRot = -135 + max(deg - 180, 0)`
 - **Do not use `borderColor: 'transparent'`** — causes a dark rendering artifact on iOS at the color transition point. Always set all 4 border colors explicitly.
 
-**`CountdownRing`** — wraps `ProgressRing` with lock icon, countdown text, unlock date. Updates every 60s via `setInterval`. Progress = `timeRemaining / (unlock_at - created_at)`, falls back to 1-year total if `created_at` unavailable.
+**`CountdownRing`** — wraps `ProgressRing` with lock icon, countdown text, and a date line. Self-rescheduling tick (per-second under a day out, per-minute beyond). **Two phases when the capsule has a `contribution_start_at`:** while pre-start it counts down to the **start** date ("Not started yet" / "Starts `<date>`", progress over `created→start`), then at the start moment it flips **live** to the usual unlock countdown ("Capsule locked" / "Unlocks `<date>`", progress over `start→unlock` so the ring resets to full at the flip). Same visual, only the labels/target change; the tick keeps running across the start moment and stops only at unlock. With no start date it's the plain unlock countdown (progress over `unlock_at − created_at`, 1-year fallback if `created_at` unavailable). Takes `unlockAt`, `startAt` (= `capsule.contribution_start_at`), `createdAt`.
 
 **`InviteModal`** — user search with 300ms debounce (min 2 chars), sends push notification to invited user client-side.
 
