@@ -45,6 +45,19 @@ Deno.serve(async (req) => {
   const messages: ExpoMessage[] = [];
   let reminded = 0;
 
+  // The three tier windows OVERLAP (each is `deadline <= now() + Xd`), and each
+  // tier stamps a different `_sent_at` column. So a capsule first evaluated
+  // already within 1 day of its deadline is claimed by ALL three tiers in the
+  // same tick — which, without this guard, sent the same member three identical
+  // nudges at once (verified in prod: 3 duplicate contribution_nudge rows for
+  // one user+capsule within ~0.5s). Dedupe per (user, capsule) across tiers so
+  // each member gets at most ONE nudge per run. All tier stamps still commit
+  // (so those tiers never re-fire), and a long-lead capsule still gets its
+  // spread-out 7d/3d/1d nudges on separate ticks — only the simultaneous-claim
+  // case collapses. The copy is identical across tiers anyway (formatDeadline
+  // reads the real remaining time), so which tier wins doesn't matter.
+  const nudgedThisRun = new Set<string>();
+
   for (const tier of TIERS) {
     const { data: claimed, error } = await supabase.rpc('claim_contribution_nudge_tier', { p_tier: tier });
     if (error || !claimed?.length) continue;
@@ -93,6 +106,12 @@ Deno.serve(async (req) => {
 
       const rows: any[] = [];
       for (const userId of entry.userIds) {
+        // Skip a member already nudged this run by an earlier (wider) tier for
+        // the same capsule — the overlapping-window dedup described above.
+        const dedupeKey = `${userId}:${capsuleId}`;
+        if (nudgedThisRun.has(dedupeKey)) continue;
+        nudgedThisRun.add(dedupeKey);
+
         const blockedIds = blockedByRecipient.get(userId) ?? new Set<string>();
         const top = (topContributors ?? []).find((c: any) => !blockedIds.has(c.user_id));
 
@@ -121,6 +140,9 @@ Deno.serve(async (req) => {
           messages.push({ to: token, title, body, data: { capsuleId }, sound: 'default' });
         }
       }
+      // Every member for this capsule may have been nudged by an earlier tier
+      // this run (dedup above) — nothing left to insert/push.
+      if (rows.length === 0) continue;
       // Tier stamps already committed — a failed insert is unrecoverable;
       // log it instead of silently losing the Alerts rows.
       const { error: insertError } = await supabase.from('notifications').insert(rows);
