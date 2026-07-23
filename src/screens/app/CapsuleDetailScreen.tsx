@@ -634,15 +634,29 @@ function MediaViewerModal({
   const [showReport, setShowReport] = useState(false);
   const [editingCaption, setEditingCaption] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
-  // Keyboard height, tracked directly — KeyboardAvoidingView is unreliable
-  // inside a <Modal> (separate window; the KAV's frame origin is wrong), so the
-  // caption editor lifts itself by this exact height instead. See the overlay.
-  const [kbHeight, setKbHeight] = useState(0);
+  // Keyboard offset, animated in sync with the keyboard — KeyboardAvoidingView
+  // is unreliable inside a <Modal> (and broken on the New Architecture), so the
+  // caption editor lifts its box by this value instead. Driving an Animated.Value
+  // over the keyboard event's own `duration` makes it glide with the keyboard
+  // rather than snapping. See the overlay.
+  const kbOffset = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const s = Keyboard.addListener(showEvt, e => setKbHeight(e.endCoordinates?.height ?? 0));
-    const h = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    const s = Keyboard.addListener(showEvt, e => {
+      Animated.timing(kbOffset, {
+        toValue: -(e.endCoordinates?.height ?? 0),
+        duration: e.duration || 250,
+        useNativeDriver: true,
+      }).start();
+    });
+    const h = Keyboard.addListener(hideEvt, e => {
+      Animated.timing(kbOffset, {
+        toValue: 0,
+        duration: e.duration || 250,
+        useNativeDriver: true,
+      }).start();
+    });
     return () => { s.remove(); h.remove(); };
   }, []);
   // Dual (PiP) photos: per-item toggle for which lens is the main frame.
@@ -976,13 +990,12 @@ function MediaViewerModal({
           </LinearGradient>
 
           {/* Caption edit overlay. Fills the modal with the box anchored to the
-              bottom (justifyContent: flex-end) and lifts it by the live keyboard
-              height (paddingBottom: kbHeight) so the field is always visible.
-              We drive this from the Keyboard API rather than KeyboardAvoidingView
-              because a KAV is unreliable inside a <Modal> — the previous version
-              pinned the box under the keyboard (the bug this fixes). */}
+              bottom (justifyContent: flex-end); the box glides up by the animated
+              kbOffset so it rides with the keyboard. We drive this from the
+              Keyboard API rather than KeyboardAvoidingView because a KAV is
+              unreliable inside a <Modal> (and broken on the New Architecture). */}
           {editingCaption && (
-            <View style={[styles.captionEditOverlay, { paddingBottom: kbHeight }]}>
+            <View style={styles.captionEditOverlay}>
               <TouchableOpacity
                 style={StyleSheet.absoluteFill}
                 activeOpacity={1}
@@ -990,7 +1003,7 @@ function MediaViewerModal({
                 accessibilityRole="button"
                 accessibilityLabel="Dismiss caption editor"
               />
-              <View style={styles.captionEditBox}>
+              <Animated.View style={[styles.captionEditBox, { transform: [{ translateY: kbOffset }] }]}>
                 <Text style={styles.captionEditLabel}>Caption</Text>
                 <TextInput
                   style={styles.captionEditInput}
@@ -1013,7 +1026,7 @@ function MediaViewerModal({
                     <Text style={styles.captionEditSaveText}>Save</Text>
                   </TouchableOpacity>
                 </View>
-              </View>
+              </Animated.View>
             </View>
           )}
 
