@@ -125,7 +125,7 @@ Score each new feature 1–5 on five axes, then read the disposition off the tot
 | Low Growth + high WTP + low Cost | **Premium** | Pure upside — bundle into Pro. |
 | High Growth *but* high WTP at the extreme | **Usage-limited** | Free to a threshold (3 capsules, 20 photos), paid beyond. Everyone tastes it; heavy users pay. |
 | High marginal Cost, bursty need | **Credit / one-time** | Video minutes, AI recaps, event capacity — sell as consumable/Event Pass so cost scales with revenue. |
-| Loved core feature, mixed signals | **Partial** | Free at standard quality/quantity; premium unlocks depth (export quality, unlimited members). |
+| Loved core feature, mixed signals | **Partial** | Free at a standard allowance; premium unlocks depth (bulk export, unlimited members). |
 
 > **Worked example — Video:** Growth 2 · WTP 4 · Cost 5 · Frequency 3 · Substitutability 3 → high cost + high WTP + low growth-risk = **Premium quota** (free tier photos-only or a tiny allowance; Pro unlocks it).
 > **Being invited to a capsule:** Growth 5 · WTP 1 · Frequency 5 → unambiguous **Free forever**.
@@ -154,7 +154,7 @@ Microtransactions and bundles round it out: cosmetic packs (theme bundles) are p
 | Virality | **Sacred.** Invites, joins, QR, share links free and unlimited on the free tier. Every gate stress-tested against "does this cost me an invite?" |
 | Referrals | Actively rewarded: invite-that-converts → free Pro time / storage. Turns the growth loop into a paid-conversion funnel. |
 | DAU | Notifications, reminders, reactions, awards — all free. Daily engagement is never walled; it earns the right to upsell. |
-| UGC | Contributing photos/video (standard quality) is free for all members. Premium touches export quality and capacity, not the ability to add. |
+| UGC | Contributing photos/video is free for all members. Premium touches capacity and format (video length), not the ability to add or the quality of what you add — every photo is resized to 1920px for everyone. |
 | Network effects | Each free member makes every capsule better and seeds new capsules. The free tier compounds; the paid tier harvests. Never invert this. |
 
 ---
@@ -236,7 +236,7 @@ Microtransactions and bundles round it out: cosmetic packs (theme bundles) are p
 | Risk | Mitigation |
 |---|---|
 | Free tier too generous → nobody converts | Caps (3 capsules / 10 members / 20 photos / photos-only) tuned so a *real* host bumps them but a casual user never does. Instrument in beta and tighten with data, not guesses. |
-| Free tier too stingy → virality dies | The bigger danger for a social app. Keep all invite/join/contribute paths unlimited and free; only *hosting volume* and *quality/format* are gated. |
+| Free tier too stingy → virality dies | The bigger danger for a social app. Keep all invite/join/contribute paths unlimited and free; only *hosting volume* and *format* (e.g. video length) are gated. |
 | Lifetime cannibalizes recurring revenue | Strict 90-day window, then killed permanently; treat as launch marketing spend, not a product. |
 | Subscription fatigue suppresses Pro | The Event Pass is the hedge — a one-time purchase that captures fatigued, occasion-driven buyers subscriptions can't. |
 | Apple's 30% erodes thin consumer margins | Web checkout at a visible discount once at scale; keep IAP for convenience, steer price-sensitive users to web. |
