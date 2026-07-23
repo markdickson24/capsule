@@ -80,6 +80,17 @@ const REMINDER_TIERS: { col: string; ms: number }[] = [
 
 async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
   let reminded = 0;
+  // The tier windows OVERLAP (each is `unlock_at <= now() + tier.ms`), and each
+  // tier stamps a different column. So a capsule created shortly before unlock
+  // is claimed by ALL three tiers in the same tick — which, without this guard,
+  // sent every member three near-identical reminders at once. Dedupe per capsule
+  // across tiers so each gets at most ONE reminder per run. All tier stamps still
+  // commit (so no tier re-fires), and a normal-lead capsule still gets its
+  // separate 1d/1h/10m reminders on different ticks — only the simultaneous-claim
+  // case collapses. The copy is derived from the real remaining time
+  // (formatRemaining), so which tier wins doesn't matter. Mirrors the
+  // contribution-nudges dedup (see that function).
+  const remindedThisRun = new Set<string>();
   for (const tier of REMINDER_TIERS) {
     const nowIso = new Date().toISOString();
     const cutoff = new Date(Date.now() + tier.ms).toISOString();
@@ -101,6 +112,11 @@ async function dispatchReminders(messages: ExpoMessage[]): Promise<number> {
 
     const memberMap = await pushTokensForMany(due.map((c) => c.id));
     for (const capsule of due) {
+      // Skip a capsule already reminded this run by an earlier (wider) tier —
+      // the overlapping-window dedup described above.
+      if (remindedThisRun.has(capsule.id)) continue;
+      remindedThisRun.add(capsule.id);
+
       const remaining = new Date(capsule.unlock_at).getTime() - Date.now();
       const phrase = formatRemaining(remaining);
       const { tokens, userIds } = memberMap.get(capsule.id) ?? EMPTY_MEMBER_PUSH;
