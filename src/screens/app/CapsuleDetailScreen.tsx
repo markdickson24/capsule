@@ -2208,6 +2208,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             }))}
             votingClosesAt={(capsule as any).superlative_voting_closes_at ?? null}
             votingFinalizedAt={(capsule as any).superlative_voting_finalized_at ?? null}
+            onOpenMedia={(mediaId) => {
+              const idx = photos.findIndex(p => p.id === mediaId);
+              if (idx >= 0) setActiveMediaIndex(idx);
+            }}
           />
         )}
 

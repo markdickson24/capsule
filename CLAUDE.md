@@ -633,7 +633,7 @@ The HTTP call uses the same Vault secret (`cron_unlock_capsules_secret`) as the 
 - `<AwardsSection>` lives in `CapsuleDetailScreen` under the media grid, only on unlocked capsules. It branches on `voting_closes_at` / `voting_finalized_at`:
   - **voting open** — pending cards with upvote button + progress bar to threshold, live cards with Vote / Change pill
   - **voting closed, pre-finalize** — `"Tallying votes…"` placeholder
-  - **finalized** — staggered `WinnerCard` reveals (avatar for person, thumbnail for media; tied co-winners side by side)
+  - **finalized** — staggered `WinnerCard` reveals (avatar for person, thumbnail for media; tied co-winners side by side). A winning **media** thumbnail is tappable — `AwardsSection`'s optional `onOpenMedia(mediaId)` prop (threaded to `WinnerEntry`) is wired by `CapsuleDetailScreen` to `setActiveMediaIndex`, opening the same full-screen `MediaViewerModal` as the grid. Only active once the item has loaded; the vote-picker grid is unaffected (tap there still casts a vote).
 - Realtime subscription on `superlative_categories` (filtered to capsule) drives upvote / auto-promote updates. A second subscription on `superlative_winners` INSERTs drives the finalize → reveal transition.
 - The parent's existing realtime channel on `capsules` UPDATEs catches `superlative_voting_finalized_at` flipping and re-renders the section with the new props.
 
