@@ -36,12 +36,17 @@ export function buildZipBlobParts(_files: { name: string; data: Uint8Array }[]):
   throw new Error('buildZipBlobParts is web-only');
 }
 
+// Thrown when the caller's shouldCancel() returns true. Callers can detect a
+// user-initiated cancel (message === EXPORT_CANCELLED) and skip the error toast.
+export const EXPORT_CANCELLED = 'export-cancelled';
+
 export async function exportCapsule(opts: {
   title: string;
   items: ExportItem[];
   onProgress?: (done: number, total: number) => void;
+  shouldCancel?: () => boolean;
 }): Promise<void> {
-  const { title, items, onProgress } = opts;
+  const { title, items, onProgress, shouldCancel } = opts;
   if (!zipFolder) throw new Error('Export needs a full build (unavailable here).');
 
   // Stream each remote file to a temp working dir on disk (never through the JS
@@ -50,11 +55,15 @@ export async function exportCapsule(opts: {
   await FileSystem.makeDirectoryAsync(work, { intermediates: true });
   try {
     for (let i = 0; i < items.length; i++) {
+      // Honor cancellation at each file boundary (downloads dominate the time);
+      // the working dir is cleaned up in the finally below.
+      if (shouldCancel?.()) throw new Error(EXPORT_CANCELLED);
       const dest = `${work}${items[i].filename}`;
       const { status } = await FileSystem.downloadAsync(items[i].url, dest);
       if (status !== 200) throw new Error(`download failed (${status})`);
       onProgress?.(i + 1, items.length);
     }
+    if (shouldCancel?.()) throw new Error(EXPORT_CANCELLED);
     const safe = (title || 'capsule').replace(/[^\w\-. ]+/g, '_').trim() || 'capsule';
     const target = `${FileSystem.cacheDirectory}${safe}.zip`;
     await zipFolder(work, target);

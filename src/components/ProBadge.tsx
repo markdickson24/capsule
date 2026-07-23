@@ -18,6 +18,7 @@ export default function ProBadge({ size = 'sm' }: { size?: 'sm' | 'md' }) {
         { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}55` },
         md && styles.badgeMd,
       ]}
+      accessible
       accessibilityLabel="Capsule Pro"
     >
       <Ionicons name="sparkles" size={md ? 12 : 10} color={accentColor} />

@@ -23,6 +23,7 @@ import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
 import { ACCENT_PRESETS, ACCENT_GRADIENTS } from '../../lib/accentPresets';
 import { proGateHit } from '../../lib/proGate';
 import { reportError } from '../../lib/sentry';
+import ProBadge from '../../components/ProBadge';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
@@ -198,9 +199,7 @@ export default function SettingsScreen({ navigation }: Props) {
               >
                 <Ionicons name="sparkles" size={18} color={accentColor} />
                 <Text style={styles.lockedRowLabel}>Custom color & gradient themes</Text>
-                <View style={[styles.proTag, { backgroundColor: `${accentColor}22`, borderColor: `${accentColor}55` }]}>
-                  <Text style={[styles.proTagText, { color: accentColor }]}>PRO</Text>
-                </View>
+                <ProBadge size="sm" />
               </TouchableOpacity>
             )}
 
@@ -415,8 +414,6 @@ const styles = StyleSheet.create({
   gradSwatch: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   lockedRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12, paddingHorizontal: 4 },
   lockedRowLabel: { color: '#FFFFFF', fontSize: 15, flex: 1 },
-  proTag: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8, borderWidth: 1 },
-  proTagText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
   destructiveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 14, paddingVertical: 16,

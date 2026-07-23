@@ -15,7 +15,7 @@ export function proGateHit(params: {
     limitSheet.show({
       title: params.title ?? 'Capsule Pro',
       message: params.ownerMessage ?? 'Upgrade to Capsule Pro to lift this limit.',
-      icon: 'star',
+      icon: 'sparkles',
       actions: [
         { label: 'Upgrade to Capsule Pro', style: 'primary', onPress: () => { presentPaywall(); } },
         { label: 'Not now', style: 'secondary', onPress: () => {} },
