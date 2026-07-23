@@ -6,6 +6,7 @@ import Purchases, {
   type PurchasesPackage,
 } from 'react-native-purchases';
 import RevenueCatUI, { PAYWALL_RESULT } from 'react-native-purchases-ui';
+import { reportError } from './sentry';
 
 /**
  * RevenueCat integration (native only — see purchases.web.ts for the web stub
@@ -54,7 +55,10 @@ export function configurePurchases(): void {
     Purchases.configure({ apiKey: key });
     configured = true;
   } catch (e) {
+    // A failed configure means the whole purchase/entitlement pipeline is dead
+    // for this session — worth knowing about, not just a console line.
     console.warn('[Purchases] configure failed:', e);
+    reportError(e, { where: 'purchases.configure' });
   }
 }
 
@@ -80,7 +84,10 @@ export async function identifyUser(userId: string): Promise<boolean> {
       await Purchases.logIn(userId);
       return true;
     } catch (e2) {
+      // Both attempts failed: purchases won't map to this Supabase user, so
+      // the webhook can't mirror their tier. Report it.
       console.warn('[Purchases] logIn retry failed:', e2);
+      reportError(e2, { where: 'purchases.identifyUser' });
       return false;
     }
   }
@@ -139,7 +146,9 @@ export async function presentPaywall(): Promise<boolean> {
     const result = await RevenueCatUI.presentPaywall();
     return result === PAYWALL_RESULT.PURCHASED || result === PAYWALL_RESULT.RESTORED;
   } catch (e) {
+    // The buy moment failing to even present is a lost sale — report it.
     console.warn('[Purchases] presentPaywall failed:', e);
+    reportError(e, { where: 'purchases.presentPaywall' });
     return false;
   }
 }

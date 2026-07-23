@@ -7,6 +7,7 @@ import { randomUUID } from './uuid';
 import { cache } from './cache';
 import { toast } from './toast';
 import { resizeForUpload } from './imageResize';
+import { reportError } from './sentry';
 
 // Background media-upload queue. The optimistic-UI backbone: callers enqueue
 // and navigate away immediately; screens render pending tasks as local-URI
@@ -327,7 +328,13 @@ async function work() {
         `media:${task.capsuleId}`,
         `signedUrls:${task.capsuleId}`,
       );
-    } catch {
+    } catch (e) {
+      // Surface the failure — a media upload silently dying is a real
+      // data-loss report. The tile stays visible/retryable regardless.
+      reportError(e, {
+        where: 'uploadQueue.runTask',
+        extra: { capsuleId: task.capsuleId, mediaType: task.mediaType },
+      });
       tasks = tasks.map(t => t.id === task.id ? { ...t, status: 'failed' as const } : t);
       batchFailed += 1;
     }

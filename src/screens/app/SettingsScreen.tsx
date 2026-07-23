@@ -22,6 +22,7 @@ import { presentPaywall, presentCustomerCenter, restorePurchases } from '../../l
 import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
 import { ACCENT_PRESETS, ACCENT_GRADIENTS } from '../../lib/accentPresets';
 import { proGateHit } from '../../lib/proGate';
+import { reportError } from '../../lib/sentry';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
@@ -329,6 +330,7 @@ function DeleteAccountModal({
     } catch (e: any) {
       setBusy(false);
       setError(e?.message ?? 'Failed to delete account. Try again.');
+      reportError(e, { where: 'SettingsScreen.deleteAccount' });
     }
   }
 

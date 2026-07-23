@@ -7,6 +7,7 @@ import { cache } from '../lib/cache';
 import { blockStore } from '../lib/blocks';
 import { pendingJoinStash } from '../lib/pendingJoinStash';
 import { shareIntentStash } from '../lib/shareIntentStash';
+import { setSentryUser } from '../lib/sentry';
 
 export function useAuth() {
   // On web, `sessionStore` has already done a synchronous localStorage read at
@@ -22,6 +23,9 @@ export function useAuth() {
     const settle = (s: Session | null) => {
       sessionStore.set(s);
       setSession(s);
+      // Attach the user (id only) to Sentry so events are grouped per user;
+      // cleared to null on sign-out. Runs on every real session update.
+      setSentryUser(s?.user.id ?? null);
       if (!settled) {
         settled = true;
         clearTimeout(timeout);
