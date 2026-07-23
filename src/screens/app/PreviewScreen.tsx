@@ -72,16 +72,30 @@ export default function PreviewScreen({ route, navigation }: Props) {
   // has to be represented on this screen, not inside the sheet.
   const [busy, setBusy] = useState(false);
 
-  // Lift the bottom panel above the keyboard by its live height. We do this
-  // manually rather than with KeyboardAvoidingView because KAV is broken on
+  // Lift the bottom panel above the keyboard, animated in sync with it. We do
+  // this manually rather than with KeyboardAvoidingView because KAV is broken on
   // iOS under the New Architecture (newArchEnabled) — it simply doesn't move
-  // the panel, leaving the caption field under the keyboard.
-  const [kbHeight, setKbHeight] = useState(0);
+  // the panel. Driving an Animated.Value over the keyboard event's own
+  // `duration` makes the panel glide up/down together with the keyboard instead
+  // of snapping.
+  const kbOffset = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
     const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const s = Keyboard.addListener(showEvt, e => setKbHeight(e.endCoordinates?.height ?? 0));
-    const h = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    const s = Keyboard.addListener(showEvt, e => {
+      Animated.timing(kbOffset, {
+        toValue: -(e.endCoordinates?.height ?? 0),
+        duration: e.duration || 250,
+        useNativeDriver: true,
+      }).start();
+    });
+    const h = Keyboard.addListener(hideEvt, e => {
+      Animated.timing(kbOffset, {
+        toValue: 0,
+        duration: e.duration || 250,
+        useNativeDriver: true,
+      }).start();
+    });
     return () => { s.remove(); h.remove(); };
   }, []);
 
@@ -399,12 +413,13 @@ export default function PreviewScreen({ route, navigation }: Props) {
         </Animated.View>
       </View>
 
-      {/* Panel lifts above the keyboard via translateY: -kbHeight (see the
+      {/* Panel glides above the keyboard via the animated kbOffset (see the
           Keyboard listener above) — KeyboardAvoidingView is unreliable on iOS
-          under the New Architecture, so we drive the offset from the real
-          keyboard height instead. */}
-      <SafeAreaView edges={['bottom']} style={[styles.bottomPanel, { transform: [{ translateY: -kbHeight }] }]}>
-        <View style={styles.panelInner}>
+          under the New Architecture, so we drive the offset ourselves, animated
+          over the keyboard's own duration so it moves in sync. */}
+      <Animated.View style={{ transform: [{ translateY: kbOffset }] }}>
+        <SafeAreaView edges={['bottom']} style={styles.bottomPanel}>
+          <View style={styles.panelInner}>
           <TextInput
             style={styles.captionInput}
             placeholder={itemCount > 1 ? `Caption for item ${currentIndex + 1}…` : 'Add a caption…'}
@@ -477,6 +492,7 @@ export default function PreviewScreen({ route, navigation }: Props) {
           )}
         </View>
       </SafeAreaView>
+      </Animated.View>
 
       <Modal
         visible={showDiscard}
