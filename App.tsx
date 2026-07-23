@@ -1,5 +1,6 @@
 import React from 'react';
 import * as Sentry from '@sentry/react-native';
+import { initSentry, navigationIntegration, hasSentryDsn } from './src/lib/sentry';
 import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -18,17 +19,9 @@ import { LoadingBrandScreen } from './src/components/LoadingBrand';
 import ToastHost from './src/components/ToastHost';
 import { LimitSheetHost } from './src/components/LimitSheet';
 
-// Init Sentry once at module load. Skips initialization if no DSN is set,
-// so dev builds without EXPO_PUBLIC_SENTRY_DSN are no-ops.
-const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
-if (SENTRY_DSN) {
-  Sentry.init({
-    dsn: SENTRY_DSN,
-    enableAutoSessionTracking: true,
-    tracesSampleRate: 0.2,
-    enableNative: true,
-  });
-}
+// Init Sentry once at module load. No-op when EXPO_PUBLIC_SENTRY_DSN is unset,
+// and initialized-but-disabled in dev builds. All config lives in src/lib/sentry.
+initSentry();
 
 function RootNavigator() {
   const { session, loading } = useAuth();
@@ -58,7 +51,11 @@ function App() {
             around the navigator's screens, not its sibling children. */}
         <SafeAreaProvider>
           <TourProvider>
-            <NavigationContainer ref={navigationRef} linking={linking}>
+            <NavigationContainer
+              ref={navigationRef}
+              linking={linking}
+              onReady={() => navigationIntegration.registerNavigationContainer(navigationRef)}
+            >
               <StatusBar style="light" />
               <RootNavigator />
               <ToastHost />
@@ -73,4 +70,4 @@ function App() {
 
 // Wraps the root component so Sentry captures unhandled errors and
 // React render exceptions. When DSN is unset, this is a passthrough.
-export default SENTRY_DSN ? Sentry.wrap(App) : App;
+export default hasSentryDsn ? Sentry.wrap(App) : App;

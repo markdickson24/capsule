@@ -869,6 +869,19 @@ The free-tier caps from `docs/monetization-strategy.md` are enforced. All limits
 - `src/lib/limitSheet.ts` — `limitSheet.show({ title, message, icon?, actions })` / `.hide()`. Module-level global "you hit a limit" bottom sheet, rendered by `<LimitSheetHost>` (mounted once near the app root next to `<ToastHost>`) — **mirrors the `toast`/`ToastHost` pub/sub pattern exactly**. `actions` are `{ label, style?: 'primary'|'secondary'|'destructive', onPress }`; the host fires an action's `onPress` then **unconditionally dismisses**, so an `onPress` must not call `limitSheet.show(...)` to chain (it'd be cleared); an async `onPress` is fine (the long work shows state on the underlying screen). Driven by `proGateHit` (every tier gate) and the Preview video-length sheet. Component: `src/components/LimitSheet.tsx`.
 - `src/lib/mediaDuration.ts` — `assetDurationMs(asset)`: an ImagePicker asset's video length in ms, normalizing the web-shim-returns-seconds gotcha. Feeds `PendingMedia.durationMs`, which the Preview video-length gate reads (unset = fail-open).
 - `src/lib/toast.ts` — `toast.show(message, action?)`. Module-level global toast, rendered by `<ToastHost>` (mounted once near the app root, so it survives navigation). `action` is optional: `{ label: string; onPress: () => void }` renders a tappable inline action (e.g. "Undo") next to the message — tapping it fires `onPress` then dismisses the toast immediately, same as the auto-dismiss timer. Used for the archive/restore Undo (see "Owner-Only Capsule Actions"). **Rule: any user-initiated mutation that fails must toast** — a background write with no feedback on error becomes a mystery bug report ("my restore didn't work") that can't be reproduced. Swept across `persistRead` (NotificationsScreen), `setAccentColor`/`setHomeLayout` (ThemeContext), the per-member `send-invite-push` loop and `set_default_superlatives` call (CreateScreen) — all previously silent on failure.
+- `src/lib/sentry.ts` — the single home for all Sentry wiring (see "Error Monitoring" below). Exports `initSentry()`, `setSentryUser(id|null)`, `reportError(err, { where?, extra? })`, `navigationIntegration`, and `hasSentryDsn`. **Use `reportError` in any catch block that would otherwise swallow an error or only toast** — it's the manual-capture counterpart to the toast rule above (toast = tell the user, `reportError` = tell you).
+
+## Error Monitoring (Sentry)
+
+Crash + error reporting via `@sentry/react-native` (v7.2.0). **All Sentry config lives in `src/lib/sentry.ts`** — never call `Sentry.init` or read `EXPO_PUBLIC_SENTRY_DSN` elsewhere.
+
+- **Init:** `App.tsx` calls `initSentry()` once at module load, then `export default hasSentryDsn ? Sentry.wrap(App) : App` (the wrap adds the error boundary + touch/native crash capture; passthrough when no DSN). The `@sentry/react-native/expo` config plugin in `app.json` (org `capsule-60`, project `react-native`) handles source-map upload at EAS build time.
+- **Enabled only in RELEASE builds.** `sentryEnabled = !!DSN && !__DEV__`. Under Metro/Expo dev `__DEV__` is true, so the SDK is initialized-but-`enabled:false` — instrumentation is wired but nothing transmits, keeping the dashboard free of local dev / HMR noise. `initSentry()` still returns early (never inits) when `EXPO_PUBLIC_SENTRY_DSN` is unset.
+- **Privacy: user id ONLY.** `sendDefaultPii: false`, and a `beforeSend` hook deletes `event.user.email`/`ip_address`/`username` as a belt-and-suspenders scrub. `useAuth`'s `settle()` calls `setSentryUser(session?.user.id ?? null)` on every session update (set on sign-in, cleared to null on sign-out) — so events group per user with **no** email/IP, appropriate for a private photo app. Never widen this to attach PII without a deliberate decision.
+- **Navigation instrumentation:** `navigationIntegration` (a `reactNavigationIntegration`) is registered via `NavigationContainer`'s `onReady` (`registerNavigationContainer(navigationRef)`), so route changes become breadcrumbs + performance transactions.
+- **Performance tracing only, no Session Replay** (`tracesSampleRate: 0.2`). Replay records the user's screen — a privacy concern for this app — so it's deliberately omitted.
+- **`environment`** = `EXPO_PUBLIC_SENTRY_ENV` if set, else `production` (release) / `development` (dev). **`release`** = `<bundleId>@<version>`, **`dist`** = native build number — mirrors how the Expo plugin names source-map uploads so events symbolicate.
+- **Manual capture convention:** call `reportError(err, { where: 'module.fn', extra: {...} })` in catch blocks that swallow/only-toast. `where` is a short call-site tag; `extra` is structured context (ids/counts) — **never PII**. Already wired into the highest-value silent-failure paths: `uploadQueue.runTask` (media-loss), `purchases.configure`/`identifyUser`/`presentPaywall` (revenue pipeline), and `SettingsScreen` account deletion. New swallowed-error paths should use it too.
 
 ## Cache System (`src/lib/cache.ts`)
 
@@ -1132,9 +1145,13 @@ EXPO_PUBLIC_SUPABASE_URL=...
 EXPO_PUBLIC_SUPABASE_ANON_KEY=...
 EXPO_PUBLIC_REVENUECAT_IOS_KEY=...      # appl_... — REQUIRED; if unset, purchases are disabled (no fallback key), see "Monetization"
 EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=...  # goog_... — not yet configured (no Android app in RevenueCat yet)
+EXPO_PUBLIC_SENTRY_DSN=...              # unset = Sentry never inits; set = release-only reporting, see "Error Monitoring"
+EXPO_PUBLIC_SENTRY_ENV=...              # optional — overrides the Sentry `environment` tag (else production/development)
 ```
 
 App config: `app.json`. Bundle ID: `com.markdickson.capsule`. EAS Project ID: `2e004e6f-2e9d-4309-a172-46b6976eb3d9`.
+
+**iOS deployment target is 15.5**, pinned via the `expo-build-properties` plugin in `app.json` (`ios.deploymentTarget`). `react-native-zip-archive` (the Pro capsule ZIP-export dependency) requires 15.5; the Expo SDK 54 default of 15.1 made `pod install` fail with an incompatible-version error, which would also break EAS production builds. Because `ios/` is gitignored (Expo CNG, regenerated on prebuild), `app.json` is the durable source — don't hand-edit `ios/Podfile.properties.json` / the pbxproj as the fix (those get regenerated).
 
 **EAS build profiles** (`eas.json`):
 - `production` — iOS: `simulator: false`, `autoIncrement: true` (bumps `buildNumber` each build). `appVersionSource: "remote"` so version is managed by EAS, not `app.json`.
