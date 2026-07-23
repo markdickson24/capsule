@@ -65,6 +65,8 @@ type MemberRow = {
   joined_at: string | null;
   /** This member's personal archive flag — archive is per-member, not capsule-global. */
   archived_at: string | null;
+  /** Last proximity check-in time (null = never); check-ins expire after 10 min. */
+  checkin_at: string | null;
   users: { display_name: string; avatar_url: string | null } | null;
 };
 
@@ -1084,14 +1086,23 @@ function MediaGalleryModal({
   );
 }
 
-function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
+// Check-ins expire after 10 minutes (mirrors the check_in RPC's window), so a
+// seeded "already checked in" state only counts if it's within that window.
+const CHECKIN_WINDOW_MS = 10 * 60 * 1000;
+
+function CheckInCard({ capsuleId, accentColor, dateGate, initialCheckedIn, onUnlocked }: {
   capsuleId: string;
   accentColor: string;
   dateGate: boolean;
+  initialCheckedIn: boolean;
   onUnlocked: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<{ checkedIn: number; total: number; inRange: boolean } | null>(null);
+  // Whether THIS user has an active check-in. Seeded from their own row's
+  // checkin_at (so it survives navigating away and back within the window) and
+  // set true the moment their own check-in RPC succeeds.
+  const [iCheckedIn, setICheckedIn] = useState(initialCheckedIn);
   const [error, setError] = useState('');
 
   async function handleCheckIn() {
@@ -1112,6 +1123,8 @@ function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
       if (rpcErr || !data) { setError('Check-in failed. Please try again.'); return; }
       const r = data as { unlocked: boolean; checked_in: number; total: number; within_range: boolean };
       setProgress({ checkedIn: r.checked_in, total: r.total, inRange: r.within_range });
+      // The RPC recorded this caller's location, so they're now checked in.
+      setICheckedIn(true);
       if (r.unlocked) onUnlocked();
     } catch {
       setError('Could not get your location. Make sure location services are on.');
@@ -1137,21 +1150,39 @@ function CheckInCard({ capsuleId, accentColor, dateGate, onUnlocked }: {
       <Text style={chk.sub}>
         {progress
           ? `${progress.checkedIn} of ${progress.total} ${progress.total === 1 ? 'member' : 'members'} here`
-          : 'Tap below to share your location with the group.'}
+          : iCheckedIn
+            ? "You're checked in — waiting on the group."
+            : 'Tap below to share your location with the group.'}
       </Text>
       {allHere && !progress!.inRange ? (
         <Text style={chk.hint}>Everyone's checked in, but you're too far apart.</Text>
       ) : null}
       {dateGate ? <Text style={chk.hint}>Also waiting on the unlock date.</Text> : null}
       {error ? <Text style={chk.error}>{error}</Text> : null}
+      {/* Once checked in, the button confirms it (and still re-checks in on tap,
+          since check-ins expire after 10 min and everyone must be in range at once). */}
       <TouchableOpacity
-        style={[chk.btn, { backgroundColor: accentColor }]}
+        style={[
+          chk.btn,
+          iCheckedIn
+            ? { backgroundColor: 'transparent', borderWidth: 1.5, borderColor: accentColor }
+            : { backgroundColor: accentColor },
+        ]}
         onPress={handleCheckIn}
         disabled={busy}
+        accessibilityRole="button"
+        accessibilityLabel={iCheckedIn ? "You're checked in. Tap to check in again." : "Check in"}
       >
-        {busy
-          ? <LoadingBrand size="small" color="#FFFFFF" />
-          : <Text style={chk.btnText}>We're here — check in</Text>}
+        {busy ? (
+          <LoadingBrand size="small" color={iCheckedIn ? accentColor : '#FFFFFF'} />
+        ) : iCheckedIn ? (
+          <View style={chk.btnDoneRow}>
+            <Ionicons name="checkmark-circle" size={18} color={accentColor} />
+            <Text style={[chk.btnText, { color: accentColor }]}>You're checked in</Text>
+          </View>
+        ) : (
+          <Text style={chk.btnText}>We're here — check in</Text>
+        )}
       </TouchableOpacity>
     </View>
   );
@@ -1180,6 +1211,7 @@ const chk = StyleSheet.create({
     alignItems: 'center',
   },
   btnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  btnDoneRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 });
 
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
@@ -1497,7 +1529,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at, owner:users!capsules_owner_id_fkey(subscription_tier)').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
-        .select('user_id, role, joined_at, archived_at, users(display_name, avatar_url)')
+        .select('user_id, role, joined_at, archived_at, checkin_at, users(display_name, avatar_url)')
         .eq('capsule_id', capsuleId),
       fetchPhotos(),
     ]);
@@ -1861,6 +1893,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 capsuleId={capsuleId}
                 accentColor={accentColor}
                 dateGate={capsule.unlock_mode === 'both' && new Date(capsule.unlock_at) > new Date()}
+                initialCheckedIn={
+                  !!myMember?.checkin_at &&
+                  Date.now() - new Date(myMember.checkin_at).getTime() < CHECKIN_WINDOW_MS
+                }
                 onUnlocked={load}
               />
             )}
