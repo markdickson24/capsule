@@ -24,17 +24,13 @@ import { ACCENT_PRESETS, ACCENT_GRADIENTS } from '../../lib/accentPresets';
 import { proGateHit } from '../../lib/proGate';
 import { reportError } from '../../lib/sentry';
 import ProBadge from '../../components/ProBadge';
+import { DISCORD_URL, INSTAGRAM_URL, TIKTOK_URL } from '../../lib/communityLinks';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
 // Published contact info, required by App Review's UGC checklist (Guideline 1.2).
 const SUPPORT_EMAIL = 'mark.dickson0824@gmail.com';
 const SUPPORT_URL = `mailto:${SUPPORT_EMAIL}?subject=Capsule%20Support`;
-
-// Community / social links (Community section below).
-const DISCORD_URL = 'https://discord.gg/rgf7dR7FK';
-const INSTAGRAM_URL = 'https://instagram.com/app.capsule';
-const TIKTOK_URL = 'https://tiktok.com/@capsule.photo';
 
 function appVersionLabel(): string {
   const v = Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '?';
