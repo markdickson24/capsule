@@ -7,7 +7,7 @@ import { toast } from '../../lib/toast';
 import { useUploadTasks } from '../../hooks/useUploadTasks';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
-  TouchableOpacity, Modal, TextInput, KeyboardAvoidingView,
+  TouchableOpacity, Modal, TextInput, Keyboard,
   Share, Platform, Dimensions, Animated, PanResponder, FlatList,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
@@ -634,6 +634,17 @@ function MediaViewerModal({
   const [showReport, setShowReport] = useState(false);
   const [editingCaption, setEditingCaption] = useState(false);
   const [captionDraft, setCaptionDraft] = useState('');
+  // Keyboard height, tracked directly — KeyboardAvoidingView is unreliable
+  // inside a <Modal> (separate window; the KAV's frame origin is wrong), so the
+  // caption editor lifts itself by this exact height instead. See the overlay.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const s = Keyboard.addListener(showEvt, e => setKbHeight(e.endCoordinates?.height ?? 0));
+    const h = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => { s.remove(); h.remove(); };
+  }, []);
   // Dual (PiP) photos: per-item toggle for which lens is the main frame.
   const [swapped, setSwapped] = useState<Record<string, boolean>>({});
   const shownUrl = (item: MediaItem) =>
@@ -964,12 +975,21 @@ function MediaViewerModal({
             </View>
           </LinearGradient>
 
-          {/* Caption edit overlay */}
+          {/* Caption edit overlay. Fills the modal with the box anchored to the
+              bottom (justifyContent: flex-end) and lifts it by the live keyboard
+              height (paddingBottom: kbHeight) so the field is always visible.
+              We drive this from the Keyboard API rather than KeyboardAvoidingView
+              because a KAV is unreliable inside a <Modal> — the previous version
+              pinned the box under the keyboard (the bug this fixes). */}
           {editingCaption && (
-            <KeyboardAvoidingView
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-              style={styles.captionEditOverlay}
-            >
+            <View style={[styles.captionEditOverlay, { paddingBottom: kbHeight }]}>
+              <TouchableOpacity
+                style={StyleSheet.absoluteFill}
+                activeOpacity={1}
+                onPress={() => setEditingCaption(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss caption editor"
+              />
               <View style={styles.captionEditBox}>
                 <Text style={styles.captionEditLabel}>Caption</Text>
                 <TextInput
@@ -994,7 +1014,7 @@ function MediaViewerModal({
                   </TouchableOpacity>
                 </View>
               </View>
-            </KeyboardAvoidingView>
+            </View>
           )}
 
           <ReportModal
@@ -2658,7 +2678,9 @@ const styles = StyleSheet.create({
   },
   captionBannerText: { color: '#FFFFFF', fontSize: 15, lineHeight: 21, textAlign: 'center' },
   captionEditOverlay: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, zIndex: 20,
+    position: 'absolute', top: 0, bottom: 0, left: 0, right: 0, zIndex: 20,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   captionEditBox: {
     backgroundColor: '#1A1A1A', padding: 20, borderTopLeftRadius: 16, borderTopRightRadius: 16,
