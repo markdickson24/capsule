@@ -37,6 +37,14 @@ export default function SignUpScreen({ navigation }: Props) {
   const [resendLoading, setResendLoading] = useState(false);
   const [resendMessage, setResendMessage] = useState('');
 
+  // Email-OTP verification (the "Confirm signup" email carries a 6-digit code —
+  // {{ .Token }} — not a link). verifyOtp returns a session on success, so the
+  // user is signed straight in; useAuth's onAuthStateChange then swaps to the
+  // AppNavigator → Onboarding, with no separate Login step.
+  const [otp, setOtp] = useState('');
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState('');
+
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = setInterval(() => setResendCooldown(s => Math.max(0, s - 1)), 1000);
@@ -88,6 +96,7 @@ export default function SignUpScreen({ navigation }: Props) {
     if (!pendingEmail || resendCooldown > 0 || resendLoading) return;
     setResendLoading(true);
     setResendMessage('');
+    setVerifyError('');
     const { error: resendError } = await supabase.auth.resend({
       type: 'signup',
       email: pendingEmail,
@@ -96,32 +105,81 @@ export default function SignUpScreen({ navigation }: Props) {
     if (resendError) {
       setResendMessage("Couldn't resend — try again in a moment.");
     } else {
-      setResendMessage('Confirmation email resent.');
+      setResendMessage('New code sent.');
       setResendCooldown(RESEND_COOLDOWN_S);
     }
+  }
+
+  // Verify the 6-digit signup code. On success verifyOtp sets the session, and
+  // useAuth swaps AuthNavigator → AppNavigator automatically — no manual nav.
+  async function handleVerify(code: string) {
+    if (!pendingEmail || verifying || code.length !== 6) return;
+    setVerifying(true);
+    setVerifyError('');
+    const { error: verifyErr } = await supabase.auth.verifyOtp({
+      email: pendingEmail,
+      token: code,
+      type: 'signup',
+    });
+    if (verifyErr) {
+      // Wrong/expired codes come back as "Token has expired or is invalid".
+      setVerifyError('That code is invalid or expired. Check it, or resend a new one.');
+      setOtp('');
+      setVerifying(false);
+    }
+    // On success: leave `verifying` true — the screen unmounts as the session
+    // lands, so flipping it back would just flash the button first.
+  }
+
+  function onOtpChange(text: string) {
+    const digits = text.replace(/[^0-9]/g, '').slice(0, 6);
+    setOtp(digits);
+    if (verifyError) setVerifyError('');
+    // Auto-submit the moment 6 digits are present (typed or autofilled).
+    if (digits.length === 6) handleVerify(digits);
   }
 
   if (pendingEmail) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.confirmWrap}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.confirmWrap}>
           <View style={styles.confirmIconWrap}>
             <Ionicons name="mail-outline" size={40} color="#FF6B35" />
           </View>
-          <Text style={styles.title}>Check your email</Text>
-          <Text style={styles.confirmSub}>We sent a confirmation link to</Text>
+          <Text style={styles.title}>Enter your code</Text>
+          <Text style={styles.confirmSub}>We sent a 6-digit code to</Text>
           <Text style={styles.confirmEmail}>{pendingEmail}</Text>
-          <Text style={styles.confirmHint}>
-            Tap the link in that email, then come back here and sign in.
-          </Text>
 
+          <TextInput
+            style={[styles.codeInput, verifyError ? styles.codeInputError : null]}
+            value={otp}
+            onChangeText={onOtpChange}
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
+            maxLength={6}
+            autoFocus
+            editable={!verifying}
+            placeholder="••••••"
+            placeholderTextColor="#333"
+            accessibilityLabel="6-digit verification code"
+            returnKeyType="done"
+            onSubmitEditing={() => handleVerify(otp)}
+          />
+
+          {verifyError ? <Text style={styles.error}>{verifyError}</Text> : null}
           {resendMessage ? <Text style={styles.info}>{resendMessage}</Text> : null}
 
           <TouchableOpacity
-            style={styles.button}
-            onPress={() => navigation.navigate('Login', { email: pendingEmail })}
+            style={[styles.button, (verifying || otp.length !== 6) && styles.buttonDisabled]}
+            onPress={() => handleVerify(otp)}
+            disabled={verifying || otp.length !== 6}
           >
-            <Text style={styles.buttonText}>I've confirmed — Sign in</Text>
+            {verifying ? (
+              <LoadingBrand size="small" color="#fff" />
+            ) : (
+              <Text style={styles.buttonText}>Verify &amp; continue</Text>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity onPress={handleResend} disabled={resendLoading || resendCooldown > 0}>
@@ -129,11 +187,18 @@ export default function SignUpScreen({ navigation }: Props) {
               <LoadingBrand size="small" color="#FF6B35" />
             ) : (
               <Text style={[styles.link, resendCooldown > 0 && styles.linkDisabled]}>
-                {resendCooldown > 0 ? `Resend email (${resendCooldown}s)` : 'Resend email'}
+                {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : 'Resend code'}
               </Text>
             )}
           </TouchableOpacity>
-        </View>
+
+          <TouchableOpacity
+            onPress={() => { setPendingEmail(null); setOtp(''); setVerifyError(''); setResendMessage(''); }}
+            disabled={verifying}
+          >
+            <Text style={styles.useDifferent}>Use a different email</Text>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
@@ -254,6 +319,24 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  buttonDisabled: { opacity: 0.5 },
+  codeInput: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    color: '#FFFFFF',
+    fontSize: 32,
+    fontWeight: '700',
+    letterSpacing: 12,
+    textAlign: 'center',
+    paddingVertical: 16,
+    alignSelf: 'stretch',
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  codeInputError: { borderColor: '#FF3B30' },
+  useDifferent: { color: '#666666', fontWeight: '600', textAlign: 'center', fontSize: 14, marginTop: 4 },
   switchText: { color: '#888888', textAlign: 'center', fontSize: 15 },
   consentText: { color: '#888888', textAlign: 'center', fontSize: 12, lineHeight: 17 },
   consentLink: { color: '#FF6B35', fontWeight: '600' },
