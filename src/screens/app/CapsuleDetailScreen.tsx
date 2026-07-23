@@ -133,7 +133,12 @@ function ProgressRing({ progress, size = 160, stroke = 10, color = '#FF6B35', tr
   );
 }
 
-function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: string | null }) {
+// The ring runs in two phases when the capsule has a `contribution_start_at`:
+// pre-start it counts down to the START date ("Not started yet" / "Starts …"),
+// then at the start moment it flips to the usual unlock countdown ("Capsule
+// locked" / "Unlocks …"). Same visual, different labels. With no start date it's
+// just the unlock countdown as before.
+function CountdownRing({ unlockAt, startAt, createdAt }: { unlockAt: string; startAt?: string | null; createdAt?: string | null }) {
   const { accentColor } = useTheme();
   const [now, setNow] = useState(Date.now());
 
@@ -141,37 +146,52 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
 
   useEffect(() => {
     // Self-rescheduling tick: every second once under a day remains (so the
-    // countdown is live to the second), every minute when further out.
+    // countdown is live to the second), every minute when further out. The
+    // active target is the start date while pre-start, else the unlock date, so
+    // the tick keeps running across the start moment and only stops at unlock.
     let id: ReturnType<typeof setTimeout>;
     const tick = () => {
-      const r = Math.max(0, new Date(unlockAt).getTime() - Date.now());
-      setNow(Date.now());
-      if (r <= 0) return; // unlocked — stop ticking
-      id = setTimeout(tick, r < ONE_DAY ? 1000 : 60_000);
+      const nowMs = Date.now();
+      setNow(nowMs);
+      const startMs = startAt ? new Date(startAt).getTime() : 0;
+      const prestart = !!startAt && startMs > nowMs;
+      const target = prestart ? startMs : new Date(unlockAt).getTime();
+      const r = target - nowMs;
+      if (!prestart && r <= 0) return; // unlocked — stop ticking
+      // r<=0 here means the start moment just passed: tick again promptly so the
+      // phase flips to the unlock countdown.
+      const delay = r <= 0 ? 500 : (r < ONE_DAY ? 1000 : 60_000);
+      id = setTimeout(tick, delay);
     };
     tick();
     return () => clearTimeout(id);
-  }, [unlockAt]);
+  }, [unlockAt, startAt]);
 
-  const unlock = new Date(unlockAt).getTime();
-  const created = createdAt
-    ? new Date(createdAt).getTime()
-    : unlock - 365 * 24 * 60 * 60 * 1000;
-  const remaining = Math.max(0, unlock - now);
-  const progress = (unlock - created) > 0 ? remaining / (unlock - created) : 0;
+  const startMs = startAt ? new Date(startAt).getTime() : 0;
+  const prestart = !!startAt && startMs > now;
+  const target = prestart ? startMs : new Date(unlockAt).getTime();
+  const created = createdAt ? new Date(createdAt).getTime() : null;
+  // Ring is full at the window start and empties toward the target. Pre-start
+  // the window is created→start; once started it's start→unlock (so the ring
+  // resets to full at the start moment and counts down to unlock).
+  const windowStart = prestart
+    ? (created ?? target - 365 * ONE_DAY)
+    : (startAt ? startMs : (created ?? target - 365 * ONE_DAY));
+  const remaining = Math.max(0, target - now);
+  const progress = (target - windowStart) > 0 ? remaining / (target - windowStart) : 0;
 
   const days = Math.floor(remaining / ONE_DAY);
   const hours = Math.floor((remaining % ONE_DAY) / (1000 * 60 * 60));
   const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
   const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
   let timeStr: string;
-  if (remaining <= 0) timeStr = 'Unlocking soon';
+  if (remaining <= 0) timeStr = prestart ? 'Starting soon' : 'Unlocking soon';
   else if (days > 0) timeStr = `${days}d ${hours}h left`;
   else if (hours > 0) timeStr = `${hours}h ${minutes}m ${seconds}s left`;
   else if (minutes > 0) timeStr = `${minutes}m ${seconds}s left`;
   else timeStr = `${seconds}s left`;
 
-  const unlockDateStr = new Date(unlockAt).toLocaleDateString('en-US', {
+  const targetDateStr = new Date(target).toLocaleDateString('en-US', {
     month: 'long', day: 'numeric', year: 'numeric',
   });
 
@@ -183,8 +203,8 @@ function CountdownRing({ unlockAt, createdAt }: { unlockAt: string; createdAt?: 
           <Ionicons name="lock-closed" size={48} color={accentColor} />
         </View>
       </View>
-      <Text style={cds.title}>Capsule locked</Text>
-      <Text style={cds.date}>Unlocks {unlockDateStr}</Text>
+      <Text style={cds.title}>{prestart ? 'Not started yet' : 'Capsule locked'}</Text>
+      <Text style={cds.date}>{prestart ? `Starts ${targetDateStr}` : `Unlocks ${targetDateStr}`}</Text>
       <Text style={[cds.left, { color: accentColor }]}>{timeStr}</Text>
     </View>
   );
@@ -1927,7 +1947,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
           <>
             {capsule.unlock_mode !== 'proximity' && (
               <View ref={countdownTourRef} collapsable={false}>
-                <CountdownRing unlockAt={capsule.unlock_at} createdAt={(capsule as any).created_at} />
+                <CountdownRing unlockAt={capsule.unlock_at} startAt={capsule.contribution_start_at} createdAt={(capsule as any).created_at} />
               </View>
             )}
             {capsule.unlock_mode !== 'time' && (
