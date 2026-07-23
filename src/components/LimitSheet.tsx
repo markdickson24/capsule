@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Animated, Dimensions, Modal, Pressable, StyleSheet, Text, View,
+  AccessibilityInfo, Animated, Dimensions, Modal, PanResponder, Pressable, StyleSheet, Text, View,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,23 +28,43 @@ export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
   const [modalVisible, setModalVisible] = useState(!!config);
   const translateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
+  // Respect the OS "Reduce Motion" setting: snap instead of animate.
+  const [reduceMotion, setReduceMotion] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    AccessibilityInfo.isReduceMotionEnabled().then(v => { if (mounted) setReduceMotion(v); });
+    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion);
+    return () => { mounted = false; sub.remove(); };
+  }, []);
+
+  // useNativeDriver: false throughout — the drag handler below calls
+  // translateY.setValue() (JS thread), which can't safely share a value the
+  // native driver has latched (same rule as CapsuleDetailScreen's members sheet).
   useEffect(() => {
     if (config) {
       setRendered(config);
       setModalVisible(true);
       translateY.setValue(SCREEN_HEIGHT);
-      Animated.spring(translateY, {
-        toValue: 0,
-        friction: 9,
-        tension: 70,
-        useNativeDriver: true,
-      }).start();
+      if (reduceMotion) {
+        translateY.setValue(0);
+      } else {
+        Animated.spring(translateY, {
+          toValue: 0,
+          friction: 9,
+          tension: 70,
+          useNativeDriver: false,
+        }).start();
+      }
     } else if (modalVisible) {
-      Animated.timing(translateY, {
-        toValue: SCREEN_HEIGHT,
-        duration: 220,
-        useNativeDriver: true,
-      }).start(() => setModalVisible(false));
+      if (reduceMotion) {
+        setModalVisible(false);
+      } else {
+        Animated.timing(translateY, {
+          toValue: SCREEN_HEIGHT,
+          duration: 220,
+          useNativeDriver: false,
+        }).start(() => setModalVisible(false));
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config]);
@@ -54,6 +74,23 @@ export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
     outputRange: [1, 0],
     extrapolate: 'clamp',
   });
+
+  // Swipe-down-to-dismiss — makes the drag handle a real affordance, not decoration.
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, g) => g.dy > 6 && g.dy > Math.abs(g.dx),
+      onPanResponderMove: (_, g) => { if (g.dy > 0) translateY.setValue(g.dy); },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > 100 || g.vy > 0.6) {
+          onDismiss(); // the config→null effect animates it the rest of the way out
+        } else {
+          Animated.spring(translateY, {
+            toValue: 0, friction: 9, tension: 70, useNativeDriver: false,
+          }).start();
+        }
+      },
+    }),
+  ).current;
 
   function fire(action: LimitAction) {
     action.onPress();
@@ -69,7 +106,10 @@ export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
           <Animated.View style={[StyleSheet.absoluteFill, { opacity: backdropOpacity }]}>
             <Pressable style={styles.backdrop} onPress={onDismiss} />
           </Animated.View>
-          <Animated.View style={[styles.cardWrap, { transform: [{ translateY }] }]}>
+          <Animated.View
+            style={[styles.cardWrap, { transform: [{ translateY }] }]}
+            {...panResponder.panHandlers}
+          >
             <SafeAreaView edges={['bottom']} style={styles.safeArea}>
               <View style={styles.card}>
                 <View style={styles.handle} />
@@ -92,6 +132,7 @@ export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
                         pressed && styles.actionBtnPressed,
                       ]}
                       onPress={() => fire(action)}
+                      accessibilityRole="button"
                     >
                       <Text
                         style={[

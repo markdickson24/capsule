@@ -1234,6 +1234,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [proNudgeDismissed, setProNudgeDismissed] = useState(true); // hidden until the async read resolves
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
+  // Set true by the export modal's Cancel; exportCapsule polls it per file boundary.
+  const cancelExportRef = useRef(false);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1818,6 +1820,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         return { url: p.signedUrl as string, filename: `${String(i + 1).padStart(3, '0')}.${ext}` };
       });
     if (items.length === 0) { toast.show('Nothing to export yet.'); return; }
+    cancelExportRef.current = false;
     setExportProgress({ done: 0, total: items.length });
     setExporting(true);
     try {
@@ -1825,9 +1828,15 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         title: capsule?.title ?? '',
         items,
         onProgress: (done, total) => setExportProgress({ done, total }),
+        shouldCancel: () => cancelExportRef.current,
       });
     } catch (e: any) {
-      toast.show(e?.message ? `Export failed: ${e.message}` : 'Export failed. Try again.');
+      // A user-initiated cancel (see EXPORT_CANCELLED) isn't a failure — stay silent.
+      if (e?.message === 'export-cancelled') {
+        toast.show('Export canceled.');
+      } else {
+        toast.show(e?.message ? `Export failed: ${e.message}` : 'Export failed. Try again.');
+      }
     } finally {
       setExporting(false);
     }
@@ -1992,7 +2001,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               onPress={() => setInviteNudgeDismissed(true)}
               accessibilityLabel="Dismiss invite prompt"
               accessibilityRole="button"
-              hitSlop={8}
+              hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
             >
               <Ionicons name="close" size={16} color="#888888" />
             </TouchableOpacity>
@@ -2004,7 +2013,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             paywall. Native-only; dismissal persists per-capsule. */}
         {Platform.OS !== 'web' && isOwner && !isPro && capsule.status === 'unlocked' && !proNudgeDismissed && (
           <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
-            <Ionicons name="star" size={22} color={accentColor} />
+            <Ionicons name="sparkles" size={22} color={accentColor} />
             <View style={styles.inviteNudgeTextWrap}>
               <Text style={styles.inviteNudgeTitle}>Keep it forever with Pro</Text>
               <Text style={styles.inviteNudgeSub}>Longer videos and unlimited capsules.</Text>
@@ -2020,7 +2029,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               onPress={dismissProNudge}
               accessibilityLabel="Dismiss Pro upgrade prompt"
               accessibilityRole="button"
-              hitSlop={8}
+              hitSlop={{ top: 14, bottom: 14, left: 14, right: 14 }}
             >
               <Ionicons name="close" size={16} color="#888888" />
             </TouchableOpacity>
@@ -2038,7 +2047,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               <TouchableOpacity
                 onPress={handleExport}
                 disabled={exporting}
-                hitSlop={8}
+                hitSlop={{ top: 14, bottom: 14, left: 10, right: 10 }}
                 style={styles.exportBtn}
                 accessibilityRole="button"
                 accessibilityLabel="Export capsule as zip"
@@ -2442,7 +2451,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         onCancel={() => setShowDeleteConfirm(false)}
       />
 
-      <ExportProgressModal visible={exporting} done={exportProgress.done} total={exportProgress.total} />
+      <ExportProgressModal
+        visible={exporting}
+        done={exportProgress.done}
+        total={exportProgress.total}
+        onCancel={() => { cancelExportRef.current = true; }}
+      />
     </SafeAreaView>
   );
 }
@@ -2536,7 +2550,7 @@ const styles = StyleSheet.create({
   inviteNudgeTextWrap: { flex: 1, gap: 2 },
   inviteNudgeTitle: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   inviteNudgeSub: { fontSize: 12, color: '#AAAAAA', lineHeight: 16 },
-  inviteNudgeBtn: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 9 },
+  inviteNudgeBtn: { borderRadius: 10, paddingHorizontal: 14, minHeight: 44, justifyContent: 'center' },
   inviteNudgeBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   inviteNudgeClose: { padding: 2 },
   // Members bottom sheet
