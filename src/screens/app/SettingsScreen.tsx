@@ -31,6 +31,11 @@ type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 const SUPPORT_EMAIL = 'mark.dickson0824@gmail.com';
 const SUPPORT_URL = `mailto:${SUPPORT_EMAIL}?subject=Capsule%20Support`;
 
+// Community / social links (Community section below).
+const DISCORD_URL = 'https://discord.gg/rgf7dR7FK';
+const INSTAGRAM_URL = 'https://instagram.com/app.capsule';
+const TIKTOK_URL = 'https://tiktok.com/@capsule.photo';
+
 function appVersionLabel(): string {
   const v = Constants.expoConfig?.version ?? Constants.nativeAppVersion ?? '?';
   const b = Constants.nativeBuildVersion ?? '';
@@ -213,6 +218,26 @@ export default function SettingsScreen({ navigation }: Props) {
                 : <Text style={styles.primaryBtnText}>Save Color</Text>
               }
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Community</Text>
+            <Text style={styles.helper}>Join the community, share your capsules, and get the latest.</Text>
+            <SettingsRow
+              icon="logo-discord"
+              label="Join our Discord"
+              onPress={() => Linking.openURL(DISCORD_URL)}
+            />
+            <SettingsRow
+              icon="logo-instagram"
+              label="Instagram"
+              onPress={() => Linking.openURL(INSTAGRAM_URL)}
+            />
+            <SettingsRow
+              icon="logo-tiktok"
+              label="TikTok"
+              onPress={() => Linking.openURL(TIKTOK_URL)}
+            />
           </View>
 
           <View style={styles.section}>
