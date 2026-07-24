@@ -144,7 +144,7 @@ export default function SignUpScreen({ navigation }: Props) {
       <SafeAreaView style={styles.container}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.confirmWrap}>
           <View style={styles.confirmIconWrap}>
-            <Ionicons name="mail-outline" size={40} color="#FF6B35" />
+            <Ionicons name="mail-outline" size={40} color="#FC6A5B" />
           </View>
           <Text style={styles.title}>Enter your code</Text>
           <Text style={styles.confirmSub}>We sent a 6-digit code to</Text>
@@ -184,7 +184,7 @@ export default function SignUpScreen({ navigation }: Props) {
 
           <TouchableOpacity onPress={handleResend} disabled={resendLoading || resendCooldown > 0}>
             {resendLoading ? (
-              <LoadingBrand size="small" color="#FF6B35" />
+              <LoadingBrand size="small" color="#FC6A5B" />
             ) : (
               <Text style={[styles.link, resendCooldown > 0 && styles.linkDisabled]}>
                 {resendCooldown > 0 ? `Resend code (${resendCooldown}s)` : 'Resend code'}
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0A0A0A' },
   inner: { flex: 1, paddingHorizontal: 24, paddingTop: 16, gap: 16 },
   back: { paddingVertical: 8 },
-  backText: { color: '#FF6B35', fontSize: 16 },
+  backText: { color: '#FC6A5B', fontSize: 16 },
   title: { fontSize: 32, fontWeight: '800', color: '#FFFFFF', marginTop: 16 },
   subtitle: { fontSize: 16, color: '#888888' },
   form: { gap: 12, marginTop: 8 },
@@ -312,7 +312,7 @@ const styles = StyleSheet.create({
     borderColor: '#2A2A2A',
   },
   button: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: '#FC6A5B',
     borderRadius: 16,
     paddingVertical: 18,
     alignItems: 'center',
@@ -339,8 +339,8 @@ const styles = StyleSheet.create({
   useDifferent: { color: '#666666', fontWeight: '600', textAlign: 'center', fontSize: 14, marginTop: 4 },
   switchText: { color: '#888888', textAlign: 'center', fontSize: 15 },
   consentText: { color: '#888888', textAlign: 'center', fontSize: 12, lineHeight: 17 },
-  consentLink: { color: '#FF6B35', fontWeight: '600' },
-  link: { color: '#FF6B35', fontWeight: '600', textAlign: 'center', fontSize: 15 },
+  consentLink: { color: '#FC6A5B', fontWeight: '600' },
+  link: { color: '#FC6A5B', fontWeight: '600', textAlign: 'center', fontSize: 15 },
   linkDisabled: { color: '#555555' },
   error: { color: '#FF3B30', textAlign: 'center', fontSize: 14 },
   errorWrap: { gap: 8 },

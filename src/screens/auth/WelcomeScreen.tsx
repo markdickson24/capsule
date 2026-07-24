@@ -58,7 +58,7 @@ export default function WelcomeScreen({ navigation }: Props) {
         </View>
       )}
       <View style={styles.hero}>
-        <Ionicons name="time-outline" size={72} color="#FF6B35" />
+        <Ionicons name="time-outline" size={72} color="#FC6A5B" />
         <Text style={styles.title}>Capsule</Text>
         <Text style={styles.subtitle}>Lock your memories.{'\n'}Unlock the moment.</Text>
       </View>
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   primaryButton: {
-    backgroundColor: '#FF6B35',
+    backgroundColor: '#FC6A5B',
     borderRadius: 16,
     paddingVertical: 18,
     alignItems: 'center',
