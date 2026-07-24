@@ -325,7 +325,13 @@ export default function CreateScreen() {
       // sheet lives on PreviewScreen; here the capsule is already committed and
       // the seal ceremony is about to play, so a silent trim + honest toast is
       // the right call. Fail-open when durationMs is unknown.
-      const cap = limitsForTier(isPro ? 'pro' : 'free').videoSeconds;
+      //
+      // Also fail open while entitlements are unresolved: `isPro` is false both
+      // for a confirmed free account and for one we simply couldn't determine,
+      // and trimming on that guess silently destroys a paying user's footage.
+      // Video length has no server backstop, so the worst case here is one long
+      // clip from a free user — versus irreversible loss for a Pro one.
+      const cap = limitsForTier(isPro || entitlementsLoading ? 'pro' : 'free').videoSeconds;
       const isOver = (m: PendingMedia) =>
         m.mediaType === 'video' && m.durationMs != null && m.durationMs / 1000 > cap;
       const overCount = pendingMedia.filter(isOver).length;

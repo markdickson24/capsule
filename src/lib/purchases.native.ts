@@ -27,6 +27,9 @@ import { reportError } from './sentry';
 // rename the entitlement, e.g. to 'pro'.
 export const PRO_ENTITLEMENT_ID = 'Capsule Pro';
 
+/** Whether a RevenueCat SDK exists on this platform at all (false on web). */
+export const purchasesSupported = true;
+
 function apiKey(): string | undefined {
   return Platform.select({
     ios: process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY,

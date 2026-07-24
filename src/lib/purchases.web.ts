@@ -9,6 +9,13 @@ import type { CustomerInfo, PurchasesOffering, PurchasesPackage } from 'react-na
 
 export const PRO_ENTITLEMENT_ID = 'Capsule Pro';
 
+/**
+ * No RevenueCat SDK on web. Distinguishes "this platform has no opinion" from
+ * "the fetch failed" — both surface as a null CustomerInfo, but only the latter
+ * is worth retrying. See useEntitlements.
+ */
+export const purchasesSupported = false;
+
 export function configurePurchases(): void {}
 export async function identifyUser(_userId: string): Promise<boolean> { return false; }
 export async function resetUser(): Promise<void> {}
