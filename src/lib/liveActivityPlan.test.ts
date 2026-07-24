@@ -57,6 +57,13 @@ assert.equal(
   liveActivityWindowStart(row({ contribution_start_at: new Date(Date.UTC(2026, 6, 24, 8, 0)).toISOString() }))!.toISOString(),
   '2026-07-24T08:00:00.000Z'
 );
+// Garbage contribution_start_at must resolve to null, not silently fall back to created_at.
+assert.equal(liveActivityWindowStart(row({ contribution_start_at: 'not-a-date' })), null);
+// When windowStart is exactly now, the capsule IS in-window.
+assert.equal(
+  liveActivityWindowStart(row({ contribution_start_at: NOW.toISOString() }))!.toISOString(),
+  NOW.toISOString()
+);
 
 // ---- desiredActivities ----
 // Happy path: inside the window, enabled, active.
@@ -93,6 +100,16 @@ assert.equal(desiredActivities([row({ status: 'unlocked' })], NOW).length, 0);
 assert.equal(
   desiredActivities([row({ contribution_lock_at: null, unlock_at: 'garbage' })], NOW).length,
   0
+);
+// Garbage contribution_start_at must exclude the capsule, not silently fall back.
+assert.equal(
+  desiredActivities([row({ contribution_start_at: 'not-a-date' })], NOW).length,
+  0
+);
+// Window boundary: windowStart exactly at now means the capsule IS in-window.
+assert.equal(
+  desiredActivities([row({ contribution_start_at: NOW.toISOString() })], NOW).length,
+  1
 );
 // Multiple capsules: only the eligible ones come back.
 {

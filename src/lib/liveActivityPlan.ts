@@ -63,11 +63,17 @@ export function liveActivityDeadline(row: LiveActivityCapsuleRow): Date | null {
 
 /**
  * Lower bound of the progress bar: when the capsule opened for photos. Falls
- * back to created_at, since a capsule with no start date accepts uploads from
- * the moment it exists.
+ * back to created_at only when contribution_start_at is explicitly null.
+ * If contribution_start_at is provided but invalid, returns null to prevent
+ * garbage data from extending the window earlier than intended.
  */
 export function liveActivityWindowStart(row: LiveActivityCapsuleRow): Date | null {
-  return parseDate(row.contribution_start_at) ?? parseDate(row.created_at);
+  // If contribution_start_at is provided (non-null), use it (or null if invalid).
+  // Only fall back to created_at if contribution_start_at is explicitly null.
+  if (row.contribution_start_at !== null) {
+    return parseDate(row.contribution_start_at);
+  }
+  return parseDate(row.created_at);
 }
 
 /**
