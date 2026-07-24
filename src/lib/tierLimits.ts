@@ -26,3 +26,33 @@ export function limitsForTier(tier: string | null | undefined): TierLimits {
 export function tierFromIsPro(isPro: boolean): Tier {
   return isPro ? 'pro' : 'free';
 }
+
+/**
+ * Resolve UI-level Pro from BOTH sources of truth.
+ *
+ * Pro can exist in two places that legitimately disagree:
+ *   - the RevenueCat entitlement (what the device's SDK has synced), and
+ *   - `users.subscription_tier` (what the webhook wrote, and what every
+ *     server-side gate actually enforces).
+ *
+ * Reading only RevenueCat — which is what this used to do — showed the free UI
+ * to genuinely-Pro users whenever the two diverged: a tier granted server-side
+ * with no purchase behind it (comps, support grants, the App Store reviewer
+ * account), a `getCustomerInfo()` failure at cold start, a `logIn()` that never
+ * landed so the entitlement stayed on the anonymous customer, or web, where the
+ * SDK stub always reports false. Those users were paywalled out of custom
+ * colors, recurring groups, extra capsules and long video.
+ *
+ * So either source alone grants Pro; neither may veto the other. An unresolved
+ * or unrecognised tier is treated as "no signal", never as a revocation.
+ *
+ * Still UI-only. `guard_subscription_tier` makes that column server-writable
+ * only, so this is no weaker than trusting the SDK — but real enforcement stays
+ * server-side either way.
+ */
+export function resolveIsPro(
+  rcEntitlementActive: boolean,
+  dbTier: string | null | undefined,
+): boolean {
+  return rcEntitlementActive || dbTier === 'pro';
+}
