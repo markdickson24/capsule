@@ -233,6 +233,14 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; }
 .guide-list { margin-top: 22px; display: flex; flex-direction: column; gap: 12px; }
 .guide-list li { list-style: none; display: flex; gap: 11px; align-items: flex-start; color: var(--text-2); font-size: 15.5px; }
 .guide-list .tick { color: var(--text-3); font-weight: 700; flex: none; }
+/* Lead answer block on the guide pages — a self-contained definition that reads
+   correctly when lifted out of the page (AI answer engines, featured snippets). */
+.answer-card { background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r-md); padding: 22px 24px; margin-top: 34px; max-width: 40em; }
+.answer-card p { color: var(--text-2); font-size: 16.5px; line-height: 1.6; }
+.answer-card p + p { margin-top: 12px; }
+.answer-card strong { color: var(--text); font-weight: 700; }
+.page-updated { color: var(--text-2); font-size: 13.5px; margin-top: 18px; }
+.qa { margin-top: 8px; }
 .guide-cta { padding: 20px 0 10px; }
 .guide-cta h2 { font-weight: 800; font-size: clamp(24px, 3.2vw, 32px); letter-spacing: -0.015em; }
 .guide-cta p { color: var(--text-2); margin: 10px 0 20px; max-width: 30em; font-size: 15.5px; }

@@ -75,6 +75,12 @@
     <div class="sec-eyebrow">We're here to help</div>
     <h1 class="sec-title" style="max-width:none;">Support</h1>
     <p class="sec-lead">Capsule is built and run by one person — your email goes straight to me, not a ticket queue.</p>
+    <p class="updated">Last updated — July 24, 2026</p>
+    <div class="doc-jump">
+      <a href="#contact">Contact</a>
+      <a href="#common">Common questions</a>
+      <a href="#trouble">Troubleshooting</a>
+    </div>
   </div>
 </header>
 
@@ -82,7 +88,7 @@
 
 <main class="doc">
   <div class="wrap doc-wrap">
-    <section class="doc-block">
+    <section id="contact" class="doc-block">
       <div class="access-note" style="margin-left:0;">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg>
         <div>
@@ -90,6 +96,53 @@
           <span>Bugs, feedback, account help, anything — email <a href="mailto:mark.dickson0824@gmail.com">mark.dickson0824@gmail.com</a> and I'll get back to you, usually within a day.</span>
         </div>
       </div>
+    </section>
+
+    <section id="common" class="doc-block">
+      <h2>Common questions</h2>
+
+      <h3>What is Capsule?</h3>
+      <p>Capsule is an iOS app for time-locked shared photo albums. A group creates a capsule, everyone adds photos and videos while an event is happening, and none of it is visible to anyone until the unlock date arrives — at which point the whole album opens for every member at the same moment. The point is to turn looking at photos back into an event, instead of a camera roll nobody opens again.</p>
+
+      <h3>Can I download Capsule yet?</h3>
+      <p>Not yet. Capsule is in private beta and is not on the App Store or Google Play. <a href="/#get">Joining the waitlist</a> is the way to get access when the next round of invites goes out.</p>
+
+      <h3>Can the person who made the capsule see the photos early?</h3>
+      <p>No. Surprise mode is on by default, and it locks the creator out of the album exactly like everyone else — they can add photos and see how many have been added, but not view any of them. There is deliberately no switch to turn this off once a capsule exists, so nobody can peek right before the reveal.</p>
+
+      <h3>How do people join a capsule?</h3>
+      <p>You can invite someone by name if they already have an account, or share a link or QR code. Opening an invite link joins the capsule directly — no second approval step, because tapping the link is the consent.</p>
+
+      <h3>Does everyone need the app to contribute?</h3>
+      <p>Yes. Photos are added from inside the app, which is what keeps the album sealed until the unlock moment — and it's why an invite link asks you to install Capsule first.</p>
+
+      <h3>What happens when a capsule unlocks?</h3>
+      <p>Every member gets a notification at the same time and the full album becomes visible to all of them at once. Voting on awards also opens at that moment — members pick winners for categories like best photo, anonymously, and the tallies stay hidden until voting closes.</p>
+
+      <h3>Can a capsule unlock when everyone is together instead of on a date?</h3>
+      <p>Yes. A capsule can be set to unlock on a date, or only once every member has checked in within about 100 metres of each other inside a ten-minute window, or both conditions together. The second option is built for reunions where the reveal should happen in the room, not on a calendar.</p>
+
+      <h3>Can I stop people adding photos before the reveal?</h3>
+      <p>Yes — a capsule can have an upload deadline that closes contributions early, and a start date that refuses uploads until an event actually begins. The start date applies to the creator too.</p>
+
+      <h3>What happens to my photos if I delete my account?</h3>
+      <p>Capsules you created are handed off to another member so other people don't lose their own photos, and anything that only you were in is deleted. The full detail is in the <a href="/legal#privacy">Privacy Policy</a>.</p>
+    </section>
+
+    <section id="trouble" class="doc-block">
+      <h2>Troubleshooting</h2>
+
+      <h3>My photos are stuck uploading</h3>
+      <p>Uploads run in the background and retry on their own, but they don't survive the app being force-quit. Reopen the app on the same network and any failed items will show a Retry option on the capsule screen.</p>
+
+      <h3>A capsule didn't unlock at the time I set</h3>
+      <p>Unlocking is handled server-side and can land up to a minute after the exact time. If more than a few minutes have passed, pull to refresh on the capsule — and if it still looks locked, email me with the capsule name.</p>
+
+      <h3>I'm not getting notifications</h3>
+      <p>Notification permission is only requested once, during setup. If it was declined, it has to be re-enabled in iOS Settings under Notifications for Capsule.</p>
+
+      <h3>Did my waitlist sign-up work?</h3>
+      <p>The form confirms on screen the moment it succeeds — that message is the confirmation, so don't wait on an email to know it worked. If you saw an error instead, email me directly and I'll add you by hand.</p>
     </section>
   </div>
 </main>
