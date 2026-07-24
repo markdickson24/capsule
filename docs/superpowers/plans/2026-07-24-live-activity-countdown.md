@@ -802,7 +802,9 @@ Run: `grep -c "CapsuleLiveActivity" ios/Capsule.xcodeproj/project.pbxproj`
 Expected: a non-zero count.
 
 Run: `grep -c "CapsuleActivityAttributes" ios/Capsule.xcodeproj/project.pbxproj`
-Expected: at least 2 references (one per target). **If this is 1, the shared-type wiring is wrong** — the app target can't construct the type and `start()` will fail at runtime. Fix before continuing: confirm Task 4's podspec `source_files` glob covers `CapsuleActivityAttributes.swift`.
+Expected at THIS task: **at least 1** — the widget extension's reference only. The app target's copy arrives with Task 4's podspec, which does not exist yet, so 1 is correct here and 0 means the widget target isn't picking up its own sources.
+
+The **≥2** check (both targets) belongs to Task 4 Step 5, after the podspec exists. Do not expect 2 yet.
 
 - [ ] **Step 11: Commit**
 
@@ -1067,6 +1069,11 @@ Expected: no new errors.
 
 Run: `npx expo prebuild --platform ios --clean && grep -c "ExpoLiveActivity" ios/Podfile.lock`
 Expected: non-zero — the local pod is autolinked.
+
+Now the shared-type check that Task 3 deferred:
+
+Run: `grep -c "CapsuleActivityAttributes" ios/Capsule.xcodeproj/project.pbxproj`
+Expected: **at least 2** — the widget extension's reference plus the app target's, the latter arriving via this task's podspec `source_files` glob. **If it is still 1, the shared-type wiring is broken**: the app target cannot construct `CapsuleActivityAttributes`, so `Activity.request` has no matching type and `start()` fails at runtime with no compile-time error. Do not finish this task on 1 — confirm the podspec glob actually covers `CapsuleActivityAttributes.swift` (it sits in the same `ios/` directory as the module, so `**/*.{h,m,swift}` should match it) and that the pod is being built for the app target.
 
 - [ ] **Step 6: Commit**
 
