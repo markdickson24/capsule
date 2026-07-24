@@ -42,10 +42,17 @@ function RootNavigator() {
   return session ? <AppNavigator /> : <AuthNavigator />;
 }
 
-const linking = {
-  prefixes: ['capsule://'],
-};
-
+// No `linking` prop on NavigationContainer, deliberately. `useDeepLinks` owns
+// every capsule:// URL via its own Linking listener + getInitialURL, and routes
+// through navigationRef. Passing `prefixes` here made React Navigation a SECOND
+// consumer of the same URLs — and with no `config` it auto-derives screen names
+// from path segments, so `capsule://capsule/<id>/camera` became a navigate to a
+// screen literally named "capsule":
+//   The action 'NAVIGATE' with payload {"name":"capsule",...} was not handled
+//   by any navigator. Do you have a screen named 'capsule'?
+// Every shape hit this (join/<id>, reset-password/, capsule/<id>) — the Live
+// Activity tap just surfaced it first. Adding a `config` instead would fix the
+// parse but leave two things navigating for one tap.
 function App() {
   return (
     <ShareIntentProvider>
@@ -57,7 +64,6 @@ function App() {
           <TourProvider>
             <NavigationContainer
               ref={navigationRef}
-              linking={linking}
               onReady={() => navigationIntegration.registerNavigationContainer(navigationRef)}
             >
               <StatusBar style="light" />

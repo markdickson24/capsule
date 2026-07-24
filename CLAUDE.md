@@ -168,7 +168,16 @@ Tab `Create` accepts optional `{ presetTitle, presetDescription, pendingMedia }`
 - `capsule://join/<capsuleId>` — inserts a **joined** `capsule_members` row (`joined_at` set) if not already a member, then navigates straight into `CapsuleDetail`. Opening the link IS the consent act, so this is a real join, not a pending invite — there's no second "Accept" step. No client-side `notifications` insert (there's no INSERT policy for it — always errored silently); the `notify_on_invite` trigger already fires off the `capsule_members` insert. **Signed-out taps are stashed, not dropped**: `useDeepLinks(session)` (the hook takes the session from `App.tsx`) writes the pending capsule id to `src/lib/pendingJoinStash.ts` (same module-level idiom as `shareIntentStash`) and a `useEffect` on session presence drains it after sign-in, running the same join+navigate.
 - `capsule://reset-password#access_token=...&refresh_token=...` — calls `supabase.auth.setSession()` with tokens from the URL fragment, then navigates to `ResetPassword` screen.
 
-The scheme `capsule://` is registered in `app.json`. `NavigationContainer` also receives a `linking={{ prefixes: ['capsule://'] }}` prop. **Custom URL schemes only work in native builds, not Expo Go.**
+The scheme `capsule://` is registered in `app.json`. **Custom URL schemes only work in native builds, not Expo Go.**
+
+⚠️ **`NavigationContainer` deliberately has NO `linking` prop — don't add one.** `useDeepLinks` owns every `capsule://` URL through its own `Linking.addEventListener` + `getInitialURL`, routing via `navigationRef`. It used to also carry `linking={{ prefixes: ['capsule://'] }}`, which made React Navigation a *second* consumer of the same URLs; with no `config`, React Navigation auto-derives screen names from path segments, so `capsule://capsule/<id>/camera` became a navigate to a screen literally named `capsule`:
+
+```
+The action 'NAVIGATE' with payload {"name":"capsule","params":{"screen":"<uuid>", ...}}
+was not handled by any navigator. Do you have a screen named 'capsule'?
+```
+
+Every shape hit this (`join/<id>`, `reset-password`, `capsule/<id>`) — it stayed unnoticed because it's a dev-only warning and `useDeepLinks` still navigated correctly underneath. Adding a `config` would fix the parse but leave two navigators reacting to one tap; one owner is the point.
 
 **QR scan-to-join** — owners show a QR encoding `capsule://join/<id>` (InviteModal in `CapsuleDetailScreen`); `QRScannerScreen` (Home → Scan QR) scans it. The pre-join preview (title/owner/member-count) **must** come from the `capsule_join_preview(p_capsule_id)` SECURITY DEFINER RPC, **not** a direct `capsules` select — the `capsules` SELECT policy is membership-gated, so a non-member (i.e. anyone scanning to join) can't read the row directly and the scanner would wrongly report "doesn't exist or expired." The RPC returns only minimal non-sensitive fields, gated by possession of the (unguessable) capsule UUID. The join INSERT itself is allowed for self-join (`can_insert_capsule_member` returns true when `p_user_id = auth.uid()`). Tapping "Accept Invite" joins immediately (`joined_at` set, same reasoning as the deep-link case above) and navigates into the capsule — not to Notifications. On an invalid/unrecognized QR or a lookup that comes back empty, no confirmation sheet renders, so the scanner explicitly re-arms itself (`setScanned(false)` after ~2s) — otherwise `onBarcodeScanned` stays `undefined` forever and the camera can never scan again despite the "Try again" copy.
 
