@@ -3,8 +3,8 @@
 // Pure data + parsing — no network, importable anywhere (incl. Settings).
 
 export const ACCENT_PRESETS: string[] = [
-  '#FC6A5B', // brand pink/red
-  '#FF6B35', // classic orange (default)
+  '#FC6A5B', // brand reddish-coral (default — matches the website)
+  '#FF6B35', // classic orange
   '#FF3B7F', // magenta
   '#F5A623', // amber
   '#30D158', // green

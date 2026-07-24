@@ -238,7 +238,7 @@ Defined in `supabase-schema.sql`.
 
 | Table | Key columns |
 |---|---|
-| `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FF6B35'), accent_gradient (nullable text `"#a,#b"`, null = solid — Pro-only cosmetic, see "Theme System"), home_layout (list/grid, default 'list'), onboarded_at (null = needs wizard), created_at |
+| `users` | id, email, display_name, bio (max 80 chars), avatar_url, push_token, auth_provider, subscription_tier, accent_color (default '#FC6A5B' — brand reddish-coral, matches the website; was '#FF6B35', existing users un-migrated), accent_gradient (nullable text `"#a,#b"`, null = solid — Pro-only cosmetic, see "Theme System"), home_layout (list/grid, default 'list'), onboarded_at (null = needs wizard), created_at |
 | `capsules` | id, owner_id, title, description, unlock_at, contribution_lock_at, status (draft/active/unlocked), visibility (private/invite), created_at, archived_at (null = active), unlock_mode (time/proximity/both), proximity_radius_m (default 100), unlocked_at, superlative_voting_hours (default 48), superlative_voting_closes_at, superlative_voting_finalized_at, superlative_closing_soon_sent_at, owner_preview_locked (default true — surprise mode), occasion (wedding/vacation/party/baby/milestone/general, default 'general' — drives the default-awards theme), contribution_start_at (nullable — mirror of contribution_lock_at; **nobody, owner included, can upload before it**, see "Capsule Start Date"), contribution_start_notified_at (nullable — dedupe stamp set once the capsule-started push has fired) |
 | `capsule_members` | id, capsule_id, user_id, role (owner/contributor/viewer), invited_at, joined_at (null = pending), archived_at (per-member "hide from my feed" flag — see Archive below), checkin_lat, checkin_lng, checkin_at, contribution_nudge_7d_sent_at / _3d_sent_at / _1d_sent_at (nullable — per-tier dedupe stamps, see "Contribution Nudges") |
 | `media` | id, capsule_id, uploader_id, storage_key, media_type (photo/video), size_bytes, thumbnail_key, uploaded_at, is_flagged |
@@ -478,7 +478,7 @@ Dark theme throughout.
 
 | Token | Value |
 |---|---|
-| Primary (accent) | `accentColor` from `useTheme()` — default `#FF6B35` |
+| Primary (accent) | `accentColor` from `useTheme()` — default `#FC6A5B` (brand reddish-coral; static `#FF6B35` fallbacks remain in `StyleSheet.create` blocks and auth screens) |
 | Background | `#0A0A0A` |
 | Surface | `#1A1A1A` |
 | Border | `#2A2A2A` |
