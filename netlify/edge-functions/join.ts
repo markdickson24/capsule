@@ -56,7 +56,18 @@ async function fetchPreview(capsuleId: string): Promise<PreviewResult> {
   // /join/* request returned a raw 500 — taking out the QR code, the
   // CapsuleDetail share sheet and the Onboarding share all at once.
   if (!url || !key) {
-    return { kind: "unavailable", reason: "supabase env not configured for edge functions" };
+    // Name exactly what's missing: these are set in the Netlify dashboard, and
+    // Edge Functions read a different scope than Functions — a variable can be
+    // present in the UI and still be invisible here. Spelling that out in the
+    // log saves rediscovering it.
+    const missing = [
+      !url ? "SUPABASE_URL" : null,
+      !key ? "SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY)" : null,
+    ].filter(Boolean).join(" + ");
+    return {
+      kind: "unavailable",
+      reason: `missing ${missing} — set them in Netlify env vars with the Edge Functions scope enabled`,
+    };
   }
 
   try {
