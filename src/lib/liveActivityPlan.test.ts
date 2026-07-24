@@ -147,5 +147,15 @@ assert.equal(
   const r = reconcileActivities([], ['x', 'x']);
   assert.deepEqual(r.toEnd, ['x']);
 }
+// Sign-out guarantee: no signed-in user means the caller passes desired=[]
+// (rows never fetched), which must route every currently-running activity
+// into toEnd regardless of how many are running — this is what stops a
+// stale capsule card from lingering on the lock screen after sign-out.
+{
+  const r = reconcileActivities([], ['p', 'q', 'r']);
+  assert.deepEqual(r.toEnd, ['p', 'q', 'r']);
+  assert.equal(r.toStart.length, 0);
+  assert.equal(r.alreadyRunning.length, 0);
+}
 
 console.log('liveActivityPlan tests passed');
