@@ -27,6 +27,7 @@ import { limitsForTier } from '../../lib/tierLimits';
 import { proGateHit } from '../../lib/proGate';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { trimVideo } from '../../../modules/expo-video-stitcher';
+import { isLiveActivitySupported } from '../../../modules/expo-live-activity';
 
 const UNLOCK_MODES: { mode: UnlockMode; label: string }[] = [
   { mode: 'time', label: 'Date' },
@@ -72,6 +73,11 @@ export default function CreateScreen() {
   const [votingHours, setVotingHours] = useState(48);
   const [hideFromMe, setHideFromMe] = useState(true);
   const [occasion, setOccasion] = useState<OccasionKey>('general');
+  // Live Activity countdown. Defaults on — the feature's value is being
+  // present during the event without anyone hunting for a setting, and iOS
+  // still asks the user for permission the first time one starts.
+  const [liveActivity, setLiveActivity] = useState(true);
+  const liveActivitySupported = isLiveActivitySupported();
   const [loading, setLoading] = useState(false);
   // UX_POLISH.md #4 — shown after a successful create, before navigating in.
   const [sealedVisible, setSealedVisible] = useState(false);
@@ -107,7 +113,14 @@ export default function CreateScreen() {
   }
 
   const occasionLabel = OCCASIONS.find(o => o.key === occasion)?.label ?? 'General';
-  const advancedSummary = `${occasionLabel} · ${votingHours}h voting · Surprise ${hideFromMe ? 'on' : 'off'}`;
+  const advancedSummary = [
+    occasionLabel,
+    `${votingHours}h voting`,
+    `Surprise ${hideFromMe ? 'on' : 'off'}`,
+    // Only mentioned when the platform can actually do it, so the summary
+    // never advertises something the device won't show.
+    ...(liveActivitySupported ? [`Live countdown ${liveActivity ? 'on' : 'off'}`] : []),
+  ].join(' · ');
 
   async function handleCreate() {
     setErrors({});
@@ -222,6 +235,7 @@ export default function CreateScreen() {
       p_visibility: 'invite',
       p_group_id: groupId ?? null,
       p_contribution_start_at: startDate?.toISOString() ?? null,
+      p_live_activity_enabled: liveActivity,
     });
 
     if (capsuleError || !capsuleId) {
@@ -589,6 +603,29 @@ export default function CreateScreen() {
                   />
                 </View>
               </View>
+
+              {liveActivitySupported && (
+                <View style={styles.section}>
+                  <Text style={styles.label}>Live countdown</Text>
+                  <View style={styles.surpriseRow}>
+                    <View style={styles.surpriseTextWrap}>
+                      <Text style={styles.surpriseTitle}>Show on the lock screen</Text>
+                      <Text style={styles.surpriseSub}>
+                        {liveActivity
+                          ? 'While this capsule is open for photos, members see a live countdown and a camera button on their lock screen.'
+                          : "Members won't see a lock screen countdown for this capsule."}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={liveActivity}
+                      onValueChange={setLiveActivity}
+                      trackColor={{ false: '#2A2A2A', true: accentColor }}
+                      thumbColor="#FFFFFF"
+                      ios_backgroundColor="#2A2A2A"
+                    />
+                  </View>
+                </View>
+              )}
             </View>
           )}
         </View>
