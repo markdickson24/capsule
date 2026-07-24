@@ -27,6 +27,40 @@ private func colorFromHex(_ hex: String) -> Color {
   )
 }
 
+// Countdown display that stays inside the space the Dynamic Island and lock
+// screen actually give it.
+//
+// `Text(timerInterval:)` renders elapsed-style HH:MM:SS with no day rollover, so
+// a month-long window reads "742:55:38" and clips. Capsule windows are usually
+// weeks or months, so hours-since-epoch is both unreadable and the common case.
+//
+// Above a day, show whole days — that's the granularity anyone actually acts on
+// when a capsule locks in a month. Under a day, hand back to the ticking timer,
+// where seconds genuinely matter and HH:MM:SS comfortably fits.
+//
+// The day count is computed at render rather than self-updating. That's fine at
+// this granularity: iOS ends a Live Activity after ~8h and the reconcile pass
+// re-starts it, and update() runs on every foreground — so it re-renders far
+// more often than once a day. Under 24h it switches to a self-ticking timer, so
+// the precision that matters is never stale.
+@available(iOS 16.2, *)
+@ViewBuilder
+private func countdownLabel(
+  windowStart: Date,
+  deadline: Date
+) -> some View {
+  let remaining = deadline.timeIntervalSinceNow
+  if remaining > 86_400 {
+    // ceil so "1d left" covers the final 24h rather than showing "0d".
+    Text("\(Int(ceil(remaining / 86_400)))d left")
+  } else {
+    // Range stays windowStart...deadline, never Date()...deadline — a live
+    // lower bound traps the extension the moment the deadline passes.
+    Text(timerInterval: windowStart...deadline, countsDown: true)
+      .monospacedDigit()
+  }
+}
+
 @available(iOS 16.2, *)
 struct CapsuleLiveActivityView: View {
   let context: ActivityViewContext<CapsuleActivityAttributes>
@@ -61,8 +95,10 @@ struct CapsuleLiveActivityView: View {
         // counts down to upperBound regardless of where the interval began.
         HStack(spacing: 4) {
           Image(systemName: "clock")
-          Text(timerInterval: context.attributes.windowStart...context.attributes.deadline, countsDown: true)
-            .monospacedDigit()
+          countdownLabel(
+            windowStart: context.attributes.windowStart,
+            deadline: context.attributes.deadline
+          )
         }
         .font(.subheadline)
         .foregroundStyle(.white.opacity(0.85))
@@ -126,17 +162,24 @@ struct CapsuleLiveActivity: Widget {
           // entirely — it existed only in compactTrailing and on the lock
           // screen, so expanding (the deliberate "tell me more" gesture) showed
           // strictly less information than the collapsed pill it came from.
-          Text(timerInterval: context.attributes.windowStart...context.attributes.deadline, countsDown: true)
-            .monospacedDigit()
-            .font(.caption)
-            .multilineTextAlignment(.trailing)
-            .foregroundStyle(.white)
-            .accessibilityLabel("Time left to add photos")
+          countdownLabel(
+            windowStart: context.attributes.windowStart,
+            deadline: context.attributes.deadline
+          )
+          .font(.caption)
+          .lineLimit(1)
+          .minimumScaleFactor(0.8)
+          .multilineTextAlignment(.trailing)
+          .foregroundStyle(.white)
+          .accessibilityLabel("Time left to add photos")
         }
         DynamicIslandExpandedRegion(.center) {
           Text(context.attributes.title)
             .font(.headline)
             .lineLimit(1)
+            // Capsule titles are user-supplied and the centre region is narrow;
+            // shrink a little before truncating.
+            .minimumScaleFactor(0.75)
             .foregroundStyle(.white)
         }
         DynamicIslandExpandedRegion(.bottom) {
