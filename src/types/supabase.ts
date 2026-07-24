@@ -12,6 +12,17 @@
 // OnboardingScreen.tsx both pass null through p_contribution_lock_at/
 // p_description/p_group_id; CreateScreen.tsx also passes null through
 // p_contribution_start_at when no Start Date is set.
+//
+// EXCEPTION 2: create_group_with_creator's Args (p_anchor_day,
+// p_anchor_day_of_month, p_anchor_hour, p_anchor_minute, p_anchor_month,
+// p_anchor_weekday, p_next_capsule_at, p_reminder_lead_hours) need the same
+// `| null` hand-restored — same root cause (all DEFAULT NULL, no STRICT, see
+// supabase/migrations/20260718091000_create_group_with_creator.sql).
+// src/lib/groups.ts's createGroup() passes literal `null` through several of
+// these (e.g. `p_anchor_weekday: !isManual ? params.anchor?.weekday ?? null : null`),
+// which only surfaced as a fresh `tsc` regression during the 2026-07-24
+// live-activity-countdown regeneration — the generator's output for this
+// function apparently was not always missing the nullability before.
 
 export type Json =
   | string
@@ -75,6 +86,7 @@ export type Database = {
           id: string
           invited_at: string
           joined_at: string | null
+          live_activity_override: boolean | null
           role: string
           user_id: string
         }
@@ -90,6 +102,7 @@ export type Database = {
           id?: string
           invited_at?: string
           joined_at?: string | null
+          live_activity_override?: boolean | null
           role: string
           user_id: string
         }
@@ -105,6 +118,7 @@ export type Database = {
           id?: string
           invited_at?: string
           joined_at?: string | null
+          live_activity_override?: boolean | null
           role?: string
           user_id?: string
         }
@@ -135,6 +149,7 @@ export type Database = {
           description: string | null
           group_id: string | null
           id: string
+          live_activity_enabled: boolean
           occasion: string
           owner_id: string
           owner_preview_locked: boolean
@@ -162,6 +177,7 @@ export type Database = {
           description?: string | null
           group_id?: string | null
           id?: string
+          live_activity_enabled?: boolean
           occasion?: string
           owner_id: string
           owner_preview_locked?: boolean
@@ -189,6 +205,7 @@ export type Database = {
           description?: string | null
           group_id?: string | null
           id?: string
+          live_activity_enabled?: boolean
           occasion?: string
           owner_id?: string
           owner_preview_locked?: boolean
@@ -932,6 +949,7 @@ export type Database = {
           p_contribution_start_at?: string | null
           p_description: string | null
           p_group_id?: string | null
+          p_live_activity_enabled?: boolean
           p_occasion: string
           p_owner_preview_locked: boolean
           p_superlative_voting_hours: number
@@ -973,6 +991,7 @@ export type Database = {
       }
       get_my_capsule_ids: { Args: never; Returns: string[] }
       get_my_group_ids: { Args: never; Returns: string[] }
+      get_report_digest_admin: { Args: never; Returns: string }
       is_group_creator: { Args: { p_group_id: string }; Returns: boolean }
       set_capsule_archived: {
         Args: { p_archived: boolean; p_capsule_id: string }

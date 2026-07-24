@@ -1,0 +1,1 @@
+../../modules/expo-live-activity/ios/CapsuleActivityAttributes.swift

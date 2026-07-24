@@ -8,7 +8,7 @@ import { useUploadTasks } from '../../hooks/useUploadTasks';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
   TouchableOpacity, Modal, TextInput, Keyboard,
-  Share, Platform, Dimensions, Animated, PanResponder, FlatList, AppState,
+  Share, Platform, Dimensions, Animated, PanResponder, FlatList, AppState, Switch,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import ViewShot from 'react-native-view-shot';
@@ -56,6 +56,8 @@ import { useSlideUp, useFadeIn } from '../../lib/animations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall } from '../../lib/purchases';
+import { reportError } from '../../lib/sentry';
+import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -67,6 +69,8 @@ type MemberRow = {
   archived_at: string | null;
   /** Last proximity check-in time (null = never); check-ins expire after 10 min. */
   checkin_at: string | null;
+  /** Per-device Live Activity override for this member (null = inherit capsules.live_activity_enabled). */
+  live_activity_override?: boolean | null;
   users: { display_name: string; avatar_url: string | null } | null;
 };
 
@@ -1293,6 +1297,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
   // Set true by the export modal's Cancel; exportCapsule polls it per file boundary.
   const cancelExportRef = useRef(false);
+  // Monotonic write-generation guard for handleToggleLiveActivity: two
+  // in-flight toggle writes (a rapid double-tap of the Switch) can resolve
+  // out of order over the network even though JS is single-threaded — the
+  // second (later-intent) request can settle before the first. Each
+  // invocation snapshots this counter; only the invocation whose snapshot
+  // still matches the live counter when its write resolves is allowed to
+  // act on the result (restore-on-error, cache invalidate). A superseded
+  // write's result is discarded rather than clobbering the newer intent.
+  // Mirrors uploadQueue.ts's cacheGeneration / useLiveActivities.ts's
+  // generationRef.
+  const liveActivityGenRef = useRef(0);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1603,10 +1618,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // capsule/members result, so run it in the same wave instead of
     // awaiting it afterward.
     const [capsuleRes, membersRes] = await Promise.all([
-      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at, owner:users!capsules_owner_id_fkey(subscription_tier)').eq('id', capsuleId).single(),
+      supabase.from('capsules').select('id, owner_id, title, description, status, unlock_at, unlock_mode, owner_preview_locked, contribution_lock_at, contribution_start_at, created_at, archived_at, occasion, superlative_voting_closes_at, superlative_voting_finalized_at, live_activity_enabled, owner:users!capsules_owner_id_fkey(subscription_tier)').eq('id', capsuleId).single(),
       supabase
         .from('capsule_members')
-        .select('user_id, role, joined_at, archived_at, checkin_at, users(display_name, avatar_url)')
+        .select('user_id, role, joined_at, archived_at, checkin_at, live_activity_override, users(display_name, avatar_url)')
         .eq('capsule_id', capsuleId),
       fetchPhotos(),
     ]);
@@ -1901,6 +1916,103 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     : false;
   const canUpload = !notStartedYet && (isOwner || (myRole === 'contributor' && !contributionLocked));
   const existingMemberIds = members.map(m => m.user_id);
+
+  const liveActivitySupported = isLiveActivitySupported();
+  // The capsule is "live" exactly when it's inside its contribution window —
+  // the same window the Live Activity itself runs for.
+  const deadlineRaw = capsule.contribution_lock_at ?? capsule.unlock_at;
+  const liveActivityWindowOpen =
+    !notStartedYet &&
+    capsule.status !== 'unlocked' &&
+    !!deadlineRaw &&
+    new Date(deadlineRaw) > new Date();
+  const liveActivityOn =
+    myMember?.live_activity_override ?? capsule.live_activity_enabled ?? false;
+
+  // Writes the caller's own per-member override. This is the single choke
+  // point for the setting, so a tier gate could later be added here alone.
+  async function handleToggleLiveActivity(next: boolean) {
+    if (!currentUserId) return;
+    // Narrows `capsule` for the rest of this (nested) function — TS control
+    // flow narrowing from the top-level `if (!capsule) return` guard above
+    // doesn't cross into a nested function's closure, even though this
+    // handler can only ever be invoked while that guard has already passed
+    // (the Switch it's wired to only renders once `capsule` is set).
+    if (!capsule) return;
+    const previous = myMember?.live_activity_override ?? null;
+
+    // Optimistic — snapshot, apply, write, restore + toast on failure.
+    setMembers(prev =>
+      prev.map(m => (m.user_id === currentUserId ? { ...m, live_activity_override: next } : m))
+    );
+
+    // Turning it off should clear the card now, not at the next reconcile.
+    if (!next) {
+      endLiveActivity(capsuleId, true).catch(err =>
+        reportError(err, { where: 'CapsuleDetail.endLiveActivity' })
+      );
+    }
+
+    // Turning it on should show the card now, not wait for the next mount/
+    // foreground reconcile — mirrors the OFF branch above exactly. This
+    // handler only runs when the row is rendered, which already requires
+    // liveActivityWindowOpen, so no eligibility/window logic is duplicated
+    // here (see FIX 4 in the final review). Fire-and-forget, same as OFF.
+    if (next) {
+      startLiveActivity({
+        capsuleId,
+        title: capsule.title,
+        accentHex: accentColor,
+        windowStartMs: new Date(capsule.contribution_start_at ?? (capsule as any).created_at).getTime(),
+        deadlineMs: new Date(deadlineRaw!).getTime(),
+        photoCount: mediaCount,
+        memberCount: members.filter(m => m.joined_at !== null).length,
+      }).catch(err =>
+        reportError(err, { where: 'CapsuleDetail.startLiveActivity' })
+      );
+    }
+
+    // Snapshot the write generation. Two in-flight writes from a rapid
+    // double-tap of the Switch can resolve out of order over the network —
+    // JS single-threadedness only rules out a same-tick race, not two
+    // already-in-flight requests completing in reverse order. If a newer
+    // toggle has since started (myGeneration no longer matches the live
+    // counter when this write resolves), this invocation's result is stale:
+    // it must not restore state or invalidate cache on behalf of an intent
+    // the user has already replaced. Mirrors uploadQueue.ts's
+    // cacheGeneration guard.
+    const myGeneration = ++liveActivityGenRef.current;
+
+    const { error } = await supabase
+      .from('capsule_members')
+      // Only live_activity_override is written here. capsule_members has no
+      // table-wide UPDATE grant (July 2026 audit hardening) — the column grant
+      // added in this feature's migration is what makes this write legal.
+      .update({ live_activity_override: next })
+      .eq('capsule_id', capsuleId)
+      .eq('user_id', currentUserId);
+
+    if (liveActivityGenRef.current !== myGeneration) {
+      // Superseded by a later toggle. The user has already expressed a
+      // newer intent — restoring `previous` here or toasting about this
+      // stale request would clobber/confuse them over something they've
+      // already changed their mind about. Still worth a silent report if
+      // the write actually failed, since it's otherwise an error nobody
+      // ever sees.
+      if (error) reportError(error, { where: 'CapsuleDetail.handleToggleLiveActivity.superseded' });
+      return;
+    }
+
+    if (error) {
+      setMembers(prev =>
+        prev.map(m => (m.user_id === currentUserId ? { ...m, live_activity_override: previous } : m))
+      );
+      toast.show("Couldn't save that — try again.");
+      return;
+    }
+
+    cache.invalidate(`capsule:${capsuleId}`);
+  }
 
   async function handleExport() {
     if (ownerTier !== 'pro') {
@@ -2284,6 +2396,34 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               Capsule starts {new Date(capsule.contribution_start_at!).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </Text>
             <Text style={styles.startsHint}>Media can be added once it starts</Text>
+          </View>
+        )}
+
+        {/* Lock-screen countdown, shown only while this capsule is actually
+            live — that's when the setting is meaningful and discoverable. */}
+        {liveActivitySupported && liveActivityWindowOpen && (
+          <View style={styles.liveActivityRow}>
+            <Ionicons
+              name="phone-portrait-outline"
+              size={20}
+              color={liveActivityOn ? accentColor : '#555555'}
+            />
+            <View style={styles.liveActivityTextWrap}>
+              <Text style={styles.liveActivityTitle}>Lock screen countdown</Text>
+              <Text style={styles.liveActivitySub}>
+                {liveActivityOn
+                  ? 'Time left to add photos shows on your lock screen.'
+                  : 'Off for this capsule on this phone.'}
+              </Text>
+            </View>
+            <Switch
+              value={liveActivityOn}
+              onValueChange={handleToggleLiveActivity}
+              accessibilityLabel="Lock screen countdown"
+              trackColor={{ false: '#2A2A2A', true: accentColor }}
+              thumbColor="#FFFFFF"
+              ios_backgroundColor="#2A2A2A"
+            />
           </View>
         )}
 
@@ -2705,6 +2845,22 @@ const styles = StyleSheet.create({
   },
   startsText: { fontSize: 15, color: '#888888', textAlign: 'center', fontWeight: '600' },
   startsHint: { fontSize: 13, color: '#888888', textAlign: 'center' },
+  liveActivityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#1A1A1A',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    borderRadius: 16,
+    padding: 16,
+    marginTop: 16,
+  },
+  liveActivityTextWrap: { flex: 1, gap: 3 },
+  liveActivityTitle: { fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
+  // #888888, not #555555 — this is content the user reads, so it must pass
+  // WCAG AA on #0A0A0A (see the Design System note in CLAUDE.md).
+  liveActivitySub: { fontSize: 13, color: '#888888', lineHeight: 18 },
   uploadArea: { gap: 10 },
   uploadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 4 },
   uploadingCol: { gap: 10, alignSelf: 'stretch' },

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TextInput,
-  TouchableOpacity, ScrollView,
+  TouchableOpacity, ScrollView, Switch,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -20,6 +20,7 @@ import ConfirmModal from '../../components/ConfirmModal';
 import SkeletonBox, { SkeletonFormField } from '../../components/Skeleton';
 import RetryPrompt from '../../components/RetryPrompt';
 import { useLoadingTimeout } from '../../hooks/useLoadingTimeout';
+import { isLiveActivitySupported } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'EditCapsule'>;
 
@@ -45,6 +46,8 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [unlockMode, setUnlockMode] = useState<UnlockMode>('time');
   const [votingHours, setVotingHours] = useState(48);
+  const [liveActivity, setLiveActivity] = useState(true);
+  const liveActivitySupported = isLiveActivitySupported();
   const [fetching, setFetching] = useState(true);
   const [saving, setSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -58,7 +61,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
 
     const { data, error: err } = await supabase
       .from('capsules')
-      .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, contribution_start_at, unlock_mode, superlative_voting_hours')
+      .select('id, owner_id, title, description, status, unlock_at, contribution_lock_at, contribution_start_at, unlock_mode, superlative_voting_hours, live_activity_enabled')
       .eq('id', capsuleId)
       .single();
 
@@ -77,6 +80,9 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
     );
     setUnlockMode((data as any).unlock_mode ?? 'time');
     setVotingHours((data as any).superlative_voting_hours ?? 48);
+    setLiveActivity(
+      typeof (data as any).live_activity_enabled === 'boolean' ? (data as any).live_activity_enabled : true
+    );
     setFetching(false);
   }, [capsuleId, navigation]);
 
@@ -127,6 +133,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         contribution_start_at: startDate?.toISOString() ?? null,
         unlock_mode: unlockMode,
         superlative_voting_hours: votingHours,
+        live_activity_enabled: liveActivity,
       })
       .eq('id', capsuleId);
     setSaving(false);
@@ -278,6 +285,26 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
 
         <VotingWindowPicker value={votingHours} onChange={setVotingHours} />
+
+        {liveActivitySupported && (
+          <View style={styles.section}>
+            <Text style={styles.label}>Live countdown</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Text style={[styles.modeHint, { flex: 1 }]}>
+                {liveActivity
+                  ? 'Members see a live countdown and camera button on their lock screen while this capsule is open for photos.'
+                  : "No lock screen countdown for this capsule."}
+              </Text>
+              <Switch
+                value={liveActivity}
+                onValueChange={setLiveActivity}
+                trackColor={{ false: '#2A2A2A', true: accentColor }}
+                thumbColor="#FFFFFF"
+                ios_backgroundColor="#2A2A2A"
+              />
+            </View>
+          </View>
+        )}
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 

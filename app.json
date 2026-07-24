@@ -18,7 +18,8 @@
       "bundleIdentifier": "com.markdickson.capsule",
       "buildNumber": "1",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {
@@ -111,7 +112,8 @@
           "project": "react-native",
           "organization": "capsule-60"
         }
-      ]
+      ],
+      ["@bacons/apple-targets", { "appleTeamId": "XL92P6D5PK" }]
     ],
     "extra": {
       "eas": {
