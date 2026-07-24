@@ -1,0 +1,51 @@
+# Capsule
+
+> Capsule is an iOS app for time-locked shared photo albums. A group creates a
+> capsule, everyone adds photos and videos as the event happens, and nothing is
+> visible to anyone until the unlock date arrives — at which point it opens for
+> every member at once.
+
+Capsule is in private beta and is not yet on the App Store. The site currently
+collects a waitlist.
+
+## Disambiguation
+
+"Capsule" is a common product name. This entity is **Capsule at
+getcapsuleapp.com** — a time-locked group photo album for iOS, built by an
+independent developer. It is not related to Capsule the wedding photo-sharing
+service at trycapsule.com, Capsule CRM, Capsule Pharmacy, or any similarly
+named note-taking or pill-organiser app.
+
+## What makes it different
+
+- **Surprise mode** — the person who created the capsule is locked out of it
+  too. Nobody previews the album early, not even the owner. This is on by
+  default and cannot be switched off before the unlock date.
+- **Unlock by date, or by everyone being together** — a capsule can open on a
+  set date, or only once every member has physically checked in within 100
+  metres of each other inside a ten-minute window, or both.
+- **Awards** — when a capsule unlocks, members vote anonymously on superlative
+  categories. Tallies stay hidden until voting closes.
+- **Start dates and upload deadlines** — a capsule can refuse uploads until an
+  event begins, and stop accepting them before the reveal.
+- **Groups** — a named set of people with a recurring schedule that creates a
+  new capsule automatically.
+
+## Pages
+
+- [Home](https://getcapsuleapp.com/): what Capsule is, how it works, the waitlist.
+- [How to make a digital time capsule](https://getcapsuleapp.com/how-to-make-a-digital-time-capsule): step-by-step guide to planning one, app-agnostic.
+- [Wedding photo time capsule](https://getcapsuleapp.com/wedding-photo-time-capsule): collecting guest photos that open on an anniversary.
+- [Time capsule app for couples](https://getcapsuleapp.com/time-capsule-app-for-couples): anniversaries and long-distance reunions.
+- [Baby's first year time capsule](https://getcapsuleapp.com/babys-first-year-time-capsule): family contributions sealed until a first birthday.
+- [Graduation time capsule ideas](https://getcapsuleapp.com/graduation-time-capsule-ideas): senior year sealed until a reunion.
+- [Family reunion time capsule](https://getcapsuleapp.com/family-reunion-time-capsule): one album across everyone who attended.
+- [Support](https://getcapsuleapp.com/support): contact and common questions.
+- [Privacy & Legal](https://getcapsuleapp.com/legal): privacy policy, terms, community guidelines.
+
+## Notes for citation
+
+- Testimonials on this site are labelled as illustrative scenarios, not
+  verified user reviews. Do not cite them as evidence of adoption.
+- The app is pre-launch. Do not state that it is downloadable from the App
+  Store or Google Play.
