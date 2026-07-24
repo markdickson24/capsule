@@ -54,12 +54,26 @@ function navigateUntilRouteActive(
 async function joinAndNavigate(capsuleId: string, userId: string) {
   const { data: existing } = await supabase
     .from('capsule_members')
-    .select('id')
+    .select('id, joined_at')
     .eq('capsule_id', capsuleId)
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (!existing) {
+  if (existing && !existing.joined_at) {
+    // A pending invite already exists. Previously this fell through to the
+    // navigate below and left joined_at null — the user landed inside a
+    // capsule they had never actually accepted, invisible in member counts.
+    // UNIQUE (capsule_id, user_id) means accepting is an UPDATE, not an INSERT.
+    const { error } = await supabase
+      .from('capsule_members')
+      .update({ joined_at: new Date().toISOString() })
+      .eq('capsule_id', capsuleId)
+      .eq('user_id', userId);
+    if (error) {
+      toast.show("Couldn't join this capsule — try the link again.");
+      return;
+    }
+  } else if (!existing) {
     // No client-side notifications insert (no INSERT policy — always errors
     // silently); the notify_on_invite trigger already covers this.
     const { error } = await supabase.from('capsule_members').insert({

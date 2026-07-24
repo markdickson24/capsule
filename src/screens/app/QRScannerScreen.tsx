@@ -26,6 +26,8 @@ type CapsulePreview = {
   ownerAvatar: string | null;
   memberCount: number;
   alreadyMember: boolean;
+  /** Invited but never accepted. Joining is an UPDATE, not an INSERT. */
+  isPending: boolean;
 };
 
 const { width: SW, height: SH } = Dimensions.get('window');
@@ -113,6 +115,7 @@ export default function QRScannerScreen() {
         ownerAvatar: row.owner_avatar ?? null,
         memberCount: Number(row.member_count) || 0,
         alreadyMember: !!row.already_member,
+        isPending: !!row.is_pending,
       });
       setLoading(false);
     } catch {
@@ -128,7 +131,19 @@ export default function QRScannerScreen() {
 
     setJoining(true);
     try {
-      if (!preview.alreadyMember) {
+      if (preview.isPending) {
+        // An invite already exists but was never accepted. capsule_members has
+        // UNIQUE (capsule_id, user_id), so inserting would fail with 23505 —
+        // accepting is an UPDATE of joined_at, which is exactly the one column
+        // clients are granted on this table.
+        const { error } = await supabase
+          .from('capsule_members')
+          .update({ joined_at: new Date().toISOString() })
+          .eq('capsule_id', preview.id)
+          .eq('user_id', session.user.id);
+        if (error) throw error;
+        cache.invalidate('capsules', 'profile', 'notifications');
+      } else if (!preview.alreadyMember) {
         // Scanning a QR in person IS the consent act — join immediately
         // (joined_at set), don't leave a pending invite the user has to
         // accept a second time from Alerts. The notify_on_invite trigger
@@ -246,7 +261,7 @@ export default function QRScannerScreen() {
         <View style={s.sheetBg} onStartShouldSetResponder={() => true}>
           <View style={s.sheet}>
             <View style={s.handle} />
-            {preview.alreadyMember ? (
+            {preview.alreadyMember && !preview.isPending ? (
               <>
                 <Text style={s.sheetTitle}>Already a member</Text>
                 <Text style={s.capsuleTitle}>{preview.title}</Text>

@@ -20,16 +20,46 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-async function fetchPreview(capsuleId: string): Promise<JoinPreview | null> {
-  const supabase = createClient(
-    Netlify.env.get("SUPABASE_URL")!,
-    Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-  );
-  const { data, error } = await supabase.rpc("capsule_join_preview", {
-    p_capsule_id: capsuleId,
-  });
-  if (error || !data || !data[0]) return null;
-  return data[0] as JoinPreview;
+/**
+ * "unavailable" = we could not ask (missing config, network, bad key).
+ * "missing"     = we asked and the capsule genuinely isn't there.
+ *
+ * The distinction matters: the redirect into the app needs no data at all —
+ * the capsule id is in the URL — so an infrastructure failure must NOT take
+ * the invite down. Only a genuine miss should 404.
+ */
+type PreviewResult =
+  | { kind: "ok"; preview: JoinPreview }
+  | { kind: "missing" }
+  | { kind: "unavailable"; reason: string };
+
+async function fetchPreview(capsuleId: string): Promise<PreviewResult> {
+  const url = Netlify.env.get("SUPABASE_URL");
+  // Service role is preferred, but the anon key is enough: capsule_join_preview
+  // is SECURITY DEFINER and returns only fields this public page already shows.
+  const key =
+    Netlify.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+    Netlify.env.get("SUPABASE_ANON_KEY");
+
+  // Previously these were non-null-asserted straight into createClient, so an
+  // unset (or wrongly-scoped) variable threw before any error handling and every
+  // /join/* request returned a raw 500 — taking out the QR code, the
+  // CapsuleDetail share sheet and the Onboarding share all at once.
+  if (!url || !key) {
+    return { kind: "unavailable", reason: "supabase env not configured for edge functions" };
+  }
+
+  try {
+    const supabase = createClient(url, key);
+    const { data, error } = await supabase.rpc("capsule_join_preview", {
+      p_capsule_id: capsuleId,
+    });
+    if (error) return { kind: "unavailable", reason: error.message };
+    if (!data || !data[0]) return { kind: "missing" };
+    return { kind: "ok", preview: data[0] as JoinPreview };
+  } catch (e) {
+    return { kind: "unavailable", reason: String(e) };
+  }
 }
 
 function formatDescription(memberCount: number): string {
@@ -139,14 +169,22 @@ function buildCardSvg(preview: JoinPreview, avatarDataUri: string | null): strin
 </svg>`;
 }
 
-function renderPage(capsuleId: string, preview: JoinPreview): string {
-  const title = escapeHtml(preview.title);
-  const owner = escapeHtml(preview.owner_name);
-  const description = formatDescription(preview.member_count);
+function renderPage(capsuleId: string, preview: JoinPreview | null): string {
+  // Degraded mode: generic copy, but the redirect below is identical, so the
+  // invite still works. Only the unfurl preview is less pretty.
+  const title = escapeHtml(preview?.title ?? "a Capsule");
+  const owner = escapeHtml(preview?.owner_name ?? "Someone");
+  const description = preview
+    ? formatDescription(preview.member_count)
+    : "Add your photos before it locks.";
   const pageUrl = `https://getcapsuleapp.com/join/${capsuleId}`;
-  const imageUrl = `https://getcapsuleapp.com/join/${capsuleId}/image`;
+  const imageUrl = preview
+    ? `https://getcapsuleapp.com/join/${capsuleId}/image`
+    : "https://getcapsuleapp.com/og-image.jpg";
   const appUrl = `capsule://join/${capsuleId}`;
-  const fallbackUrl = `https://getcapsuleapp.com/?invited_by=${encodeURIComponent(preview.owner_name)}&capsule=${encodeURIComponent(preview.title)}`;
+  const fallbackUrl = preview
+    ? `https://getcapsuleapp.com/?invited_by=${encodeURIComponent(preview.owner_name)}&capsule=${encodeURIComponent(preview.title)}`
+    : "https://getcapsuleapp.com/";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -188,32 +226,53 @@ export default async (req: Request, _context: Context) => {
     return new Response("Not found", { status: 404 });
   }
 
-  const preview = await fetchPreview(capsuleId);
-  if (!preview) {
+  const result = await fetchPreview(capsuleId);
+
+  if (result.kind === "missing") {
     return new Response("This capsule doesn't exist or the invite has expired.", {
       status: 404,
       headers: { "Content-Type": "text/plain" },
     });
   }
 
+  if (result.kind === "unavailable") {
+    // Surfaces in Netlify function logs without breaking the user's invite.
+    console.error(`[join] preview unavailable for ${capsuleId}: ${result.reason}`);
+  }
+  const preview = result.kind === "ok" ? result.preview : null;
+
   if (isImage) {
-    const avatarDataUri = await fetchAvatarDataUri(preview.owner_avatar);
-    const svg = buildCardSvg(preview, avatarDataUri);
-    const png = await renderSvgToPng(svg);
-    return new Response(png, {
-      status: 200,
-      headers: {
-        "Content-Type": "image/png",
-        "Cache-Control": "public, max-age=300",
-      },
-    });
+    // No data means no card to draw. Hand back the static site OG image rather
+    // than erroring, so unfurls still show something on-brand.
+    if (!preview) {
+      return Response.redirect("https://getcapsuleapp.com/og-image.jpg", 302);
+    }
+    try {
+      const avatarDataUri = await fetchAvatarDataUri(preview.owner_avatar);
+      const svg = buildCardSvg(preview, avatarDataUri);
+      const png = await renderSvgToPng(svg);
+      return new Response(png, {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=300",
+        },
+      });
+    } catch (e) {
+      // resvg_wasm is a remote wasm dependency; a rasterise failure must not
+      // 500 the OG image and poison the unfurl.
+      console.error(`[join] card render failed for ${capsuleId}: ${e}`);
+      return Response.redirect("https://getcapsuleapp.com/og-image.jpg", 302);
+    }
   }
 
   return new Response(renderPage(capsuleId, preview), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      "Cache-Control": "public, max-age=300",
+      // Don't cache a degraded page for 5 minutes at the edge — once the data
+      // source is healthy again the next request should get the rich version.
+      "Cache-Control": preview ? "public, max-age=300" : "no-store",
     },
   });
 };
