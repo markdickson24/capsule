@@ -8,7 +8,7 @@ import { useUploadTasks } from '../../hooks/useUploadTasks';
 import {
   View, Text, StyleSheet, ScrollView, RefreshControl,
   TouchableOpacity, Modal, TextInput, Keyboard,
-  Share, Platform, Dimensions, Animated, PanResponder, FlatList,
+  Share, Platform, Dimensions, Animated, PanResponder, FlatList, AppState,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import ViewShot from 'react-native-view-shot';
@@ -1271,6 +1271,10 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const { accentColor } = useTheme();
   const { capsuleId, justCreated } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
+  // Last-applied status, so applyCapsule() can tell a live active→unlocked
+  // transition (drive the reveal) from simply opening an already-unlocked
+  // capsule. null until the first capsule is applied this mount.
+  const prevStatusRef = useRef<string | null>(null);
   const [members, setMembers] = useState<MemberRow[]>([]);
   // Post-create invite nudge (UX.md 2.2): a brand-new capsule with just its
   // owner is a failed core loop — nothing to anticipate, no reveal, no award
@@ -1574,6 +1578,24 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     }
   }
 
+  // Apply a freshly-fetched capsule row and, if it JUST transitioned to
+  // unlocked while this screen was open, run the same reveal + media refresh the
+  // realtime handler does. Detecting the transition on ANY refetch (not only via
+  // the realtime event) is what makes unlock reliable when that event is missed —
+  // app backgrounded at the unlock minute, socket dropped, cron lag, etc.
+  function applyCapsule(fresh: Capsule) {
+    const was = prevStatusRef.current;
+    prevStatusRef.current = fresh.status;
+    setCapsule(fresh);
+    if (fresh.status === 'unlocked' && was !== null && was !== 'unlocked') {
+      triggerReveal();
+      // Surprise-mode owners couldn't read media rows pre-unlock (RLS), so a
+      // cached "empty" media list must not survive past unlock.
+      cache.invalidate(`signedUrls:${capsuleId}`, `media:${capsuleId}`);
+      fetchPhotos(true);
+    }
+  }
+
   async function load() {
     setCurrentUserId(sessionStore.get()?.user.id ?? '');
 
@@ -1592,7 +1614,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
-      setCapsule(capsuleRes.data as unknown as Capsule);
+      applyCapsule(capsuleRes.data as unknown as Capsule);
     }
 
     if (membersRes.data) setMembers(membersRes.data as MemberRow[]);
@@ -1608,7 +1630,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     const userId = sessionStore.get()?.user.id;
     const cached = cache.get<{ capsule: any; members: any }>(`capsule:${capsuleId}`);
     if (cached) {
-      if (cached.capsule) setCapsule(cached.capsule);
+      if (cached.capsule) { setCapsule(cached.capsule); prevStatusRef.current = cached.capsule.status; }
       if (cached.members) setMembers(cached.members as MemberRow[]);
       setLoading(false);
       load();
@@ -1664,22 +1686,46 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'capsules', filter: `id=eq.${capsuleId}` },
         (payload) => {
-          const updated = payload.new as Capsule;
-          setCapsule(updated);
-          if (updated.status === 'unlocked') {
-            triggerReveal();
-            // Pre-unlock, surprise-mode owners couldn't read media rows at
-            // all (RLS), so a cached "empty" media list must not survive
-            // past unlock.
-            cache.invalidate(`signedUrls:${capsuleId}`, `media:${capsuleId}`);
-            fetchPhotos();
-          }
+          // applyCapsule drives the reveal + media refresh on an active→unlocked
+          // transition (and is a no-op reveal for other edits).
+          applyCapsule(payload.new as Capsule);
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
   }, [capsuleId]);
+
+  // Fallbacks for a MISSED realtime unlock (the "only unlocks after refreshing"
+  // bug): realtime events aren't delivered while the app is backgrounded, and a
+  // dropped socket won't replay them. Reconcile from the server instead.
+  // 1) On app foreground, refetch — catches a capsule that flipped while away.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') load();
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capsuleId]);
+
+  // 2) While foregrounded and still locked (time/both mode), poll toward the
+  //    unlock moment and briefly past it (the cron flips status up to ~60s after
+  //    unlock_at) until the server confirms the flip. Stops once unlocked.
+  useEffect(() => {
+    if (!capsule || capsule.status === 'unlocked' || capsule.unlock_mode === 'proximity') return;
+    let id: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+    const schedule = () => {
+      if (cancelled) return;
+      const untilUnlock = new Date(capsule.unlock_at).getTime() - Date.now();
+      // Wake ~at unlock time if it's ahead; otherwise re-check every 15s.
+      const delay = untilUnlock > 1000 ? untilUnlock + 1000 : 15_000;
+      id = setTimeout(() => { load().finally(schedule); }, Math.min(delay, 23 * 60 * 60 * 1000));
+    };
+    schedule();
+    return () => { cancelled = true; clearTimeout(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [capsule?.status, capsule?.unlock_at, capsule?.unlock_mode]);
 
   // Route picks through the same Preview carousel camera/share uploads use —
   // gives library/camera adds here per-item captions and the shared resize
