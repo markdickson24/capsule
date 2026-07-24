@@ -155,6 +155,10 @@ struct CapsuleLiveActivity: Widget {
             Image(systemName: "lock.fill")
           }
           .foregroundStyle(colorFromHex(context.attributes.accentHex))
+          // Expanded regions run to the pill's outer edge, and the rounded
+          // corners cut into that last few points — content sitting flush was
+          // clipping. Inset all three regions so nothing rides the curve.
+          .padding(.leading, 8)
           .accessibilityLabel("Capsule locked")
         }
         DynamicIslandExpandedRegion(.trailing) {
@@ -171,6 +175,7 @@ struct CapsuleLiveActivity: Widget {
           .minimumScaleFactor(0.8)
           .multilineTextAlignment(.trailing)
           .foregroundStyle(.white)
+          .padding(.trailing, 8)
           .accessibilityLabel("Time left to add photos")
         }
         DynamicIslandExpandedRegion(.center) {
@@ -181,6 +186,7 @@ struct CapsuleLiveActivity: Widget {
             // shrink a little before truncating.
             .minimumScaleFactor(0.75)
             .foregroundStyle(.white)
+            .padding(.horizontal, 4)
         }
         DynamicIslandExpandedRegion(.bottom) {
           VStack(spacing: 8) {
@@ -217,6 +223,7 @@ struct CapsuleLiveActivity: Widget {
               .accessibilityLabel("Add a photo")
             }
           }
+          .padding(.horizontal, 6)
         }
       } compactLeading: {
         Image(systemName: "lock.fill")
