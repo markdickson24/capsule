@@ -1,6 +1,16 @@
 import type { Config, Context } from "@netlify/edge-functions";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { render as renderSvgToPng } from "https://deno.land/x/resvg_wasm@0.2.0/mod.ts";
+// NOT a top-level import. resvg_wasm fetches and instantiates a .wasm module at
+// import time; if that fails in the edge runtime the failure happens before any
+// handler code runs, so no amount of try/catch inside the handler can contain it
+// — every /join/* request 500s, including the HTML page that never rasterises
+// anything. Loaded lazily inside the /image branch instead, so a rasteriser
+// problem can only ever cost the preview card, never the invite itself.
+type RenderSvg = (svg: string) => Promise<Uint8Array>;
+async function loadRenderer(): Promise<RenderSvg> {
+  const mod = await import("https://deno.land/x/resvg_wasm@0.2.0/mod.ts");
+  return (mod as { render: RenderSvg }).render;
+}
 
 interface JoinPreview {
   id: string;
@@ -250,8 +260,12 @@ export default async (req: Request, _context: Context) => {
     try {
       const avatarDataUri = await fetchAvatarDataUri(preview.owner_avatar);
       const svg = buildCardSvg(preview, avatarDataUri);
+      const renderSvgToPng = await loadRenderer();
       const png = await renderSvgToPng(svg);
-      return new Response(png, {
+      // Deno's BodyInit accepts a Uint8Array (BufferSource); the repo's tsconfig
+      // uses the DOM lib, whose BodyInit does not. Runtime is fine — this cast
+      // just stops a false positive in `tsc --noEmit`.
+      return new Response(png as unknown as BodyInit, {
         status: 200,
         headers: {
           "Content-Type": "image/png",
@@ -270,6 +284,7 @@ export default async (req: Request, _context: Context) => {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
+      "X-Join-Fn": preview ? "ok" : "degraded",
       // Don't cache a degraded page for 5 minutes at the edge — once the data
       // source is healthy again the next request should get the rich version.
       "Cache-Control": preview ? "public, max-age=300" : "no-store",
