@@ -167,15 +167,27 @@ export function useDeepLinks(session?: Session | null) {
     if (!session) return;
 
     const stashedCapsuleId = pendingJoinStash.get();
+    const stashedOpen = pendingOpenStash.get();
+
+    // Both stashes are drained in the same pass. If both are set (the user
+    // tapped a join link AND a Live Activity card while signed out), join
+    // wins — it's a membership-changing server write, not just a
+    // navigation, so it must not be pre-empted by openCapsule. The losing
+    // stash is deliberately DISCARDED here, not left for a later drain: if
+    // it survived, a future unrelated sign-in (sign out, then back in) would
+    // replay it as a stale, out-of-context navigation. So pendingOpenStash
+    // is unconditionally cleared below, whether or not it ends up acted on
+    // — don't remove this clear() just because the join branch already
+    // returns; that's exactly the bug this guards against.
+    pendingOpenStash.clear();
+
     if (stashedCapsuleId) {
       pendingJoinStash.clear();
       joinAndNavigate(stashedCapsuleId, session.user.id);
       return;
     }
 
-    const stashedOpen = pendingOpenStash.get();
     if (stashedOpen) {
-      pendingOpenStash.clear();
       openCapsule(stashedOpen.capsuleId, stashedOpen.camera);
     }
   }, [session]);
