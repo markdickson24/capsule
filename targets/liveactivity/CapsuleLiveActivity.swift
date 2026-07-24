@@ -111,39 +111,90 @@ struct CapsuleLiveActivity: Widget {
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
-          Image(systemName: "lock.fill")
-            .foregroundStyle(colorFromHex(context.attributes.accentHex))
-            .accessibilityLabel("Capsule locked")
+          // Leading/trailing regions sit either side of the camera notch and
+          // are narrow — an icon plus one short word is the practical ceiling.
+          Label {
+            Text("Sealed").font(.caption2)
+          } icon: {
+            Image(systemName: "lock.fill")
+          }
+          .foregroundStyle(colorFromHex(context.attributes.accentHex))
+          .accessibilityLabel("Capsule locked")
         }
         DynamicIslandExpandedRegion(.trailing) {
-          Link(destination: URL(string: "capsule://capsule/\(context.attributes.capsuleId)/camera")!) {
-            Image(systemName: "camera.fill")
-              .foregroundStyle(colorFromHex(context.attributes.accentHex))
-          }
-          .accessibilityLabel("Add a photo")
+          // The countdown was previously absent from the expanded layout
+          // entirely — it existed only in compactTrailing and on the lock
+          // screen, so expanding (the deliberate "tell me more" gesture) showed
+          // strictly less information than the collapsed pill it came from.
+          Text(timerInterval: context.attributes.windowStart...context.attributes.deadline, countsDown: true)
+            .monospacedDigit()
+            .font(.caption)
+            .multilineTextAlignment(.trailing)
+            .foregroundStyle(.white)
+            .accessibilityLabel("Time left to add photos")
         }
         DynamicIslandExpandedRegion(.center) {
-          Text(context.attributes.title).font(.caption).lineLimit(1)
+          Text(context.attributes.title)
+            .font(.headline)
+            .lineLimit(1)
+            .foregroundStyle(.white)
         }
         DynamicIslandExpandedRegion(.bottom) {
-          ProgressView(
-            timerInterval: context.attributes.windowStart...context.attributes.deadline,
-            countsDown: false
-          ) { EmptyView() } currentValueLabel: { EmptyView() }
-          .tint(colorFromHex(context.attributes.accentHex))
-          .labelsHidden()
+          VStack(spacing: 8) {
+            ProgressView(
+              timerInterval: context.attributes.windowStart...context.attributes.deadline,
+              countsDown: false
+            ) { EmptyView() } currentValueLabel: { EmptyView() }
+            .tint(colorFromHex(context.attributes.accentHex))
+            .labelsHidden()
+
+            // The bottom region was a bare full-width bar. Near the start of a
+            // window it sits at ~0%, so it read as an empty divider rather than
+            // progress. Pairing it with the counts and a real action gives the
+            // region a reason to exist.
+            HStack(spacing: 8) {
+              Text("\(context.state.photoCount) photo\(context.state.photoCount == 1 ? "" : "s") · \(context.state.memberCount) here")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.7))
+                .lineLimit(1)
+
+              Spacer(minLength: 0)
+
+              Link(destination: URL(string: "capsule://capsule/\(context.attributes.capsuleId)/camera")!) {
+                Label("Add", systemImage: "camera.fill")
+                  .font(.caption.weight(.semibold))
+                  .foregroundStyle(.white)
+                  .padding(.horizontal, 12)
+                  .padding(.vertical, 6)
+                  .background(
+                    colorFromHex(context.attributes.accentHex),
+                    in: Capsule()
+                  )
+              }
+              .accessibilityLabel("Add a photo")
+            }
+          }
         }
       } compactLeading: {
         Image(systemName: "lock.fill")
           .foregroundStyle(colorFromHex(context.attributes.accentHex))
           .accessibilityLabel("Capsule locked")
       } compactTrailing: {
-        // See the comment on the lock-screen Text above — must be
-        // windowStart...deadline, not Date()...deadline, or this traps the
-        // moment the deadline passes.
-        Text(timerInterval: context.attributes.windowStart...context.attributes.deadline, countsDown: true)
-          .monospacedDigit()
-          .frame(maxWidth: 44)
+        // Was Text(timerInterval:) in a 44pt frame. That renders elapsed-style
+        // HH:MM:SS, so a month-long window becomes "743:21:05" and either
+        // truncates or blows the compact region's width. A ring carries the
+        // same information at any window length, never overflows, and still
+        // advances on-device with no updates from the app. The precise
+        // countdown lives in the expanded and lock-screen layouts, which have
+        // room for it.
+        ProgressView(
+          timerInterval: context.attributes.windowStart...context.attributes.deadline,
+          countsDown: false
+        ) { EmptyView() } currentValueLabel: { EmptyView() }
+        .progressViewStyle(.circular)
+        .tint(colorFromHex(context.attributes.accentHex))
+        .labelsHidden()
+        .accessibilityLabel("Time left to add photos")
       } minimal: {
         Image(systemName: "lock.fill")
           .foregroundStyle(colorFromHex(context.attributes.accentHex))
