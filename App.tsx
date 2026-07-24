@@ -9,6 +9,7 @@ import { usePushNotifications } from './src/hooks/usePushNotifications';
 import { useRevenueCat } from './src/hooks/useRevenueCat';
 import { useDeepLinks } from './src/hooks/useDeepLinks';
 import { useShareIntent } from './src/hooks/useShareIntent';
+import { useLiveActivities } from './src/hooks/useLiveActivities';
 import { navigationRef } from './src/lib/navigationRef';
 import AuthNavigator from './src/navigation/AuthNavigator';
 import AppNavigator from './src/navigation/AppNavigator';
@@ -32,6 +33,9 @@ function RootNavigator() {
   useRevenueCat(session?.user.id);
   useDeepLinks(session);
   useShareIntent(session);
+  // Keeps the lock-screen countdown in sync with capsules that are open for
+  // photos. iOS-only; no-ops elsewhere and on iOS < 16.2.
+  useLiveActivities(session?.user.id);
 
   if (loading) return <LoadingBrandScreen />;
 
