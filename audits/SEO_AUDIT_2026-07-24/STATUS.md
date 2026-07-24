@@ -84,17 +84,36 @@ Title, meta description, H1 and schema lead with the qualified term; the origina
 
 **Google Search Console.** This genuinely cannot be done without you: it requires OAuth against your Google account. There are no Google credentials on this machine (`gcloud` absent, no service-account JSON), and the browser extension isn't connected, so there's no automation path either.
 
-It matters more than the audit suggested. A `site:` check still surfaces a **stale Bluehost parked-page record** for this domain. Infrastructure is verified clean — nameservers are NS1/Netlify, A records resolve to Netlify, and the apex serves the real site (`server: Netlify`) — so this is purely a search engine that hasn't re-crawled since the domain moved. That is exactly what Request Indexing forces.
+**Correction — the "stale Bluehost record" was a false alarm.** A `site:` query through a third-party search API surfaced a Bluehost parked-page record for this domain, and I flagged it as a possible un-recrawled index. Search Console disproved it: Google's last crawl of the homepage was **2026-07-13**, from the live Netlify site, and the homepage reports "URL is on Google." Nothing was wrong with discovery. `site:` through a search API is not a reliable read of Google's index and shouldn't be treated as one.
+
+What Search Console actually revealed is narrower and more useful:
+
+- The homepage is indexed, but its crawled copy is from **2026-07-13** — before every change in this audit. Google is serving the pre-optimisation version until it re-crawls.
+- `/wedding-photo-time-capsule` reported **"URL is not on Google"**, confirming the audit's finding that the guide pages are absent from the index despite being linked from an indexed homepage and listed in the sitemap. Discovery isn't the problem; selection is.
 
 Everything that *doesn't* need your account is already done: sitemap valid with all 9 URLs returning 200, no `noindex` or `X-Robots-Tag` anywhere, robots.txt open, full internal linking from the homepage to all six guides, and IndexNow submitted and accepted (Bing/Yandex family — Google does not participate).
 
-**The 3-minute task:**
-1. <https://search.google.com/search-console> → Add property → **Domain** → `getcapsuleapp.com`
-2. It gives you a TXT record. Add it in Netlify DNS (the domain is on Netlify nameservers, so this is in the Netlify UI). There are currently no TXT records on the apex.
-3. Sitemaps → submit `sitemap.xml`
-4. URL Inspection → paste each of the six guide URLs → Request Indexing
+**Status: done, 2026-07-24.** Domain property verified via TXT on the apex (confirmed propagated to Google's own resolver before verifying), `sitemap.xml` submitted, Request Indexing run on the guide URLs.
 
-Then tell me and I can pick up measurement from there. Also worth doing at the same time: <https://www.bing.com/webmasters> — the IndexNow key is already deployed and submitting, so Bing will show data sooner than Google.
+Two gotchas worth recording for next time:
+- A **Domain** property's sitemap field needs the **full URL** (`https://getcapsuleapp.com/sitemap.xml`). Only URL-prefix properties accept a relative path — entering `sitemap.xml` returns "Invalid sitemap address".
+- The TXT record's Name field in Netlify must be left **empty** for the apex. Entering `@` or the domain produces `getcapsuleapp.com.getcapsuleapp.com`.
+
+Still worth doing: <https://www.bing.com/webmasters>. The IndexNow key is already deployed and submitting, so Bing will show data sooner than Google.
+
+## What to watch now
+
+The measurement loop is finally open. In rough order of when things should move:
+
+| Signal | Where | Expect |
+|---|---|---|
+| Guide pages leave "not on Google" | URL Inspection / Pages report | days to ~2 weeks |
+| Homepage last-crawl date advances past 2026-07-13 | URL Inspection | days |
+| Sitemap "Discovered pages: 9" | Sitemaps | immediately |
+| First impressions on guide URLs | Performance report | ~2–6 weeks |
+| CrUX field CWV appears | Core Web Vitals | only once traffic is sufficient |
+
+**The diagnostic that matters most:** if a guide page settles at **"Crawled – currently not indexed"** rather than "URL is not on Google", that is Google saying it saw the page and declined to index it. That points at content quality or duplication rather than discovery, and would mean the Phase 3 rewrite (381–498 → ~1000+ words, duplication 65–72% → 43%) didn't go far enough. That's the signal to act on, not raw impression counts.
 
 **3. Brand entity.** `sameAs`, `og:site_name`, Organization schema and an llms.txt disambiguation section are all in place. What they cannot fix: "Capsule" collides with trycapsule.com, revealmoment.app, TimeCapsules, Capsula and several App Store apps in this exact niche. The App Store listing, once it exists, will be the strongest entity anchor available.
 
