@@ -59,6 +59,20 @@ export function useLiveActivities(userId?: string | null) {
   accentRef.current = accentColor;
 
   const runningRef = useRef(false);
+  // Bumped every time a new pass actually begins (i.e. clears the runningRef
+  // guard above). `withTimeout` below does not cancel an abandoned `runPass`
+  // — RN has no AbortController wired through the Supabase client or the
+  // native module, so a timed-out pass keeps running in the background and
+  // may still reach its native calls after `finally` has already reset
+  // `runningRef` and let a fresh pass start. Two concurrent `start()` calls
+  // for the same capsule can both pass the native module's unserialized
+  // check-then-act and both create an activity — a duplicate lock-screen
+  // card, exactly what `runningRef` exists to prevent. Each pass snapshots
+  // the generation at start and re-checks it before every native call inside
+  // the loops below; if a newer pass has since taken over, the abandoned
+  // pass stops instead of proceeding. Mirrors uploadQueue.ts's
+  // `cacheGeneration` guard against its own non-cancelling `withTimeout`.
+  const generationRef = useRef(0);
 
   const reconcile = useCallback(async () => {
     if (Platform.OS !== 'ios') return;
@@ -67,6 +81,7 @@ export function useLiveActivities(userId?: string | null) {
     // event landing while the mount pass is still in flight) would double-start.
     if (runningRef.current) return;
     runningRef.current = true;
+    const myGeneration = ++generationRef.current;
 
     const runPass = async () => {
       // No special-cased sign-out branch: with no userId, `rows` simply stays
@@ -109,6 +124,9 @@ export function useLiveActivities(userId?: string | null) {
       const { toStart, toEnd, alreadyRunning } = reconcileActivities(desired, active);
 
       for (const capsuleId of toEnd) {
+        // A newer pass has taken over (this one was abandoned by a timeout) —
+        // stop rather than issue a native call a fresher pass may duplicate.
+        if (generationRef.current !== myGeneration) return;
         // Each capsule is reconciled independently — one rejection here must
         // not abort every other capsule's teardown/start/update for this pass
         // (previously a single outer try/catch meant one failure stopped the
@@ -125,6 +143,8 @@ export function useLiveActivities(userId?: string | null) {
       const startIds = new Set(toStart.map(d => d.capsuleId));
 
       for (const d of [...toStart, ...alreadyRunning]) {
+        // Same generation bail-out as the toEnd loop above.
+        if (generationRef.current !== myGeneration) return;
         try {
           // capsule_media_count is a SECURITY DEFINER RPC — required rather
           // than a media(count) embed, because the media SELECT policy hides
@@ -155,6 +175,10 @@ export function useLiveActivities(userId?: string | null) {
           // Best-effort: a failed count query shouldn't cost the user their
           // countdown — proceed with 0 (already reported above) rather than
           // aborting this capsule's start/update.
+
+          // Re-check right before the native call: the two count queries
+          // above are awaits during which a newer pass may have taken over.
+          if (generationRef.current !== myGeneration) return;
 
           if (startIds.has(d.capsuleId)) {
             await startLiveActivity({
