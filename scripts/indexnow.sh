@@ -22,7 +22,14 @@ DEFAULT_PATHS=(
 )
 PATHS=("$@"); [ ${#PATHS[@]} -eq 0 ] && PATHS=("${DEFAULT_PATHS[@]}")
 
-urls=$(printf '"https://%s%s",' "$HOST" "${PATHS[@]}" | sed 's/,$//')
+# Build the list one path at a time. Do NOT use a single printf with "$HOST"
+# followed by "${PATHS[@]}" — printf cycles its format over all arguments, so
+# the host would only pair with the first path and the rest would be mangled.
+urls=""
+for path in "${PATHS[@]}"; do
+  urls="${urls}\"https://${HOST}${path}\","
+done
+urls="${urls%,}"
 payload="{\"host\":\"$HOST\",\"key\":\"$KEY\",\"keyLocation\":\"https://$HOST/$KEY.txt\",\"urlList\":[$urls]}"
 
 echo "Submitting ${#PATHS[@]} URL(s) to IndexNow…"
