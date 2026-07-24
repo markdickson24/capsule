@@ -508,22 +508,21 @@ This is the target that actually renders the card. It cannot be verified in the 
 npx expo install @bacons/apple-targets
 ```
 
-- [ ] **Step 2: Find the Apple Team ID**
+- [ ] **Step 2: Confirm the Apple Team ID**
 
-`@bacons/apple-targets` needs the Apple Team ID to configure signing. Get it with:
+`@bacons/apple-targets` needs the Apple Team ID to configure signing. It is **`XL92P6D5PK`** — already resolved from the locally-prebuilt project (`DEVELOPMENT_TEAM` in `ios/Capsule.xcodeproj/project.pbxproj`), so no lookup is needed.
 
-```bash
-npx eas credentials
-```
+Re-confirm it still matches before using it:
 
-Select iOS → the `com.markdickson.capsule` app; the Team ID is the 10-character alphanumeric string shown (also visible at developer.apple.com → Membership). Substitute it for `<APPLE_TEAM_ID>` below. If `eas credentials` is interactive-only in this environment, ask the user for the value rather than guessing — a wrong Team ID fails the build at signing.
+Run: `grep -o "DEVELOPMENT_TEAM = [A-Z0-9]*" ios/Capsule.xcodeproj/project.pbxproj | sort -u`
+Expected: `DEVELOPMENT_TEAM = XL92P6D5PK`. If `ios/` doesn't exist yet, run `npx expo prebuild --platform ios` first. If the value differs, use what the project reports — a wrong Team ID fails the build at signing.
 
 - [ ] **Step 3: Register the plugin and the Info.plist key in `app.json`**
 
 Add to the `plugins` array (append at the end, after `"@sentry/react-native/expo"`):
 
 ```json
-["@bacons/apple-targets", { "appleTeamId": "<APPLE_TEAM_ID>" }]
+["@bacons/apple-targets", { "appleTeamId": "XL92P6D5PK" }]
 ```
 
 And extend `expo.ios.infoPlist` (which currently holds only `ITSAppUsesNonExemptEncryption`) so it reads:
@@ -1872,6 +1871,6 @@ gh pr create --draft --title "Live Activity countdown for live capsules" --body 
 
 No gaps found.
 
-**Placeholder scan:** No "TBD"/"TODO"/"handle edge cases"/"add validation". The one external value is `<APPLE_TEAM_ID>` in Task 3, which has an explicit retrieval step and an instruction to ask rather than guess. The `gh pr create --body "..."` in Task 10 Step 5 is filled in at execution time from the actual diff.
+**Placeholder scan:** No "TBD"/"TODO"/"handle edge cases"/"add validation". The one external value is `XL92P6D5PK` in Task 3, which has an explicit retrieval step and an instruction to ask rather than guess. The `gh pr create --body "..."` in Task 10 Step 5 is filled in at execution time from the actual diff.
 
 **Type consistency:** `effectiveLiveActivityEnabled` (Task 2) is the name used in Task 9. `StartConfig` field names (`windowStartMs`, `deadlineMs`, `accentHex`) match between the Swift `Record` (Task 4), the JS wrapper (Task 4), and the call site (Task 5). `listActiveLiveActivities()` returns `string[]` of **capsule ids** — matching `reconcileActivities(desired, activeCapsuleIds)` (Task 2) and the Swift `listActive` mapping `$0.attributes.capsuleId` (Task 4). `CapsuleActivityAttributes` fields are identical across Task 3's declaration and Task 4's construction. `endLiveActivity(capsuleId, immediate?)` matches its Task 9 call `endLiveActivity(capsuleId, true)`.
