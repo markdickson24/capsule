@@ -1,0 +1,349 @@
+{
+  "summary": {
+    "health_score": 52,
+    "domain": "getcapsuleapp.com",
+    "audit_date": "2026-07-24",
+    "pages_audited": 9,
+    "business_type": "Consumer mobile app (pre-launch iOS, private beta / waitlist)",
+    "top_findings": [
+      "All 6 SEO landing pages have no <h1> — hero heading is <h2 class=\"sec-title\">",
+      "Every page resolves at two URLs (.html and extensionless), both HTTP 200, no redirect; canonicals and sitemap disagree with every internal link",
+      "Zero structured data across all 9 pages",
+      "Severe thin/duplicate content: 381-498 words per landing page, 65-74% line-level similarity between them",
+      "Only 2 of 9 pages appear indexed (homepage + /legal); none of the 6 SEO pages",
+      "Brand name 'Capsule' collides with TimeCapsules, trycapsule.com, revealmoment.app and several App Store competitors in the same niche"
+    ],
+    "quick_wins": [
+      "h2 -> h1 on 6 landing pages (5 min, zero visual change, styled by class)",
+      "Point 3 dead footer social links at real URLs already in src/lib/communityLinks.ts (5 min)",
+      "Add OG/Twitter tags to support.html and legal.html (10 min)",
+      "Resize logo.png: 512x512/80KB served for a 36x36 slot, twice per page, on all 9 pages (10 min)",
+      "Add loading=lazy + WebP to the two below-fold screenshots (20 min, fixes mobile LCP)"
+    ]
+  },
+  "categories": [
+    {
+      "name": "Technical SEO",
+      "score": 72,
+      "weight": 0.22,
+      "what_works": [
+        "Clean robots.txt with wildcard allow + sitemap reference",
+        "Brotli compression: homepage 5.5 KB on wire from 22.5 KB",
+        "Netlify edge TTFB 78 ms",
+        "HSTS present; correct www->apex and http->https 301s; working 404",
+        "Fully static, zero JS-rendering dependency",
+        "lang=\"en\" on every page; hreflang correctly absent for a single-language site",
+        "Lighthouse SEO 100 / Best Practices 100"
+      ],
+      "findings": [
+        {
+          "title": "Every page resolves at two URLs with no redirect",
+          "severity": "Critical",
+          "description": "Netlify Pretty URLs serves /foo for /foo.html and rewrites internal links in deployed HTML, but never redirects. Both forms return 200 on all 9 pages. Canonical and sitemap say .html; every crawlable internal link says extensionless. No netlify.toml, _redirects, or _headers exists in the repo.",
+          "recommendation": "Deploy the provided netlify.toml with a 301 /*.html -> /:splat, and in the SAME commit repoint all 9 canonicals, og:url values, and sitemap <loc> entries to the extensionless form."
+        },
+        {
+          "title": "No security headers except HSTS",
+          "severity": "High",
+          "description": "No CSP, X-Content-Type-Options, X-Frame-Options, Referrer-Policy, or Permissions-Policy on any response. The site runs a live Formspree waitlist that POSTs email addresses.",
+          "recommendation": "Apply the [[headers]] block in the provided netlify.toml. Confirm the Formspree origin in connect-src/form-action before deploying or the waitlist breaks."
+        },
+        {
+          "title": "Immutable assets served with max-age=0, must-revalidate",
+          "severity": "High",
+          "description": "All assets including PNGs return cache-control: public,max-age=0,must-revalidate with no filename fingerprinting. Every repeat visit costs 8 conditional round-trips.",
+          "recommendation": "Scoped [[headers]] overrides for /screenshots/*, /logo.png, /favicon.*. Leave HTML revalidating. Do not add long max-age to CSS/JS until filenames are fingerprinted."
+        },
+        {
+          "title": "Sitemap has no <lastmod>",
+          "severity": "Medium",
+          "description": "Zero lastmod entries across all 9 URLs.",
+          "recommendation": "Add <lastmod> per URL; update on content change."
+        },
+        {
+          "title": "No IndexNow implementation",
+          "severity": "Low",
+          "description": "No IndexNow key file or submission endpoint.",
+          "recommendation": "Low ROI at this publishing cadence. Backlog."
+        }
+      ]
+    },
+    {
+      "name": "Content Quality",
+      "score": 43,
+      "weight": 0.23,
+      "what_works": [
+        "Homepage is 944 words with proper single <h1> and clean hierarchy",
+        "legal.html is 1,164 words of thorough, dated policy content with a real named contact email",
+        "Unusually honest pre-launch marketing: testimonials explicitly labelled 'Illustrative — not a verified review'; TestFlight-not-App-Store status stated plainly",
+        "Six landing pages target genuinely distinct queries — low keyword cannibalization at the query level"
+      ],
+      "findings": [
+        {
+          "title": "Severe thin content on all 6 SEO landing pages",
+          "severity": "Critical",
+          "description": "Visible word counts: wedding 381, graduation 382, couples 385, family-reunion 388, baby 392, how-to 498. Only 149-235 words are genuinely unique per page (39-47%). These target informational queries where ranking content runs 800-1,500 words.",
+          "recommendation": "Deepen only the three winnable pages to 900-1,200 unique words. Deprioritize the other three (see SXO)."
+        },
+        {
+          "title": "Near-duplicate content across the occasion pages",
+          "severity": "Critical",
+          "description": "Line-level similarity between the five occasion pages measures 65-74%. Step 1 of 'How it works' is byte-identical on all six pages: 'Pick a name, set the unlock date, and decide who can add.' Steps 2-3 are the same sentence with one noun swapped.",
+          "recommendation": "Cut the shared block substantially or vary it per occasion. Classic thin-templated-cluster pattern."
+        },
+        {
+          "title": "E-E-A-T composite 47/100; authoritativeness near zero",
+          "severity": "High",
+          "description": "Experience 45, Expertise 40, Authoritativeness 20, Trustworthiness 75. Trust is the standout strength. Authoritativeness is structurally expected pre-launch but worsened by three dead social links presented as live.",
+          "recommendation": "Fix social links; add a named founder and an About page; ship the App Store listing as the authority anchor."
+        },
+        {
+          "title": "No dates, bylines, statistics, or sources in any body copy",
+          "severity": "Medium",
+          "description": "Only /legal carries a 'Last updated' date. Nothing outside it has a freshness signal, and no claim is sourced.",
+          "recommendation": "Add visible last-updated lines to the invested pages."
+        },
+        {
+          "title": "support.html is a 76-word stub",
+          "severity": "Low",
+          "description": "Heading outline is a single <h1> with almost no content.",
+          "recommendation": "Add a few H2-delimited answers to capture branded long-tail queries."
+        }
+      ]
+    },
+    {
+      "name": "On-Page SEO",
+      "score": 58,
+      "weight": 0.20,
+      "what_works": [
+        "Unique, well-written, human-sounding titles and meta descriptions on all 9 pages, none truncated",
+        "Self-referential canonicals on every page",
+        "Genuinely strong internal linking — the 6 landing pages form a complete mesh; every page is 1 click from the homepage",
+        "Clean, descriptive, keyword-relevant URL slugs",
+        "Correct homepage heading hierarchy"
+      ],
+      "findings": [
+        {
+          "title": "All 6 SEO landing pages have no <h1>",
+          "severity": "Critical",
+          "description": "Heading outline on each is h2 h2 h2 h3 h3 h3 h2 h2 — zero H1s. The hero is <h2 class=\"sec-title\">. Meanwhile index.html, legal.html and support.html — the pages not trying to rank — all use <h1> correctly. These six are the entire organic strategy of the site.",
+          "recommendation": "Change to <h1 class=\"sec-title\">. .sec-title is styled by class not tag, so there is zero visual change. Lead each H1 with the target phrase."
+        },
+        {
+          "title": "Canonical / internal-link / sitemap conflict",
+          "severity": "Critical",
+          "description": "Canonicals and sitemap declare .html; every internal link on the live site points extensionless. Both forms are independently crawlable and indexable.",
+          "recommendation": "Standardize on the extensionless form across canonical, og:url, and sitemap; add the 301."
+        },
+        {
+          "title": "support.html and legal.html have zero OG and Twitter tags",
+          "severity": "Medium",
+          "description": "og: count 0 and twitter: count 0 on both. Every other page has 5 OG tags plus twitter:card. Shares render as bare URLs.",
+          "recommendation": "Copy the OG block from any landing page, swapping title/description/url."
+        },
+        {
+          "title": "og:image is a 512x512 square against a summary_large_image card",
+          "severity": "Medium",
+          "description": "twitter:card is summary_large_image, which expects 1.91:1 (1200x630). All 9 pages share the same square logo image. Social cards letterbox.",
+          "recommendation": "Create a 1200x630 OG image; ideally one per occasion page. Add og:image:width/height and og:site_name (currently absent sitewide)."
+        },
+        {
+          "title": "og:type is 'website' on the six content pages",
+          "severity": "Low",
+          "description": "They are closer to 'article'. No Google ranking effect.",
+          "recommendation": "Switch to article with article:published_time to add a freshness signal."
+        }
+      ]
+    },
+    {
+      "name": "Schema / Structured Data",
+      "score": 3,
+      "weight": 0.10,
+      "what_works": [
+        "Site copy is clean and consistent, which makes remediation straightforward",
+        "No invalid or spammy markup to remove"
+      ],
+      "findings": [
+        {
+          "title": "Zero structured data across all 9 pages",
+          "severity": "Critical",
+          "description": "grep for application/ld+json returns 0 matches sitewide. No JSON-LD, Microdata, or RDFa. No Organization, WebSite, SoftwareApplication, or BreadcrumbList. For a product with a generic contested name, this removes the main machine-readable way to assert what the entity is.",
+          "recommendation": "Deploy in order: Organization + WebSite on homepage (with sameAs once social links are fixed); WebPage + BreadcrumbList on the 6 landing pages; ContactPage on support, WebPage on legal; minimal SoftwareApplication. Ready-made JSON-LD is in findings/schema.md."
+        },
+        {
+          "title": "Do not add HowTo or FAQPage schema",
+          "severity": "Info",
+          "description": "The how-to page's 5-step list is HowTo-shaped and several sources will suggest marking it up. Google deprecated HowTo rich results in September 2023 and retired FAQ rich results for ALL sites on 7 May 2026. Neither produces a SERP feature.",
+          "recommendation": "Mark the how-to page as WebPage; keep steps in a semantic <ol> for readability and passage extraction."
+        },
+        {
+          "title": "Hold offers, downloadUrl, and aggregateRating",
+          "severity": "Info",
+          "description": "Pricing appears nowhere on the site, no App Store link exists, and there are no real reviews. Marking up any of these would be structured data with no visible on-page counterpart, violating Google's guidelines.",
+          "recommendation": "Add each only when its visible counterpart ships."
+        }
+      ]
+    },
+    {
+      "name": "Performance (CWV)",
+      "score": 78,
+      "weight": 0.10,
+      "what_works": [
+        "CLS is 0 on every page tested",
+        "TBT is 0 ms everywhere; site.js is 795 bytes on the wire — INP will be excellent",
+        "Desktop homepage scores a clean 100 with LCP 0.6 s",
+        "Landing pages score Perf 100 with LCP 0.8 s",
+        "No web fonts — zero FOIT/FOUT/CLS risk",
+        "Only one render-blocking resource: styles.css at 4.5 KB"
+      ],
+      "findings": [
+        {
+          "title": "Mobile homepage LCP is 3.5 s (threshold 2.5 s)",
+          "severity": "High",
+          "description": "LCP breakdown: TTFB 628 ms (18%), Load Delay 0, Load Time 0, Render Delay 2,850 ms (82%). The LCP element is a text node ('Join the waitlist' nav button) requiring no download, yet the network waterfall shows every request complete by 466 ms. No web fonts, no blocking JS, TBT 0. Cause is main-thread decode of three eagerly-fetched PNGs (506 KB, two at 924x1869) under mobile CPU throttling. Desktop — same bytes, no throttle — paints at 0.6 s, isolating the variable to decode cost.",
+          "recommendation": "Add loading=lazy + decoding=async to the two below-fold screenshots, convert to WebP, resize logo.png, add width/height. Falsifiable: if mobile LCP does not drop below ~1.5 s, re-read the trace for a style-recalc on the .load-in hero animation."
+        },
+        {
+          "title": "Two favicon formats requested serially after first paint",
+          "severity": "Low",
+          "description": "favicon.ico (4.6 KB) is fetched after favicon.png completes, adding ~140 ms to the load tail. Post-paint, negligible.",
+          "recommendation": "Optionally drop the .ico; only needed for legacy browsers."
+        }
+      ]
+    },
+    {
+      "name": "AI Search Readiness",
+      "score": 43,
+      "weight": 0.10,
+      "what_works": [
+        "robots.txt wildcard allow permits GPTBot, ClaudeBot, PerplexityBot, OAI-SearchBot, Google-Extended, Bingbot, CCBot",
+        "Zero content is JS-injected — site.js only handles nav scroll, the Formspree submit, and an ?invited_by= banner. Non-rendering crawlers see the full page. Technical accessibility scores 90/100",
+        "Two genuinely good self-contained definition sentences exist (homepage and the how-to guide)",
+        "The 5-step how-to sequence is well-shaped raw material for passage extraction"
+      ],
+      "findings": [
+        {
+          "title": "No entity disambiguation for a generic, contested brand name",
+          "severity": "Critical",
+          "description": "Authority & brand signals score 10/100. No og:site_name sitewide, no JSON-LD, no About page, no founder name in visible copy, no legal entity name in the privacy policy, and three placeholder social links. Nothing anywhere tells a model that 'Capsule at getcapsuleapp.com' is distinct from the several other products of the same name.",
+          "recommendation": "Adopt one consistent disambiguating descriptor used verbatim everywhere; fix social links to enable sameAs; ship Organization schema; treat the App Store listing as the canonical entity anchor."
+        },
+        {
+          "title": "Only 2 of 9 pages appear indexed",
+          "severity": "Critical",
+          "description": "A site: query returns the homepage and /legal only — none of the six SEO landing pages. Everything else in this audit optimizes pages not yet in the index.",
+          "recommendation": "Connect Search Console, submit the sitemap, and Request Indexing on all six pages before any further content work."
+        },
+        {
+          "title": "No question-phrased headings anywhere on the site",
+          "severity": "High",
+          "description": "Every h2/h3 across all 9 pages is declarative ('Three steps. One unforgettable reveal.'). Zero match how people phrase queries. No FAQ-style content exists.",
+          "recommendation": "Add question-phrased H2/H3s to the three invested pages, each followed by a direct 40-60 word answer."
+        },
+        {
+          "title": "Citable passages are too short and lack disambiguating context",
+          "severity": "Medium",
+          "description": "The best passages are 27 and 31 words against a ~134-167 word sweet spot, and neither names the product as a proper noun in context — lifted alone, 'Capsule' reads as a common noun.",
+          "recommendation": "Write a 134-167 word self-contained answer near the top of each invested page, explicitly naming 'Capsule' as an iOS app."
+        },
+        {
+          "title": "No llms.txt",
+          "severity": "Low",
+          "description": "Confirmed 404. No major AI crawler has committed to reading it and Google ignores it entirely for AI Overviews.",
+          "recommendation": "20-minute nice-to-have, not a lever. Backlog."
+        }
+      ]
+    },
+    {
+      "name": "Images",
+      "score": 55,
+      "weight": 0.05,
+      "what_works": [
+        "Alt text is excellent — specific, descriptive, no keyword stuffing, 100% coverage",
+        "Screenshot alts describe actual UI state, serving both accessibility and image search",
+        "CLS is 0 despite no dimension attributes — CSS reserves space via the phone-frame containers"
+      ],
+      "findings": [
+        {
+          "title": "All images are PNG; no WebP or AVIF anywhere",
+          "severity": "High",
+          "description": "logo.png 512x512/79.8 KB displayed at 36x36 (98% waste, appears twice per page on all 9 pages); screenshots 924x1869 at ~215 KB each. Lighthouse: 391 KiB recoverable from format conversion, 340 KiB from correct sizing, 442 KiB total. Images are ~97% of homepage weight.",
+          "recommendation": "Convert to WebP at displayed size; export a 72x72 logo variant."
+        },
+        {
+          "title": "No loading=lazy, decoding=async, or width/height on any <img>",
+          "severity": "High",
+          "description": "Both screenshots sit below the fold in #screens yet are fetched eagerly at high priority from 131 ms, competing with first paint.",
+          "recommendation": "Add loading=lazy + decoding=async to the screenshots, width/height to all three, keep the nav logo eager."
+        },
+        {
+          "title": "Generic screenshot filenames and no image sitemap entries",
+          "severity": "Medium",
+          "description": "home.png and create.png carry no keyword signal.",
+          "recommendation": "Rename descriptively; optionally add <image:image> entries to sitemap.xml."
+        }
+      ]
+    }
+  ],
+  "action_plan": {
+    "phases": [
+      {
+        "name": "Phase 0: Prerequisite",
+        "timeframe": "Today, 15 min",
+        "items": [
+          "Connect Google Search Console, submit sitemap.xml, Request Indexing on all 6 landing pages — this audit contains zero first-party data and nothing below is measurable without it"
+        ]
+      },
+      {
+        "name": "Phase 1: Critical Fixes",
+        "timeframe": "Week 1, ~2 hours",
+        "items": [
+          "Change <h2 class=\"sec-title\"> to <h1> on all 6 landing pages (5 min, zero visual change)",
+          "Deploy netlify.toml 301 AND repoint all canonicals, og:url values, and sitemap entries to extensionless in the same commit",
+          "Point the 3 dead footer social links at the real URLs in src/lib/communityLinks.ts; remove or create the X link",
+          "Add OG/Twitter tags to support.html and legal.html"
+        ]
+      },
+      {
+        "name": "Phase 2: High-Impact Improvements",
+        "timeframe": "Weeks 2-3, ~4 hours",
+        "items": [
+          "Convert images to WebP, resize logo.png, add loading=lazy + decoding=async + width/height — verify mobile LCP drops under 2.5 s",
+          "Deploy JSON-LD from findings/schema.md: Organization + WebSite, then WebPage + BreadcrumbList, then ContactPage/WebPage, then SoftwareApplication",
+          "Produce a 1200x630 OG image and add og:site_name"
+        ]
+      },
+      {
+        "name": "Phase 3: Content Strategy",
+        "timeframe": "Month 2",
+        "items": [
+          "Decide before writing: invest in couples, how-to, and wedding; deprioritize graduation, baby, family-reunion (SERPs want Pinterest galleries and listicles, not app pages)",
+          "Deepen the 3 winnable pages to 900-1,200 unique words with question-phrased H2/H3s, a 134-167 word answer passage, real screenshots, and a visible date",
+          "Cut the shared 'How it works' boilerplate that currently drives 65-74% inter-page similarity",
+          "Entity disambiguation: consistent descriptor everywhere; target surprise mode and awards voting rather than the crowded 'time capsule' head term"
+        ]
+      },
+      {
+        "name": "Phase 4: Monitoring",
+        "timeframe": "Ongoing",
+        "items": [
+          "GSC Coverage weekly — flag if fewer than 9 pages indexed after 3 weeks",
+          "GSC per-page impressions weekly — flag if the 3 invested pages show no growth after 6 weeks",
+          "CrUX mobile LCP p75 monthly once traffic exists",
+          "curl -sI on a .html URL after each deploy — expect 301, not 200",
+          "Quarterly brand search — if trycapsule.com still outranks after 3 months of entity work, the name itself is the constraint"
+        ]
+      }
+    ]
+  },
+  "coverage_notes": {
+    "tooling": "Bundled claude-seo Python runtime unavailable (doctor: ready=false, managed environment missing). Run /seo setup to provision. Findings produced with Lighthouse 12, curl, live SERP checks, and direct source reads.",
+    "field_data": "No CrUX field data exists for this domain (insufficient real-user traffic). PageSpeed Insights API returned a quota error; Lighthouse was run locally instead.",
+    "credentials": "No Google Search Console, GA4, Moz, Bing Webmaster, or DataForSEO credentials detected. No first-party impressions, clicks, positions, indexation, or backlink data is included in this audit."
+  },
+  "artifacts": {
+    "findings_dir": "findings/",
+    "screenshots_dir": "screenshots/",
+    "ready_to_deploy": "netlify.toml"
+  }
+}
