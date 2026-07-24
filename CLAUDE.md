@@ -543,6 +543,8 @@ A one-time coach-mark walkthrough for new users, run once after onboarding compl
 
 **Capsule Pro section** (native-only, `Platform.OS !== 'web'`) — reads `isPro` from `useEntitlements()`. Non-Pro: an "Upgrade to Capsule Pro" button (`presentPaywall()`) + a "Restore Purchases" row (`restorePurchases()`, toasts the result). Pro: a "Manage Subscription" row (`presentCustomerCenter()` — the RevenueCat-hosted manage/cancel/refund UI) instead. The Pro pitch line here is capability-only ("Unlimited capsules, longer videos, recurring groups, bigger capsules, and one-tap capsule export") — no full-res/original-quality claim; see "Monetization" for the full purchase stack.
 
+**Community section** — three `SettingsRow`s (`Linking.openURL`) to the Discord invite, Instagram, and TikTok, using `logo-discord`/`logo-instagram`/`logo-tiktok` Ionicons. The URLs live in **`src/lib/communityLinks.ts`** (`DISCORD_URL`/`INSTAGRAM_URL`/`TIKTOK_URL`) — the single source of truth, also used by Onboarding step 5's "Join our Discord community" link. Update a handle there and both surfaces follow.
+
 ## ColorPicker (`src/components/ColorPicker.tsx`)
 
 Controlled component. Props: `{ value: string; onChange: (hex) => void; originalValue?: string }`. Internals:

@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Platform, KeyboardAvoidingView, Animated, Share,
+  Platform, KeyboardAvoidingView, Animated, Share, Linking,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +22,7 @@ import { cache } from '../../lib/cache';
 import { haptics } from '../../lib/haptics';
 import { toast } from '../../lib/toast';
 import { requestPushPermission } from '../../hooks/usePushNotifications';
+import { DISCORD_URL } from '../../lib/communityLinks';
 import DatePickerField from '../../components/DatePicker';
 import type { TablesUpdate } from '../../types/supabase';
 import { proGateHit } from '../../lib/proGate';
@@ -691,6 +692,17 @@ export default function OnboardingScreen({ navigation }: Props) {
               >
                 <Text style={styles.secondaryBtnText}>Add the first photo</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.discordRow}
+                onPress={() => Linking.openURL(DISCORD_URL)}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel="Join the Capsule Discord community"
+              >
+                <Ionicons name="logo-discord" size={18} color={accentColor} />
+                <Text style={[styles.discordText, { color: accentColor }]}>Join our Discord community</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity onPress={goHome}>
                 <Text style={styles.quietLink}>take me home</Text>
               </TouchableOpacity>
@@ -864,6 +876,8 @@ const styles = StyleSheet.create({
   secondaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
   fullWidth: { alignSelf: 'stretch' },
   quietLink: { color: '#666666', fontSize: 14, fontWeight: '600', paddingVertical: 10 },
+  discordRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, marginTop: 4 },
+  discordText: { fontSize: 15, fontWeight: '700' },
 
   bigIconCircle: {
     width: 88, height: 88, borderRadius: 44,

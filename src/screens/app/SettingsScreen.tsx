@@ -24,6 +24,7 @@ import { ACCENT_PRESETS, ACCENT_GRADIENTS } from '../../lib/accentPresets';
 import { proGateHit } from '../../lib/proGate';
 import { reportError } from '../../lib/sentry';
 import ProBadge from '../../components/ProBadge';
+import { DISCORD_URL, INSTAGRAM_URL, TIKTOK_URL } from '../../lib/communityLinks';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
@@ -213,6 +214,26 @@ export default function SettingsScreen({ navigation }: Props) {
                 : <Text style={styles.primaryBtnText}>Save Color</Text>
               }
             </TouchableOpacity>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>Community</Text>
+            <Text style={styles.helper}>Join the community, share your capsules, and get the latest.</Text>
+            <SettingsRow
+              icon="logo-discord"
+              label="Join our Discord"
+              onPress={() => Linking.openURL(DISCORD_URL)}
+            />
+            <SettingsRow
+              icon="logo-instagram"
+              label="Instagram"
+              onPress={() => Linking.openURL(INSTAGRAM_URL)}
+            />
+            <SettingsRow
+              icon="logo-tiktok"
+              label="TikTok"
+              onPress={() => Linking.openURL(TIKTOK_URL)}
+            />
           </View>
 
           <View style={styles.section}>
