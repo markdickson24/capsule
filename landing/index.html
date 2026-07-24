@@ -14,15 +14,89 @@
 <meta property="og:url" content="https://getcapsuleapp.com/" />
 <meta property="og:title" content="Capsule — Lock your memories. Unlock the moment." />
 <meta property="og:description" content="Capsule is a shared photo album that stays locked until everyone can open it together. Add photos as you go — nobody sees a thing until the date arrives." />
-<meta property="og:image" content="https://getcapsuleapp.com/logo.png" />
+<meta property="og:image" content="https://getcapsuleapp.com/og-image.jpg" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="Capsule — a shared photo album that stays sealed until everyone opens it together." />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="stylesheet" href="styles.css" />
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://getcapsuleapp.com/#organization",
+      "name": "Capsule",
+      "alternateName": "Capsule App",
+      "url": "https://getcapsuleapp.com/",
+      "logo": {
+        "@type": "ImageObject",
+        "url": "https://getcapsuleapp.com/logo-512.png",
+        "width": 512,
+        "height": 512
+      },
+      "image": "https://getcapsuleapp.com/og-image.jpg",
+      "description": "Capsule is a shared photo album that stays locked until everyone can open it together. Add photos as you go — nobody sees a thing until the date arrives.",
+      "sameAs": [
+        "https://instagram.com/app.capsule",
+        "https://tiktok.com/@capsule.photo",
+        "https://discord.gg/rgf7dR7FK"
+      ],
+      "contactPoint": {
+        "@type": "ContactPoint",
+        "email": "mark.dickson0824@gmail.com",
+        "contactType": "customer support"
+      }
+    },
+    {
+      "@type": "WebSite",
+      "@id": "https://getcapsuleapp.com/#website",
+      "url": "https://getcapsuleapp.com/",
+      "name": "Capsule",
+      "description": "Capsule is a shared photo album that stays locked until everyone can open it together. Add photos as you go — nobody sees a thing until the date arrives.",
+      "publisher": {
+        "@id": "https://getcapsuleapp.com/#organization"
+      },
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "WebPage",
+      "@id": "https://getcapsuleapp.com/#webpage",
+      "url": "https://getcapsuleapp.com/",
+      "name": "Capsule — Lock your memories. Unlock the moment.",
+      "description": "Capsule is a shared photo album that stays locked until everyone can open it together. Add photos as you go — nobody sees a thing until the date arrives.",
+      "isPartOf": {
+        "@id": "https://getcapsuleapp.com/#website"
+      },
+      "about": {
+        "@id": "https://getcapsuleapp.com/#organization"
+      },
+      "primaryImageOfPage": "https://getcapsuleapp.com/og-image.jpg",
+      "inLanguage": "en-US"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://getcapsuleapp.com/#app",
+      "name": "Capsule",
+      "url": "https://getcapsuleapp.com/",
+      "description": "Capsule is a shared photo album that stays locked until everyone can open it together. Add photos as you go — nobody sees a thing until the date arrives.",
+      "applicationCategory": "PhotoAndVideoApplication",
+      "operatingSystem": "iOS",
+      "image": "https://getcapsuleapp.com/og-image.jpg",
+      "publisher": {
+        "@id": "https://getcapsuleapp.com/#organization"
+      }
+    }
+  ]
+}
+</script>
 </head>
 <body>
 
 <nav id="nav">
   <div class="nav-inner">
-    <a class="brand" href="#top"><img class="mark" src="logo.png" alt="Capsule logo" /> Capsule <span class="beta-pill">Private beta</span></a>
+    <a class="brand" href="#top"><img class="mark" src="logo.png" width="36" height="36" decoding="async" alt="Capsule logo" /> Capsule <span class="beta-pill">Private beta</span></a>
     <div class="nav-links">
       <a class="lnk" href="#how">How it works</a>
       <a class="lnk" href="#screens">See it in action</a>
@@ -106,13 +180,19 @@
     <div class="shot-gallery">
       <div class="shot-item">
         <div class="shot-frame shot-frame--filled">
-          <img src="screenshots/home.png" alt="Home screen showing My Capsules with three capsules — Weekend Getaway and Cape Cod Summer unlocked, Outer Banks Trip starting in 11 days — plus a College Summer group" />
+          <picture>
+            <source type="image/webp" sizes="(max-width: 520px) 320px, (max-width: 860px) 45vw, 381px" srcset="screenshots/home-640.webp 640w, screenshots/home.webp 800w" />
+            <img src="screenshots/home.png" width="800" height="1618" loading="lazy" decoding="async" alt="Home screen showing My Capsules with three capsules — Weekend Getaway and Cape Cod Summer unlocked, Outer Banks Trip starting in 11 days — plus a College Summer group" />
+          </picture>
         </div>
         <p class="shot-caption">Home</p>
       </div>
       <div class="shot-item">
         <div class="shot-frame shot-frame--filled">
-          <img src="screenshots/create.png" alt="New Capsule screen: Mountain Weekend 2026, starting Nov 5 2026, unlocking Nov 8 2026, with vacation occasion, 48-hour voting, and surprise mode on" />
+          <picture>
+            <source type="image/webp" sizes="(max-width: 520px) 320px, (max-width: 860px) 45vw, 381px" srcset="screenshots/create-640.webp 640w, screenshots/create.webp 800w" />
+            <img src="screenshots/create.png" width="800" height="1618" loading="lazy" decoding="async" alt="New Capsule screen: Mountain Weekend 2026, starting Nov 5 2026, unlocking Nov 8 2026, with vacation occasion, 48-hour voting, and surprise mode on" />
+          </picture>
         </div>
         <p class="shot-caption">Create a capsule</p>
       </div>
@@ -358,7 +438,7 @@
 <footer>
   <div class="wrap">
     <div class="foot-row">
-      <a class="brand" href="#top"><img class="mark" src="logo.png" alt="Capsule logo" /> Capsule</a>
+      <a class="brand" href="#top"><img class="mark" src="logo.png" width="36" height="36" decoding="async" alt="Capsule logo" /> Capsule</a>
       <div class="foot-links-flat">
         <a href="#how">How it works</a>
         <a href="#screens">See it in action</a>

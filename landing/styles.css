@@ -123,6 +123,7 @@ h1.hero-title span { color: var(--accent); }
 .shot-frame .shot-desc { font-size: 13.5px; color: var(--text-2); line-height: 1.4; max-width: 18em; }
 .hero-visual .shot-frame { max-width: 240px; }
 .shot-frame--filled { border-style: solid; border-color: var(--surface-2); padding: 0; overflow: hidden; }
+.shot-frame--filled picture { display: block; width: 100%; height: 100%; }
 .shot-frame--filled img { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; display: block; }
 
 .shot-gallery { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 44px; }
