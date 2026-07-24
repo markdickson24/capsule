@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, Animated,
-  TouchableOpacity, RefreshControl, Modal, Pressable,
+  TouchableOpacity, RefreshControl, Modal, Pressable, AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { haptics } from '../../lib/haptics';
@@ -283,6 +283,16 @@ export default function HomeScreen() {
   }, [loading]);
 
   const { timedOut, reset: resetTimeout } = useLoadingTimeout(loading);
+
+  // Reconcile on app foreground: a capsule that unlocked while the app was
+  // backgrounded (realtime isn't delivered then) would otherwise show locked on
+  // the list until a manual pull-to-refresh.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') { refresh(true); refreshGroups(true); }
+    });
+    return () => sub.remove();
+  }, [refresh, refreshGroups]);
 
   async function onRefresh() {
     setRefreshing(true);
