@@ -1297,6 +1297,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
   // Set true by the export modal's Cancel; exportCapsule polls it per file boundary.
   const cancelExportRef = useRef(false);
+  // Monotonic write-generation guard for handleToggleLiveActivity: two
+  // in-flight toggle writes (a rapid double-tap of the Switch) can resolve
+  // out of order over the network even though JS is single-threaded — the
+  // second (later-intent) request can settle before the first. Each
+  // invocation snapshots this counter; only the invocation whose snapshot
+  // still matches the live counter when its write resolves is allowed to
+  // act on the result (restore-on-error, cache invalidate). A superseded
+  // write's result is discarded rather than clobbering the newer intent.
+  // Mirrors uploadQueue.ts's cacheGeneration / useLiveActivities.ts's
+  // generationRef.
+  const liveActivityGenRef = useRef(0);
   const [photos, setPhotos] = useState<MediaItem[]>([]);
   const [mediaCount, setMediaCount] = useState(0);
   const [activeMediaIndex, setActiveMediaIndex] = useState<number | null>(null);
@@ -1916,7 +1927,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     !!deadlineRaw &&
     new Date(deadlineRaw) > new Date();
   const liveActivityOn =
-    myMember?.live_activity_override ?? (capsule as any).live_activity_enabled ?? false;
+    myMember?.live_activity_override ?? capsule.live_activity_enabled ?? false;
 
   // Writes the caller's own per-member override. This is the single choke
   // point for the setting, so a tier gate could later be added here alone.
@@ -1936,6 +1947,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       );
     }
 
+    // Snapshot the write generation. Two in-flight writes from a rapid
+    // double-tap of the Switch can resolve out of order over the network —
+    // JS single-threadedness only rules out a same-tick race, not two
+    // already-in-flight requests completing in reverse order. If a newer
+    // toggle has since started (myGeneration no longer matches the live
+    // counter when this write resolves), this invocation's result is stale:
+    // it must not restore state or invalidate cache on behalf of an intent
+    // the user has already replaced. Mirrors uploadQueue.ts's
+    // cacheGeneration guard.
+    const myGeneration = ++liveActivityGenRef.current;
+
     const { error } = await supabase
       .from('capsule_members')
       // Only live_activity_override is written here. capsule_members has no
@@ -1944,6 +1966,17 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       .update({ live_activity_override: next })
       .eq('capsule_id', capsuleId)
       .eq('user_id', currentUserId);
+
+    if (liveActivityGenRef.current !== myGeneration) {
+      // Superseded by a later toggle. The user has already expressed a
+      // newer intent — restoring `previous` here or toasting about this
+      // stale request would clobber/confuse them over something they've
+      // already changed their mind about. Still worth a silent report if
+      // the write actually failed, since it's otherwise an error nobody
+      // ever sees.
+      if (error) reportError(error, { where: 'CapsuleDetail.handleToggleLiveActivity.superseded' });
+      return;
+    }
 
     if (error) {
       setMembers(prev =>
@@ -2359,6 +2392,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
             <Switch
               value={liveActivityOn}
               onValueChange={handleToggleLiveActivity}
+              accessibilityLabel="Lock screen countdown"
               trackColor={{ false: '#2A2A2A', true: accentColor }}
               thumbColor="#FFFFFF"
               ios_backgroundColor="#2A2A2A"
