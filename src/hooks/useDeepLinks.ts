@@ -7,6 +7,7 @@ import { navigationRef } from '../lib/navigationRef';
 import { cache } from '../lib/cache';
 import { toast } from '../lib/toast';
 import { pendingJoinStash } from '../lib/pendingJoinStash';
+import { pendingOpenStash } from '../lib/pendingOpenStash';
 
 function navigateWhenReady(fn: () => void) {
   if (navigationRef.isReady()) {
@@ -81,6 +82,24 @@ async function joinAndNavigate(capsuleId: string, userId: string) {
   });
 }
 
+// Open an existing capsule from a Live Activity tap. Unlike joinAndNavigate
+// there's no membership write — the user is already a member (the activity
+// only exists on a member's device).
+function openCapsule(capsuleId: string, camera: boolean) {
+  navigateWhenReady(() => {
+    if (camera) {
+      // CameraScreen reads targetCapsuleId and threads it into its Preview
+      // navigation, so the capsule arrives preselected.
+      (navigationRef as any).navigate('Tabs', {
+        screen: 'Camera',
+        params: { targetCapsuleId: capsuleId },
+      });
+    } else {
+      (navigationRef as any).navigate('CapsuleDetail', { capsuleId });
+    }
+  });
+}
+
 async function handleUrl(url: string | null) {
   if (!url) return;
 
@@ -108,6 +127,20 @@ async function handleUrl(url: string | null) {
     return;
   }
 
+  // Live Activity taps: capsule://capsule/<id> and capsule://capsule/<id>/camera
+  const openMatch = url.match(/capsule:\/\/capsule\/([a-zA-Z0-9-]+)(\/camera)?/);
+  if (openMatch) {
+    const capsuleId = openMatch[1];
+    const camera = !!openMatch[2];
+    if (!sessionStore.get()) {
+      // Don't drop the tap — drain it after sign-in.
+      pendingOpenStash.set({ capsuleId, camera });
+      return;
+    }
+    openCapsule(capsuleId, camera);
+    return;
+  }
+
   const match = url.match(/capsule:\/\/join\/([a-zA-Z0-9-]+)/);
   if (!match) return;
   const capsuleId = match[1];
@@ -132,9 +165,18 @@ export function useDeepLinks(session?: Session | null) {
 
   useEffect(() => {
     if (!session) return;
+
     const stashedCapsuleId = pendingJoinStash.get();
-    if (!stashedCapsuleId) return;
-    pendingJoinStash.clear();
-    joinAndNavigate(stashedCapsuleId, session.user.id);
+    if (stashedCapsuleId) {
+      pendingJoinStash.clear();
+      joinAndNavigate(stashedCapsuleId, session.user.id);
+      return;
+    }
+
+    const stashedOpen = pendingOpenStash.get();
+    if (stashedOpen) {
+      pendingOpenStash.clear();
+      openCapsule(stashedOpen.capsuleId, stashedOpen.camera);
+    }
   }, [session]);
 }
