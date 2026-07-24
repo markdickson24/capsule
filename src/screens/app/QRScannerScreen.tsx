@@ -1,7 +1,7 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
-  Dimensions, Platform,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -35,6 +35,12 @@ export default function QRScannerScreen() {
   const navigation = useNavigation<Nav>();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  // onBarcodeScanned fires per camera frame. `scanned` state can't guard the
+  // second call in the same tick — setState is async, so both invocations read
+  // the same stale `false` and we'd fire two RPCs (and potentially two joins).
+  // A ref flips synchronously, so the second frame sees it immediately.
+  const scanLock = useRef(false);
+  const rearmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [preview, setPreview] = useState<CapsulePreview | null>(null);
   const [loading, setLoading] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -46,15 +52,27 @@ export default function QRScannerScreen() {
   // Re-arm after a couple seconds so "Try again" is actually true.
   function rearmAfterError() {
     setLoading(false);
-    setTimeout(() => {
+    if (rearmTimer.current) clearTimeout(rearmTimer.current);
+    rearmTimer.current = setTimeout(() => {
+      scanLock.current = false;
       setScanned(prev => (prev ? false : prev));
     }, 2000);
   }
 
+  // The re-arm timer outlives the screen if the user closes it inside the 2s
+  // window; clear it so it can't fire against an unmounted component.
+  useEffect(() => () => {
+    if (rearmTimer.current) clearTimeout(rearmTimer.current);
+  }, []);
+
   const handleScan = useCallback(async ({ data }: { data: string }) => {
-    if (scanned) return;
+    if (scanLock.current) return;
+    scanLock.current = true;
     setScanned(true);
     haptics.selection();
+    // Clear any previous failure, or it renders inside the success sheet:
+    // scan a bad code then a good one and the sheet showed the stale error.
+    setScanError('');
 
     const match = data.match(/(?:capsule:\/\/join\/|https:\/\/getcapsuleapp\.com\/join\/)([a-zA-Z0-9-]+)/);
     if (!match) {
@@ -65,7 +83,14 @@ export default function QRScannerScreen() {
 
     const capsuleId = match[1];
     const session = sessionStore.get();
-    if (!session) return;
+    if (!session) {
+      // Previously a bare `return`: scanLock stayed set, onBarcodeScanned went
+      // undefined, and the camera was dead for the rest of the screen's life
+      // with no message explaining why.
+      setScanError('You need to be signed in to join a capsule.');
+      rearmAfterError();
+      return;
+    }
 
     setLoading(true);
     try {
@@ -120,7 +145,26 @@ export default function QRScannerScreen() {
       }
       haptics.success();
       navigation.replace('CapsuleDetail', { capsuleId: preview.id });
-    } catch {
+    } catch (e: any) {
+      const raw = `${e?.message ?? ''} ${e?.code ?? ''}`;
+
+      // enforce_member_limit fires on every join path, this one included.
+      // Without a specific message the user just sees "try again" and retries
+      // forever against a cap that will never move on its own.
+      if (raw.includes('MEMBER_LIMIT_REACHED')) {
+        setScanError('This capsule is full. Ask the owner to upgrade for more members.');
+        setJoining(false);
+        return;
+      }
+      // 23505 = unique violation: already a member. The preview said otherwise,
+      // so it went stale (joined on another device, or accepted an invite
+      // between the scan and the tap). Treat it as success — they're in.
+      if (raw.includes('23505') || raw.toLowerCase().includes('duplicate key')) {
+        cache.invalidate('capsules', 'profile');
+        haptics.success();
+        navigation.replace('CapsuleDetail', { capsuleId: preview.id });
+        return;
+      }
       setScanError('Could not join. Please try again.');
       toast.show("Couldn't join — try again.");
       setJoining(false);
@@ -130,6 +174,7 @@ export default function QRScannerScreen() {
   function dismissSheet() {
     setPreview(null);
     setScanError('');
+    scanLock.current = false;
     setScanned(false);
   }
 
@@ -233,6 +278,14 @@ export default function QRScannerScreen() {
                     ? <ActivityIndicator color="#0a0a0a" />
                     : <Text style={s.acceptText}>Accept Invite</Text>
                   }
+                </TouchableOpacity>
+              )}
+              {preview.alreadyMember && (
+                <TouchableOpacity
+                  style={s.acceptBtn}
+                  onPress={() => navigation.replace('CapsuleDetail', { capsuleId: preview.id })}
+                >
+                  <Text style={s.acceptText}>Open capsule</Text>
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={s.cancelBtn} onPress={dismissSheet}>
