@@ -1287,7 +1287,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // would step on the reveal — shown to a non-Pro owner once a capsule has
   // unlocked. Dismissal persists per-capsule so it doesn't re-nag on every
   // visit. Native-only (purchases don't run on web) and Pro-gated below.
-  const { isPro } = useEntitlements();
+  const { isPro, loading: entitlementsLoading } = useEntitlements();
   const [proNudgeDismissed, setProNudgeDismissed] = useState(true); // hidden until the async read resolves
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState({ done: 0, total: 0 });
@@ -2110,7 +2110,9 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         {/* Post-unlock Pro upsell — the "moment of success" gate. Shown to a
             non-Pro owner on an unlocked capsule; tapping opens the hosted
             paywall. Native-only; dismissal persists per-capsule. */}
-        {Platform.OS !== 'web' && isOwner && !isPro && capsule.status === 'unlocked' && !proNudgeDismissed && (
+        {/* !entitlementsLoading: don't pitch Pro to someone whose tier we
+            haven't resolved — they may already own it. */}
+        {Platform.OS !== 'web' && isOwner && !entitlementsLoading && !isPro && capsule.status === 'unlocked' && !proNudgeDismissed && (
           <View style={[styles.inviteNudge, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
             <Ionicons name="sparkles" size={22} color={accentColor} />
             <View style={styles.inviteNudgeTextWrap}>

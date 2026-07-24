@@ -89,8 +89,13 @@ export default function SettingsScreen({ navigation }: Props) {
           </View>
 
           {/* Native-only: react-native-purchases doesn't run on web, and web
-              isn't a marketed purchase surface. */}
-          {Platform.OS !== 'web' && (
+              isn't a marketed purchase surface.
+
+              Held back entirely until the tier resolves: `isPro` is false both
+              for a free account and for one we couldn't determine, so rendering
+              early would pitch "Upgrade to Capsule Pro" — and open the paywall
+              on tap — to someone who already subscribes. */}
+          {Platform.OS !== 'web' && !entitlementsLoading && (
             <View style={styles.section}>
               <Text style={styles.sectionLabel}>Capsule Pro</Text>
               {isPro ? (
@@ -157,10 +162,11 @@ export default function SettingsScreen({ navigation }: Props) {
             </View>
 
             {/* Pro: custom picker + gradients. Free: a locked upsell row.
-                The free row is disabled while entitlements load so a real Pro
-                user (briefly isPro=false) can't trigger the paywall before the
-                listener resolves. */}
-            {isPro ? (
+                While the tier is unresolved neither is shown — `isPro` is false
+                for "not Pro" and "couldn't tell" alike, and the locked row
+                asserts the user doesn't have Pro. The presets above stay
+                available throughout, so nothing here is ever empty. */}
+            {entitlementsLoading ? null : isPro ? (
               <>
                 <Text style={styles.helper}>Custom color</Text>
                 <ColorPicker value={pending} onChange={setPending} originalValue={accentColor} />

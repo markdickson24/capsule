@@ -56,3 +56,33 @@ export function resolveIsPro(
 ): boolean {
   return rcEntitlementActive || dbTier === 'pro';
 }
+
+/**
+ * How far along one Pro source is.
+ *   pending     — still fetching; no answer yet
+ *   known       — answered definitively (Pro or not Pro)
+ *   unavailable — cannot answer: retries exhausted, or the web SDK stub, which
+ *                 by design never has an opinion
+ */
+export type SourceState = 'pending' | 'known' | 'unavailable';
+
+/**
+ * May a gate act on the current `isPro` value yet?
+ *
+ * `isPro` is a boolean, so it cannot distinguish "confirmed not Pro" from
+ * "nobody could tell us". Gating on that ambiguity is precisely what paywalls a
+ * paying customer, so callers must consult this before acting.
+ *
+ * Requires that nothing is still pending AND that at least one source actually
+ * answered. If both come back unavailable — offline cold start, RevenueCat down
+ * and the DB read failed — `isPro` is false purely from absence of evidence, and
+ * every gate must hold off rather than treat that as "free".
+ *
+ * Holding off is safe in both directions: creation gates fall through to the
+ * server RPC, which knows the true tier, and cosmetic gates simply render
+ * nothing rather than mis-selling Pro to someone who already owns it.
+ */
+export function entitlementsResolved(rc: SourceState, db: SourceState): boolean {
+  if (rc === 'pending' || db === 'pending') return false;
+  return rc === 'known' || db === 'known';
+}
