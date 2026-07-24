@@ -93,8 +93,15 @@ export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
   ).current;
 
   function fire(action: LimitAction) {
-    action.onPress();
+    // Dismiss FIRST, then run the action once the sheet is gone. If the action
+    // presents a native modal (the RevenueCat paywall via presentPaywall),
+    // presenting it while this RN <Modal> is still animating out glitches on
+    // iOS ("attempt to present while presenting"/flicker) — the reported bug on
+    // the video-length and recurring-group upgrade sheets. Deferring past the
+    // ~220ms dismiss (instant under Reduce Motion) avoids the conflict; every
+    // action tolerates the small delay.
     onDismiss();
+    setTimeout(() => action.onPress(), reduceMotion ? 0 : 280);
   }
 
   return (
