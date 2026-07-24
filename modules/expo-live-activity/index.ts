@@ -11,7 +11,7 @@ export type StartConfig = {
 };
 
 type NativeLiveActivity = {
-  isSupported: boolean | (() => boolean);
+  isSupported: () => boolean;
   start: (config: StartConfig) => Promise<string | null>;
   update: (capsuleId: string, photoCount: number, memberCount: number) => Promise<void>;
   end: (capsuleId: string, immediate: boolean) => Promise<void>;
@@ -40,8 +40,7 @@ if (Platform.OS === 'ios') {
 export function isLiveActivitySupported(): boolean {
   if (!nativeModule) return false;
   try {
-    const s = nativeModule.isSupported;
-    return typeof s === 'function' ? s() : !!s;
+    return nativeModule.isSupported();
   } catch {
     return false;
   }

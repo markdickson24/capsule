@@ -3,6 +3,7 @@ import { AppState, Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { reportError } from '../lib/sentry';
 import { useTheme } from '../context/ThemeContext';
+import { uploadQueue } from '../lib/uploadQueue';
 import {
   desiredActivities,
   reconcileActivities,
@@ -103,7 +104,13 @@ export function useLiveActivities(userId?: string | null) {
             'live_activity_override, capsules(id, title, status, created_at, contribution_start_at, contribution_lock_at, unlock_at, live_activity_enabled)'
           )
           .eq('user_id', userId)
-          .not('joined_at', 'is', null);
+          .not('joined_at', 'is', null)
+          // Archive is per-member ("hide from my feed", migration
+          // 20260711150000) — a member who archived a capsule has explicitly
+          // said they don't want it prominent, so it must not appear on the
+          // most prominent surface the app has (the lock screen). Every other
+          // consumer of archived_at (Home, CapsuleDetail) already respects it.
+          .is('archived_at', null);
 
         if (error || !data) {
           if (error) reportError(error, { where: 'useLiveActivities.fetch' });
@@ -132,7 +139,13 @@ export function useLiveActivities(userId?: string | null) {
         // (previously a single outer try/catch meant one failure stopped the
         // whole loop until the next foreground).
         try {
-          await endLiveActivity(capsuleId);
+          // immediate=true: an ended-but-not-dismissed activity otherwise
+          // lingers on the lock screen for up to 4 hours (.default policy).
+          // Every reason a capsule lands in toEnd — signed out, opted out,
+          // unlocked, deadline passed — means the card shouldn't linger.
+          // Matches CapsuleDetailScreen's opt-out call, which already passes
+          // true.
+          await endLiveActivity(capsuleId, true);
         } catch (err) {
           reportError(err, { where: 'useLiveActivities.end', extra: { capsuleId } });
         }
@@ -223,5 +236,22 @@ export function useLiveActivities(userId?: string | null) {
       if (state === 'active') reconcile();
     });
     return () => sub.remove();
+  }, [reconcile]);
+
+  // Upload-queue drain: photoCount is otherwise stale exactly when a user
+  // would glance at their lock screen — right after adding photos. uploadQueue
+  // has no dedicated "drained" event, so this derives one from its existing
+  // subscribe() pub/sub (notify() fires on every task state change): a drain
+  // is the global task list transitioning from non-empty to empty. Reuses
+  // the same subscription mechanism useUploadTasks does, no new event system,
+  // no polling. runningRef above already prevents this from overlapping a
+  // foreground/mount pass.
+  useEffect(() => {
+    let hadTasks = uploadQueue.getTasks().length > 0;
+    return uploadQueue.subscribe(() => {
+      const hasTasks = uploadQueue.getTasks().length > 0;
+      if (hadTasks && !hasTasks) reconcile();
+      hadTasks = hasTasks;
+    });
   }, [reconcile]);
 }

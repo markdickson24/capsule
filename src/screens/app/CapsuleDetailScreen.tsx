@@ -57,7 +57,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall } from '../../lib/purchases';
 import { reportError } from '../../lib/sentry';
-import { isLiveActivitySupported, endLiveActivity } from '../../../modules/expo-live-activity';
+import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -1933,6 +1933,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   // point for the setting, so a tier gate could later be added here alone.
   async function handleToggleLiveActivity(next: boolean) {
     if (!currentUserId) return;
+    // Narrows `capsule` for the rest of this (nested) function — TS control
+    // flow narrowing from the top-level `if (!capsule) return` guard above
+    // doesn't cross into a nested function's closure, even though this
+    // handler can only ever be invoked while that guard has already passed
+    // (the Switch it's wired to only renders once `capsule` is set).
+    if (!capsule) return;
     const previous = myMember?.live_activity_override ?? null;
 
     // Optimistic — snapshot, apply, write, restore + toast on failure.
@@ -1944,6 +1950,25 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (!next) {
       endLiveActivity(capsuleId, true).catch(err =>
         reportError(err, { where: 'CapsuleDetail.endLiveActivity' })
+      );
+    }
+
+    // Turning it on should show the card now, not wait for the next mount/
+    // foreground reconcile — mirrors the OFF branch above exactly. This
+    // handler only runs when the row is rendered, which already requires
+    // liveActivityWindowOpen, so no eligibility/window logic is duplicated
+    // here (see FIX 4 in the final review). Fire-and-forget, same as OFF.
+    if (next) {
+      startLiveActivity({
+        capsuleId,
+        title: capsule.title,
+        accentHex: accentColor,
+        windowStartMs: new Date(capsule.contribution_start_at ?? (capsule as any).created_at).getTime(),
+        deadlineMs: new Date(deadlineRaw!).getTime(),
+        photoCount: mediaCount,
+        memberCount: members.filter(m => m.joined_at !== null).length,
+      }).catch(err =>
+        reportError(err, { where: 'CapsuleDetail.startLiveActivity' })
       );
     }
 

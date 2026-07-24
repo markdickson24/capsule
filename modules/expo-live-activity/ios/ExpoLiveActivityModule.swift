@@ -35,6 +35,13 @@ public class ExpoLiveActivityModule: Module {
         return existing.id
       }
 
+      // Defensive: the widget's Text(timerInterval:) views use
+      // windowStart...deadline, and Swift's `...` traps (fatal error) unless
+      // lowerBound <= upperBound. Today's only caller (useLiveActivities.ts)
+      // can't produce an inverted pair, but a future caller that does would
+      // otherwise crash the widget extension on its very first render.
+      guard config.windowStartMs < config.deadlineMs else { return nil }
+
       let deadline = Date(timeIntervalSince1970: config.deadlineMs / 1000)
       let attributes = CapsuleActivityAttributes(
         capsuleId: config.capsuleId,

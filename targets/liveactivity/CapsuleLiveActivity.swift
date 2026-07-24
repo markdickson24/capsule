@@ -49,9 +49,19 @@ struct CapsuleLiveActivityView: View {
 
         // The system ticks this on-device with no updates from the app, which
         // is what lets the whole feature work with no server component.
+        //
+        // Range must be windowStart...deadline, NOT Date()...deadline: Swift's
+        // `...` preconditions lowerBound <= upperBound and TRAPS otherwise.
+        // ActivityKit re-invokes this view at exactly staleDate == deadline,
+        // the moment Date() >= deadline — so a live `Date()` lower bound
+        // crashes the widget extension at the end of every window, the most
+        // visible moment the feature has. windowStart < deadline is guaranteed
+        // by desiredActivities (only starts when windowStart <= now < deadline),
+        // and a past lower bound is the Apple-sanctioned pattern: countsDown
+        // counts down to upperBound regardless of where the interval began.
         HStack(spacing: 4) {
           Image(systemName: "clock")
-          Text(timerInterval: Date()...context.attributes.deadline, countsDown: true)
+          Text(timerInterval: context.attributes.windowStart...context.attributes.deadline, countsDown: true)
             .monospacedDigit()
         }
         .font(.subheadline)
@@ -84,6 +94,7 @@ struct CapsuleLiveActivityView: View {
           .frame(width: 52, height: 40)
           .background(accent, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
       }
+      .accessibilityLabel("Add a photo")
     }
     .padding(16)
     .activityBackgroundTint(Color.black.opacity(0.55))
@@ -102,12 +113,14 @@ struct CapsuleLiveActivity: Widget {
         DynamicIslandExpandedRegion(.leading) {
           Image(systemName: "lock.fill")
             .foregroundStyle(colorFromHex(context.attributes.accentHex))
+            .accessibilityLabel("Capsule locked")
         }
         DynamicIslandExpandedRegion(.trailing) {
           Link(destination: URL(string: "capsule://capsule/\(context.attributes.capsuleId)/camera")!) {
             Image(systemName: "camera.fill")
               .foregroundStyle(colorFromHex(context.attributes.accentHex))
           }
+          .accessibilityLabel("Add a photo")
         }
         DynamicIslandExpandedRegion(.center) {
           Text(context.attributes.title).font(.caption).lineLimit(1)
@@ -123,13 +136,18 @@ struct CapsuleLiveActivity: Widget {
       } compactLeading: {
         Image(systemName: "lock.fill")
           .foregroundStyle(colorFromHex(context.attributes.accentHex))
+          .accessibilityLabel("Capsule locked")
       } compactTrailing: {
-        Text(timerInterval: Date()...context.attributes.deadline, countsDown: true)
+        // See the comment on the lock-screen Text above — must be
+        // windowStart...deadline, not Date()...deadline, or this traps the
+        // moment the deadline passes.
+        Text(timerInterval: context.attributes.windowStart...context.attributes.deadline, countsDown: true)
           .monospacedDigit()
           .frame(maxWidth: 44)
       } minimal: {
         Image(systemName: "lock.fill")
           .foregroundStyle(colorFromHex(context.attributes.accentHex))
+          .accessibilityLabel("Capsule locked")
       }
       .widgetURL(URL(string: "capsule://capsule/\(context.attributes.capsuleId)")!)
     }
