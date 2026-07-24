@@ -1,0 +1,38 @@
+# Netlify headers. Lives in the publish directory (landing/) and is read from the
+# deploy root — no build-config changes required.
+#
+# CSP note: 'unsafe-inline' is required for style-src because the pages use inline
+# style="" attributes throughout (nav CTA, footer social row, hero spacing).
+# Tightening that means moving those into styles.css first.
+#
+# formspree.io is allowed in connect-src and form-action because the waitlist form
+# POSTs there (landing/index.html: <form action="https://formspree.io/f/xlgkwnrn">).
+# If that endpoint ever changes, update it here or the waitlist will fail silently.
+
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://formspree.io; form-action 'self' https://formspree.io; frame-ancestors 'none'; base-uri 'self'; object-src 'none'; upgrade-insecure-requests
+
+# Screenshots are content-addressed by hand (they change only when the app UI
+# changes, at which point the filename should change too) — safe to cache hard.
+/screenshots/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Brand assets change rarely. A week keeps repeat visits fast without stranding
+# anyone for long after a rebrand.
+/logo.png
+  Cache-Control: public, max-age=604800
+/favicon.png
+  Cache-Control: public, max-age=604800
+/favicon.ico
+  Cache-Control: public, max-age=604800
+/apple-touch-icon.png
+  Cache-Control: public, max-age=604800
+
+# NOT set here: long max-age on styles.css / site.js. Those filenames are not
+# fingerprinted, so a long cache would strand users on stale code after a deploy.
+# Move them to immutable only after adding content hashes to the filenames.
+# HTML stays on Netlify's default (max-age=0, must-revalidate), which is correct.

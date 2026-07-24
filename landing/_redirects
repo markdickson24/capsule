@@ -1,0 +1,23 @@
+# Netlify redirects. Lives in the publish directory (landing/) and is read from
+# the deploy root — no build-config changes required.
+#
+# Why: Netlify's "Pretty URLs" serves /foo for /foo.html but does NOT redirect,
+# so every page was reachable at two URLs, both returning 200. Canonical tags,
+# og:url, the sitemap, and all internal links now use the extensionless form;
+# these rules make the .html form 301 to it so the duplicate can't be indexed.
+#
+# The trailing ! forces the redirect: without it, an existing static file at that
+# path wins over the rule and the .html URL would keep returning 200.
+#
+# Rules are listed explicitly rather than as a /*.html splat — Netlify splats
+# match trailing path segments, not a literal .html suffix.
+
+/index.html                             /                                 301!
+/wedding-photo-time-capsule.html        /wedding-photo-time-capsule       301!
+/time-capsule-app-for-couples.html      /time-capsule-app-for-couples     301!
+/graduation-time-capsule-ideas.html     /graduation-time-capsule-ideas    301!
+/how-to-make-a-digital-time-capsule.html /how-to-make-a-digital-time-capsule 301!
+/babys-first-year-time-capsule.html     /babys-first-year-time-capsule    301!
+/family-reunion-time-capsule.html       /family-reunion-time-capsule      301!
+/support.html                           /support                          301!
+/legal.html                             /legal                            301!
