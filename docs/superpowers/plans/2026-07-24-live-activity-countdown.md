@@ -1070,10 +1070,17 @@ Expected: no new errors.
 Run: `npx expo prebuild --platform ios --clean && grep -c "ExpoLiveActivity" ios/Podfile.lock`
 Expected: non-zero — the local pod is autolinked.
 
-Now the shared-type check that Task 3 deferred:
+Now the shared-type check that Task 3 deferred — **verify by compiling, not by grepping the pbxproj.**
 
-Run: `grep -c "CapsuleActivityAttributes" ios/Capsule.xcodeproj/project.pbxproj`
-Expected: **at least 2** — the widget extension's reference plus the app target's, the latter arriving via this task's podspec `source_files` glob. **If it is still 1, the shared-type wiring is broken**: the app target cannot construct `CapsuleActivityAttributes`, so `Activity.request` has no matching type and `start()` fails at runtime with no compile-time error. Do not finish this task on 1 — confirm the podspec glob actually covers `CapsuleActivityAttributes.swift` (it sits in the same `ios/` directory as the module, so `**/*.{h,m,swift}` should match it) and that the pod is being built for the app target.
+Task 3 established that this generated Xcode project uses **synchronized file-system groups**, so individual filenames are never enumerated in `project.pbxproj`. A `grep -c "CapsuleActivityAttributes" ios/Capsule.xcodeproj/project.pbxproj` therefore returns 0 regardless of whether the wiring is correct, and proves nothing. Do not use it.
+
+Instead, compile and let the type checker answer the actual question — can the **app** target see `CapsuleActivityAttributes`?
+
+Run an unsigned `xcodebuild` of the `ExpoLiveActivity` pod target (the same technique Task 3 used to catch the SwiftUI shadowing bug; see `task-3-report.md` for the exact invocation that worked).
+
+Expected: `ExpoLiveActivityModule.swift` compiles clean. Specifically there must be **no** `Cannot find type 'CapsuleActivityAttributes' in scope` error from it.
+
+That error is the precise failure mode this check exists to catch: the module and the widget would each compile in isolation while the app target lacks the type, so `Activity.request` would have no matching concrete type and `start()` would fail **at runtime with no compile-time warning**. If you see it, the podspec `source_files` glob isn't picking up `CapsuleActivityAttributes.swift` — it sits in the same `ios/` directory as the module, so `**/*.{h,m,swift}` should match it. Do not finish this task while that error is present.
 
 - [ ] **Step 6: Commit**
 
