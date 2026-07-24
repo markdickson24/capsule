@@ -6,7 +6,10 @@ import { sessionStore } from '../lib/sessionStore';
 import { toast } from '../lib/toast';
 import { parseGradient, serializeGradient } from '../lib/accentPresets';
 
-const DEFAULT_ACCENT = '#FF6B35';
+// Brand reddish-coral, matching the website (--accent: #FC6A5B). New accounts
+// default to this (DB column default on users.accent_color is set to match);
+// existing users keep whatever they had — nothing migrates their color.
+const DEFAULT_ACCENT = '#FC6A5B';
 const DEFAULT_HOME_LAYOUT: HomeLayout = 'list';
 const THEME_CACHE_PREFIX = 'cap_theme_v1:';
 
