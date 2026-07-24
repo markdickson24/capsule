@@ -24,6 +24,8 @@
   --success: #30D158;
   --text: #FFFFFF;
   --text-2: #888888;
+  /* Decoration only -- 2.66:1 on --bg, below AA. Never use for text the
+     user has to read; --text-2 (5.58:1) is the floor for that. */
   --text-3: #555555;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --r-lg: 20px;
@@ -61,7 +63,7 @@ img { display: block; max-width: 100%; }
   padding: 15px 26px; border-radius: var(--r-pill); border: none;
   cursor: pointer; transition: transform .15s ease, opacity .15s ease;
 }
-.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary { background: var(--accent); color: #0A0A0A; }
 .btn-primary:hover { transform: translateY(-1px); opacity: .92; }
 .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
 .btn-ghost:hover { border-color: #3a3a3a; }
@@ -93,7 +95,7 @@ h1.hero-title { font-weight: 800; font-size: clamp(38px, 5.4vw, 64px); line-heig
 h1.hero-title span { color: var(--accent); }
 .hero-sub { font-size: 18.5px; color: var(--text-2); max-width: 30em; line-height: 1.6; margin-top: 20px; }
 .hero-cta { display: flex; gap: 12px; margin-top: 30px; flex-wrap: wrap; }
-.hero-proof { margin-top: 26px; font-size: 14px; color: var(--text-3); }
+.hero-proof { margin-top: 26px; font-size: 14px; color: var(--text-2); }
 .hero-proof strong { color: var(--text-2); font-weight: 700; }
 
 /* one orchestrated load-in for the hero only — not repeated down the page */
@@ -158,7 +160,7 @@ section { padding: 88px 0; }
 .testi-mono { width: 30px; height: 30px; border-radius: 50%; flex: none; background: var(--surface-2); border: 1px solid var(--border); display: grid; place-items: center; font-size: 11.5px; font-weight: 800; color: var(--text-2); }
 .testi-card .name { font-weight: 700; font-size: 13.5px; }
 .testi-card .ctx { font-size: 12.5px; color: var(--text-2); }
-.testi-note { color: var(--text-3); font-size: 13.5px; margin-top: 12px; }
+.testi-note { color: var(--text-2); font-size: 13.5px; margin-top: 12px; }
 
 /* ── occasions — a real catalog grid (grid is the right device here) ── */
 .occasion-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; margin-top: 44px; }
@@ -168,7 +170,7 @@ section { padding: 88px 0; }
 .occasion h3 { font-size: 20px; font-weight: 800; margin: 16px 0 8px; letter-spacing: -0.01em; }
 .occasion p { color: var(--text-2); font-size: 15px; line-height: 1.55; }
 .occasion .tag-row { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
-.oc-tag { font-size: 11.5px; font-weight: 700; color: var(--text-2); background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 10px; }
+.oc-tag { font-size: 11.5px; font-weight: 700; color: #9A9A9A; background: rgba(255,255,255,.05); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 10px; }
 .uc-more-row { display: flex; flex-direction: column; gap: 6px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
 .uc-more { font-size: 13.5px; font-weight: 700; color: var(--accent-soft); display: inline-flex; align-items: center; gap: 6px; }
 
@@ -183,7 +185,7 @@ section { padding: 88px 0; }
 .moment-row .body { flex: 1; min-width: 0; }
 .moment-row .body h3 { font-size: 17px; font-weight: 800; margin-bottom: 4px; letter-spacing: -0.005em; }
 .moment-row .body p { color: var(--text-2); font-size: 15px; line-height: 1.55; max-width: 46em; }
-.moment-row .tag { font-size: 12px; font-weight: 700; color: var(--text-3); white-space: nowrap; padding-top: 5px; flex: none; }
+.moment-row .tag { font-size: 12px; font-weight: 700; color: var(--text-2); white-space: nowrap; padding-top: 5px; flex: none; }
 @media (max-width: 560px){ .moment-row .tag { display: none; } }
 
 /* ── together statement ── */
@@ -222,7 +224,7 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; }
 .foot-links-flat { display: flex; gap: 24px; flex-wrap: wrap; font-size: 14px; }
 .foot-links-flat a { color: var(--text-2); }
 .foot-links-flat a:hover { color: var(--text); }
-.foot-bottom { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.foot-bottom { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 13px; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
 
 /* ── guide pages ── */
 .wrap-in { max-width: 640px; }
@@ -234,7 +236,7 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; }
 .guide-cta { padding: 20px 0 10px; }
 .guide-cta h2 { font-weight: 800; font-size: clamp(24px, 3.2vw, 32px); letter-spacing: -0.015em; }
 .guide-cta p { color: var(--text-2); margin: 10px 0 20px; max-width: 30em; font-size: 15.5px; }
-.more-ideas-label { font-size: 12px; font-weight: 700; color: var(--text-3); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
+.more-ideas-label { font-size: 12px; font-weight: 700; color: var(--text-2); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 10px; }
 .more-ideas { display: flex; flex-wrap: wrap; gap: 10px; }
 .more-ideas a { font-size: 13.5px; font-weight: 700; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 8px 15px; }
 .more-ideas a:hover { color: var(--accent-soft); border-color: rgba(var(--accent-rgb),.4); }
@@ -248,7 +250,7 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; }
 /* ── legal / doc pages — same shared design system as the rest of the site ── */
 .doc-wrap { max-width: 760px; }
 .doc-header { padding: 148px 0 20px; }
-.doc-header .updated { color: var(--text-3); font-size: 14px; margin-top: 14px; }
+.doc-header .updated { color: var(--text-2); font-size: 14px; margin-top: 14px; }
 .doc-jump { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
 .doc-jump a { font-size: 13.5px; font-weight: 700; color: var(--text-2); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 9px 16px; transition: border-color .2s, color .2s; }
 .doc-jump a:hover { color: var(--accent-soft); border-color: rgba(var(--accent-rgb),.4); }
@@ -262,7 +264,7 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; }
 .doc-block ul { margin: 10px 0 0 20px; color: var(--text-2); }
 .doc-block li { margin-top: 8px; padding-left: 4px; line-height: 1.55; }
 .doc-block a { color: var(--accent-soft); text-decoration: underline; }
-.doc-block .meta { color: var(--text-3); font-size: 13.5px; margin-top: 4px; }
+.doc-block .meta { color: var(--text-2); font-size: 13.5px; margin-top: 4px; }
 @media (max-width: 720px){ .doc-header { padding: 116px 0 16px; } .doc-block { padding: 28px 0; } }
 
 /* ── responsive ── */
