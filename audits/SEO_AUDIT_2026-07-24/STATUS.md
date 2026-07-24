@@ -60,11 +60,41 @@ Category scores above are my own re-scoring against the original rubric, not a r
 
 **Contrast fixes scoped to `landing/`.** The same white-on-`#FC6A5B` pairing (2.86:1) exists throughout the React Native app — every primary button. Untouched by explicit choice.
 
-## Blocked on you
+## Strategy call — RESOLVED
 
-**1. Google Search Console — the highest-value remaining action.** At audit time only 2 of 9 pages appeared indexed (homepage + `/legal`); none of the six guide pages were in the index. Everything above optimises pages search engines may not have picked up yet. Verify the domain, submit `sitemap.xml`, and Request Indexing on the six guide URLs. Until this happens there is still **zero first-party data** — no impressions, positions, or indexation status — so none of this work is measurable.
+The SXO analysis rated three keywords unwinnable at zero authority. That was correct **for the bare head terms** — `graduation time capsule ideas`, `baby's first year time capsule` and `family reunion time capsule` return Pinterest boards, Snapfish, Etsy and parenting-media listicles, and no product page competes there.
 
-**2. The Phase 3 strategy call.** The SXO analysis found three of the six keywords structurally unwinnable at zero authority — `graduation time capsule ideas`, `baby's first year time capsule` and `family reunion time capsule` return Pinterest galleries, Snapfish and parenting-media listicles. I deepened all six and added idea-list sections that move those pages toward the listicle format the SERPs reward, but that does not overcome an authority gap. Sitemap priorities now reflect the split (0.8 for the three winnable, 0.7 for the rest). Whether to keep investing in the other three is your call.
+Re-running the SERPs against the **qualified** variants returns a completely different competitive set:
+
+| Query | Who actually ranks | Winnable? |
+|---|---|---|
+| `digital time capsule graduation` | Time Capsule – Memory Vault, TimeCapsules, SnapVault, TimeLock, SocialArchive, Medium | Yes — apps |
+| `digital time capsule baby first year` | TimeLock, memoryKPR, woombie | Yes — apps + blogs |
+| `shared photo album app family reunion` | Memento, Pix, JoinMyMoment, FamilyAlbum, We – Private Album | Yes — all apps |
+
+So the answer wasn't "drop three pages", it was "they're aimed at the wrong phrasing." All three were retargeted:
+
+- Graduation Time Capsule Ideas → **Digital Time Capsule for Graduation**
+- Baby's First Year Time Capsule → **Digital Time Capsule for Baby's First Year**
+- Family Reunion Time Capsule → **Shared Photo Album for Family Reunions**
+
+Title, meta description, H1 and schema lead with the qualified term; the original head terms remain in body copy and H2s, so each page keeps a secondary shot at them. The "what should go in a …" idea sections added in Phase 3 are exactly what those listicle SERPs reward, so the pages are no longer structurally mismatched either. Slugs unchanged — renaming would need another redirect round and discard existing crawl history. Sitemap priorities levelled back to 0.8 across all six.
+
+## Blocked on you — one item
+
+**Google Search Console.** This genuinely cannot be done without you: it requires OAuth against your Google account. There are no Google credentials on this machine (`gcloud` absent, no service-account JSON), and the browser extension isn't connected, so there's no automation path either.
+
+It matters more than the audit suggested. A `site:` check still surfaces a **stale Bluehost parked-page record** for this domain. Infrastructure is verified clean — nameservers are NS1/Netlify, A records resolve to Netlify, and the apex serves the real site (`server: Netlify`) — so this is purely a search engine that hasn't re-crawled since the domain moved. That is exactly what Request Indexing forces.
+
+Everything that *doesn't* need your account is already done: sitemap valid with all 9 URLs returning 200, no `noindex` or `X-Robots-Tag` anywhere, robots.txt open, full internal linking from the homepage to all six guides, and IndexNow submitted and accepted (Bing/Yandex family — Google does not participate).
+
+**The 3-minute task:**
+1. <https://search.google.com/search-console> → Add property → **Domain** → `getcapsuleapp.com`
+2. It gives you a TXT record. Add it in Netlify DNS (the domain is on Netlify nameservers, so this is in the Netlify UI). There are currently no TXT records on the apex.
+3. Sitemaps → submit `sitemap.xml`
+4. URL Inspection → paste each of the six guide URLs → Request Indexing
+
+Then tell me and I can pick up measurement from there. Also worth doing at the same time: <https://www.bing.com/webmasters> — the IndexNow key is already deployed and submitting, so Bing will show data sooner than Google.
 
 **3. Brand entity.** `sameAs`, `og:site_name`, Organization schema and an llms.txt disambiguation section are all in place. What they cannot fix: "Capsule" collides with trycapsule.com, revealmoment.app, TimeCapsules, Capsula and several App Store apps in this exact niche. The App Store listing, once it exists, will be the strongest entity anchor available.
 
