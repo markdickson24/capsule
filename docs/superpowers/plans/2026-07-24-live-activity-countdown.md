@@ -1173,6 +1173,10 @@ export function useLiveActivities(userId?: string | null) {
         await endLiveActivity(capsuleId);
       }
 
+      // Keyed by id, not object identity — whether a capsule needs start() or
+      // update() must not depend on array reference equality surviving.
+      const startIds = new Set(toStart.map(d => d.capsuleId));
+
       for (const d of [...toStart, ...alreadyRunning]) {
         // capsule_media_count is a SECURITY DEFINER RPC — required rather than
         // a media(count) embed, because the media SELECT policy hides rows
@@ -1189,7 +1193,7 @@ export function useLiveActivities(userId?: string | null) {
           .eq('capsule_id', d.capsuleId)
           .not('joined_at', 'is', null);
 
-        if (toStart.includes(d)) {
+        if (startIds.has(d.capsuleId)) {
           await startLiveActivity({
             capsuleId: d.capsuleId,
             title: d.title,
