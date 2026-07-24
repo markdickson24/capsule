@@ -28,13 +28,17 @@ import { consumeTourPending, tourSeen } from '../../lib/tourStorage';
 
 type CapsuleWithCountdown = Capsule;
 
-function getTimeLeft(unlockAt: string) {
-  const diff = new Date(unlockAt).getTime() - Date.now();
-  if (diff <= 0) return { daysLeft: 0, hoursLeft: 0 };
+function getTimeLeft(target: string) {
+  const diff = new Date(target).getTime() - Date.now();
+  if (diff <= 0) return { totalMs: 0, daysLeft: 0, hoursLeft: 0, minutesLeft: 0, secondsLeft: 0 };
   const daysLeft = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hoursLeft = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  return { daysLeft, hoursLeft };
+  const minutesLeft = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  const secondsLeft = Math.floor((diff % (1000 * 60)) / 1000);
+  return { totalMs: diff, daysLeft, hoursLeft, minutesLeft, secondsLeft };
 }
+
+const ONE_HOUR_MS = 60 * 60 * 1000;
 
 function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: { unlockAt: string; status: string; unlockMode?: string; contributionStartAt?: string | null }) {
   const { accentColor } = useTheme();
@@ -51,14 +55,28 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
 
   useEffect(() => {
     if (status === 'unlocked') return;
-    setTimeLeft(getTimeLeft(targetDate));
-    const id = setInterval(() => setTimeLeft(getTimeLeft(targetDate)), 60_000);
-    return () => clearInterval(id);
+    // Self-rescheduling tick: per-second once under an hour remains (so minutes
+    // and seconds are live), per-minute when further out. Stops at zero — the
+    // Home-level poll (see HomeScreen) refetches so `status` flips to unlocked.
+    let id: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const t = getTimeLeft(targetDate);
+      setTimeLeft(t);
+      if (t.totalMs <= 0) return;
+      id = setTimeout(tick, t.totalMs < ONE_HOUR_MS ? 1000 : 60_000);
+    };
+    tick();
+    return () => clearTimeout(id);
   }, [targetDate, status]);
 
   if (notStartedYet) {
-    const { daysLeft, hoursLeft } = timeLeft;
-    const label = daysLeft > 0 ? `Starts in ${daysLeft}d` : `Starts in ${hoursLeft}h`;
+    const { totalMs, daysLeft, hoursLeft, minutesLeft, secondsLeft } = timeLeft;
+    let label: string;
+    if (totalMs <= 0) label = 'Starting…';
+    else if (daysLeft > 0) label = `Starts in ${daysLeft}d`;
+    else if (hoursLeft > 0) label = `Starts in ${hoursLeft}h`;
+    else if (minutesLeft > 0) label = `Starts in ${minutesLeft}m ${secondsLeft}s`;
+    else label = `Starts in ${secondsLeft}s`;
     return (
       <View style={styles.togetherBadge}>
         <Ionicons name="calendar-outline" size={13} color={accentColor} />
@@ -84,9 +102,14 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
       </View>
     );
   }
-  const { daysLeft, hoursLeft } = timeLeft;
-  if (daysLeft > 0) return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{daysLeft}d {hoursLeft}h left</Text>;
-  return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{hoursLeft}h left</Text>;
+  const { totalMs, daysLeft, hoursLeft, minutesLeft, secondsLeft } = timeLeft;
+  let label: string;
+  if (totalMs <= 0) label = 'Unlocking…';
+  else if (daysLeft > 0) label = `${daysLeft}d ${hoursLeft}h left`;
+  else if (hoursLeft > 0) label = `${hoursLeft}h ${minutesLeft}m left`;
+  else if (minutesLeft > 0) label = `${minutesLeft}m ${secondsLeft}s left`;
+  else label = `${secondsLeft}s left`;
+  return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{label}</Text>;
 }
 
 function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list', innerRef }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number; variant?: HomeLayout; innerRef?: (node: any) => void }) {
@@ -293,6 +316,23 @@ export default function HomeScreen() {
     });
     return () => sub.remove();
   }, [refresh, refreshGroups]);
+
+  // While sitting on the list, self-refresh around the unlock moment so a
+  // locked card flips to "Unlocked" without a manual refresh. Wakes ~at the
+  // soonest locked (time/both) capsule's unlock_at and re-checks every 15s past
+  // it (the cron flips status up to ~60s late) until it clears. Only engages
+  // within 24h of an unlock — focus/AppState/pull cover longer horizons.
+  useEffect(() => {
+    const dueTimes = (allCapsules ?? [])
+      .filter(c => c.status !== 'unlocked' && c.unlock_mode !== 'proximity')
+      .map(c => new Date(c.unlock_at).getTime());
+    if (dueTimes.length === 0) return;
+    const untilSoonest = Math.min(...dueTimes) - Date.now();
+    if (untilSoonest > 24 * 60 * 60 * 1000) return; // more than a day out
+    const delay = untilSoonest > 1000 ? untilSoonest + 1000 : 15_000;
+    const id = setTimeout(() => refresh(true), delay);
+    return () => clearTimeout(id);
+  }, [allCapsules, refresh]);
 
   async function onRefresh() {
     setRefreshing(true);
