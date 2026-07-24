@@ -6,7 +6,34 @@ Scope: `QRScannerScreen`, the `capsule_join_preview` RPC, the QR/invite URL, and
 
 ---
 
-## P0 — `/join/*` returns HTTP 500. Every invite link and QR code is dead.
+## P0 — RESOLVED. `/join/*` now returns 200 and invites work.
+
+> **Outcome:** `/join/<id>` → `200`, `x-join-fn: degraded`, page contains the
+> `capsule://join/<id>` redirect. `/join/<id>/image` → `302` to the static OG
+> image. QR codes and shared invite links open the app again.
+>
+> **What the delay actually was:** Netlify build credits were exhausted, so three
+> successive commits never deployed. Two rounds of fixes appeared to change
+> nothing because neither shipped — not because the diagnosis was wrong. Once
+> credits were restored the first deploy confirmed both fixes work. The
+> `X-Join-Fn` header exists to make "not deployed" and "still broken"
+> distinguishable next time; it was added a round too late to help here.
+>
+> **Still outstanding:** `degraded` means the edge function still can't read
+> Supabase, so previews say *"Someone invited you to a Capsule"* rather than the
+> real title and owner. The invite itself is unaffected. Set `SUPABASE_URL` and
+> `SUPABASE_SERVICE_ROLE_KEY` (or `SUPABASE_ANON_KEY`) in Netlify env vars **with
+> the Edge Functions scope enabled** — the function now logs exactly which are
+> missing. `x-join-fn` flips to `ok` when it's right.
+>
+> Genuinely-missing capsules currently return 200 rather than 404, which is
+> correct while the data source is unreachable: without it, "missing" and
+> "can't ask" are indistinguishable, and failing open protects the invite. That
+> reverts to a proper 404 once the env vars land.
+
+### Original finding
+
+`/join/*` returned HTTP 500. Every invite link and QR code was dead.
 
 ```
 $ curl -s -o /dev/null -w "%{http_code}" https://getcapsuleapp.com/join/<any-id>
