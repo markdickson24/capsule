@@ -2,7 +2,9 @@
 
 Scope: `QRScannerScreen`, the `capsule_join_preview` RPC, the QR/invite URL, and the `/join/*` Netlify Edge Function that URL resolves to.
 
-**Verdict: the in-app scanner works. Everything outside the app is broken.**
+**Verdict (final): both blocking defects fixed and verified in production.** Invite links and QR codes open the app again; the pending-invite dead-end is gone. One cosmetic item remains — invite previews are generic until two Netlify env vars are scoped to Edge Functions.
+
+_Original verdict, before the fixes: the in-app scanner works, everything outside the app is broken._
 
 ---
 
@@ -73,7 +75,30 @@ With those unset, `createClient(undefined, undefined)` throws, `fetchPreview` ha
 
 ---
 
-## P1 — A pending invite makes the QR unusable (still open, needs a decision)
+## P1 — RESOLVED. A pending invite no longer dead-ends the QR.
+
+> **Fixed in migration `20260724220000_join_preview_pending_state`, live in production.**
+> `capsule_join_preview` now returns three mutually-exclusive states —
+> `already_member` (joined), `is_pending` (invited, never accepted), neither.
+> Verified against a real capsule holding both joined and pending members.
+>
+> Both join paths branch on it with an `UPDATE` of `joined_at` rather than an
+> INSERT, since `UNIQUE (capsule_id, user_id)` makes an insert impossible. That
+> surfaced a second defect from the other direction: `useDeepLinks.joinAndNavigate`
+> saw the existing pending row, skipped the insert and navigated in anyway —
+> leaving `joined_at` null, so the user sat inside a capsule they had never
+> accepted and didn't count toward member totals.
+>
+> The migration was a DROP + CREATE (return type changed), which per CLAUDE.md
+> silently resets the function ACL. Grants shipped in the same migration and
+> `authenticated` / `service_role` were confirmed to still hold EXECUTE
+> afterwards.
+>
+> ⚠️ The RPC change is live now, but the client half needs an app rebuild. Until
+> then a pending member scanning a QR fails with "Could not join" instead of
+> "Already a member" — both broken, neither worse.
+
+### Original finding
 
 `capsule_join_preview` computes:
 
@@ -92,7 +117,7 @@ No `joined_at` filter — so a **pending** invite counts as "already a member". 
 
 That's a return-signature change, so `CREATE OR REPLACE` won't do — it needs DROP + CREATE, and per CLAUDE.md **a signature-changing drop+create silently resets the function ACL**, so `grant execute to authenticated, service_role` must ship in the same migration or every caller breaks.
 
-Given that, and given this touches a live function the edge function also calls, I've left it for your call rather than applying it. Say the word and I'll write the migration.
+That is exactly what the migration above does.
 
 ---
 
@@ -108,7 +133,7 @@ Given that, and given this touches a live function the edge function also calls,
 | **Already-member dead-end** | Sheet offered only "Done". Added "Open capsule". |
 | **Leaked timer** | The 2s re-arm timer could fire after unmount. Now cleared. |
 
-Also added a `/join/*` CSP override in `landing/_headers`. The join page is an inline `<script>` that bounces to `capsule://join/<id>`, and the sitewide `script-src 'self'` I added during the SEO work would block it — silently killing every invite link the moment the 500 is fixed. Pre-emptive; couldn't be observed while the route 500s.
+Also added a `/join/*` CSP override in `landing/_headers`. **Since confirmed unnecessary** — `_headers` rules don't reach edge-function responses at all (a `/join/*` response carries no CSP while `/` does). Left in place as insurance if Netlify ever changes that, but it was not the risk I thought it was.
 
 ---
 
