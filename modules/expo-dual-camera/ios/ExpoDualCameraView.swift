@@ -717,7 +717,16 @@ class ExpoDualCameraView: ExpoView {
         }
         writer.add(videoIn)
         writer.add(audioIn)
-        writer.startWriting()
+        // Returns false when the writer can't start; ignoring it meant recording
+        // proceeded against an already-failed writer and every frame append was
+        // silently dropped, only surfacing at finishWriting.
+        guard writer.startWriting() else {
+          self.recordingLock.unlock()
+          let detail = writer.error?.localizedDescription
+            ?? "status \(writer.status.rawValue)"
+          promise.reject("ERR_SETUP", "Failed to start writing: \(detail)")
+          return
+        }
 
         self.assetWriter = writer
         self.videoWriterInput = videoIn
@@ -766,12 +775,28 @@ class ExpoDualCameraView: ExpoView {
     videoIn?.markAsFinished()
     audioIn?.markAsFinished()
 
-    writer?.finishWriting { [weak writer] in
-      if writer?.status == .completed, let url = writer?.outputURL {
-        promise?.resolve(["uri": url.absoluteString])
+    guard let writer = writer else {
+      promise?.reject("ERR_RECORDING", "Recording failed: no active writer")
+      return
+    }
+
+    // Capture `writer` STRONGLY. `assetWriter` is cleared above, so this local is
+    // the last reference to it. The previous `[weak writer]` capture meant the
+    // writer deallocated as soon as this function returned — finishWriting is
+    // async, so by the time its handler ran the capture was nil, `nil?.status ==
+    // .completed` was false, and every recording (including successful ones)
+    // reported "Recording failed: unknown" — "unknown" precisely because
+    // `nil?.error` is also nil. There is no retain cycle to avoid here: the
+    // writer does not own this closure beyond the call.
+    writer.finishWriting {
+      if writer.status == .completed {
+        promise?.resolve(["uri": writer.outputURL.absoluteString])
       } else {
-        promise?.reject("ERR_RECORDING",
-          "Recording failed: \(writer?.error?.localizedDescription ?? "unknown")")
+        // Never report a bare "unknown" again — if there's no NSError, the
+        // status code itself is the diagnostic.
+        let detail = writer.error?.localizedDescription
+          ?? "writer finished with status \(writer.status.rawValue) and no error"
+        promise?.reject("ERR_RECORDING", "Recording failed: \(detail)")
       }
     }
   }
