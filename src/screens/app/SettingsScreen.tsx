@@ -337,14 +337,34 @@ function DeleteAccountModal({
     setError('');
 
     try {
-      // Storage cleanup (capsule media + avatar) happens server-side inside
-      // delete_my_account itself — see the migration that added it. Doing it
-      // client-side first was the bug: a failed RPC left other users' photos
-      // destroyed with all DB rows intact, and even on success it also wiped
-      // storage for capsules the RPC TRANSFERS to another member (whose media
-      // rows survive on purpose). Client-side cleanup also can't simply run
-      // AFTER the RPC instead — once the account is deleted the JWT is dead
-      // and any follow-up storage call would 401.
+      // Storage cleanup runs client-side and BEFORE the RPC, and both halves of
+      // that are forced:
+      //  - client-side, because storage.protect_delete() blocks deleting
+      //    storage.objects from SQL; only the Storage API removes the blob.
+      //  - before, because delete_my_account destroys the auth user, so the JWT
+      //    dies with it and any later storage call 401s.
+      //
+      // The historical hazard with doing it client-side was picking the wrong
+      // key set: a naive client query wiped storage for capsules the RPC
+      // TRANSFERS to another member, whose media rows survive on purpose.
+      // my_account_storage_keys() is the definer counterpart of the RPC's own
+      // computation, so the two agree by construction.
+      try {
+        const { data: keys, error: keysErr } = await supabase.rpc('my_account_storage_keys', {
+          p_delete_contributions: deleteContribs,
+        });
+        if (keysErr) throw new Error(keysErr.message);
+        if (keys?.length) {
+          await supabase.storage.from('capsule-media').remove(keys);
+        }
+        await supabase.storage.from('avatars').remove([`${session.user.id}/avatar.jpg`]);
+      } catch (e) {
+        // Never block account deletion on storage cleanup — the user asked to be
+        // deleted and that must succeed. Orphaned blobs are unreachable once the
+        // rows are gone (storage SELECT is membership-gated).
+        reportError(e, { where: 'SettingsScreen.deleteAccount.storage' });
+      }
+
       const { error: rpcError } = await supabase.rpc('delete_my_account', {
         p_delete_contributions: deleteContribs,
       });

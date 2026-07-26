@@ -921,6 +921,7 @@ export type Database = {
         Returns: {
           already_member: boolean
           id: string
+          is_pending: boolean
           member_count: number
           owner_avatar: string
           owner_name: string
@@ -928,6 +929,10 @@ export type Database = {
         }[]
       }
       capsule_media_count: { Args: { p_capsule_id: string }; Returns: number }
+      capsule_storage_keys: {
+        Args: { p_capsule_id: string }
+        Returns: string[]
+      }
       check_cron_secret: { Args: { provided: string }; Returns: boolean }
       check_in: {
         Args: { p_capsule_id: string; p_lat: number; p_lng: number }
@@ -993,6 +998,10 @@ export type Database = {
       get_my_group_ids: { Args: never; Returns: string[] }
       get_report_digest_admin: { Args: never; Returns: string }
       is_group_creator: { Args: { p_group_id: string }; Returns: boolean }
+      my_account_storage_keys: {
+        Args: { p_delete_contributions?: boolean }
+        Returns: string[]
+      }
       set_capsule_archived: {
         Args: { p_archived: boolean; p_capsule_id: string }
         Returns: undefined

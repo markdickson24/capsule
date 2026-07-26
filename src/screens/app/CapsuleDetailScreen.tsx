@@ -1447,6 +1447,31 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     // mode (owner_preview_locked), which used to leave every file orphaned
     // in the capsule-media bucket. See BUGS.md #1 /
     // 20260718090000_delete_capsule_with_storage.sql.
+    // Storage first, rows second — and that order is forced, not preferred.
+    // storage.protect_delete() blocks deleting storage.objects from SQL, so the
+    // blob can only be removed through the Storage API, which is RLS-gated on
+    // "you own the capsule". Once the capsule row is gone that check can never
+    // pass again, so anything not removed here is orphaned permanently.
+    //
+    // The key list comes from a SECURITY DEFINER RPC because the media SELECT
+    // policy hides rows from the owner while the capsule is locked in surprise
+    // mode — a client-side select would return zero rows and silently orphan
+    // everything, which is the original bug this whole path exists to fix.
+    try {
+      const { data: keys, error: keysErr } = await supabase.rpc('capsule_storage_keys', {
+        p_capsule_id: capsuleId,
+      });
+      if (keysErr) throw new Error(keysErr.message);
+      if (keys?.length) {
+        const { error: rmErr } = await supabase.storage.from('capsule-media').remove(keys);
+        if (rmErr) throw new Error(rmErr.message);
+      }
+    } catch (e) {
+      // Best-effort: orphaned blobs are a storage-cost problem, a capsule that
+      // won't delete is a user-facing one. Proceed and report.
+      reportError(e, { where: 'CapsuleDetail.confirmDelete.storage', extra: { capsuleId } });
+    }
+
     const { error: deleteErr } = await supabase.rpc('delete_capsule_with_storage', {
       p_capsule_id: capsuleId,
     });
