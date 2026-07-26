@@ -1,0 +1,32 @@
+-- Restores voting. 20260722183609_audit_hygiene_revokes (BS-4) revoked EXECUTE on
+-- _superlative_target_valid from `authenticated`, reasoning that "RLS-internal use
+-- is unaffected". That is backwards: RLS policies are evaluated as the QUERYING
+-- role, so a policy calling this function needs the caller to hold EXECUTE.
+--
+-- Both superlative_votes write policies call it, so every real vote has failed
+-- with `42501: permission denied for function _superlative_target_valid` since
+-- that migration was applied on 2026-07-22 18:36 UTC. It went unnoticed because
+-- the only votes written since were demo fixtures seeded via service_role, which
+-- bypasses RLS entirely — so the table kept gaining rows while every real user
+-- was blocked.
+--
+-- 20260718061723_revoke_anon_rpc_execute had already documented the hazard by
+-- name four days earlier: "RLS policies evaluate helper functions
+-- (get_my_capsule_ids, _superlative_target_valid, …) as the QUERYING role.
+-- `authenticated` grants are therefore left fully intact — only anon loses
+-- execute."
+--
+-- anon stays revoked (BS-4's real win, and the app never votes signed out).
+grant execute on function public._superlative_target_valid(uuid, uuid, uuid) to authenticated;
+
+-- BS-4's stated concern — that a direct PostgREST caller could use this as a
+-- cross-capsule membership oracle — is NOT addressed by this grant, and can't be
+-- while the function lives in the PostgREST-exposed `public` schema. Fixing both
+-- properly means moving it to a non-exposed schema and repointing the two
+-- policies; that's a larger change to live policies and is deliberately not
+-- bundled into an outage fix. The original audit rated this Low and "not a live
+-- exploit today", and this restores the state that ran for the preceding month.
+--
+-- Verification (as `authenticated`, in a rolled-back transaction): person-target
+-- insert, media-target insert, and vote-change UPDATE all succeed; anon still
+-- cannot execute.

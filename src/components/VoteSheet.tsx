@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import { supabase } from '../lib/supabase';
+import { reportError } from '../lib/sentry';
 import { transformAvatarUrl } from '../lib/avatarUrl';
 import { sessionStore } from '../lib/sessionStore';
 import { useTheme } from '../context/ThemeContext';
@@ -114,7 +115,22 @@ export default function VoteSheet({
     setSaving(false);
 
     if (upsertError) {
-      setError('Could not save your vote. Try again.');
+      // Every failure used to collapse into "Try again", which told users to
+      // retry things that can never succeed — a closed voting window, a
+      // finalized capsule, or (as happened for four days) an RLS policy calling
+      // a function the caller had no EXECUTE grant on. Name what we can.
+      const raw = `${upsertError.message ?? ''} ${upsertError.code ?? ''}`;
+      if (raw.includes('42501') || raw.toLowerCase().includes('permission denied')) {
+        setError('Voting is closed for this capsule.');
+      } else if (raw.includes('row-level security') || raw.includes('violates')) {
+        setError("That vote isn't allowed — voting may have closed.");
+      } else {
+        setError('Could not save your vote. Try again.');
+      }
+      reportError(upsertError, {
+        where: 'VoteSheet.save',
+        extra: { categoryId: category!.id, targetType: category!.target_type },
+      });
       return;
     }
 
@@ -138,6 +154,7 @@ export default function VoteSheet({
 
     if (deleteError) {
       setError('Could not remove your vote. Try again.');
+      reportError(deleteError, { where: 'VoteSheet.removeVote', extra: { categoryId: category!.id } });
       return;
     }
 
