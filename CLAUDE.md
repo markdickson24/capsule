@@ -1025,7 +1025,24 @@ zero device bytes. The storage INSERT RLS policy validates the *destination*
 path's own capsule membership (identical check to a direct upload), so a copy
 is permitted for exactly the capsules the caller could upload to directly;
 verified against the live policy definitions rather than a device run — copy
-succeeds iff a normal upload to that destination would. The three caches are
+succeeds iff a normal upload to that destination would.
+
+⚠️ **That reasoning covered only the destination. A copy also has to READ the
+source, and that side is not symmetric.** The `capsule-media` SELECT policy is
+`status = 'unlocked' OR (role in (owner,contributor) AND NOT
+owner_preview_locked)` — so under **surprise mode, which is ON by default**,
+nobody can read a locked capsule's objects, *including the person who just
+uploaded them*. RLS makes the row invisible, so storage answers `400 Object not
+found` rather than a permission error, and the whole upload task failed.
+Multi-selecting into two capsules where the first is a locked surprise-mode
+capsule is the **default shape**, not an edge case; it reached production and
+surfaced in Sentry as `Error: Object not found` on
+`POST /storage/v1/object/copy`. `copyOrUpload()` now **falls back to a real
+upload** on any copy failure, dropping the cache entry first (an unreadable
+source stays unreadable for the batch, so retrying a doomed copy per task just
+costs a round-trip each). The optimisation degrades into the thing it optimises
+instead of breaking the upload, and reports through `reportError` so the cost
+stays visible. The three caches are
 cleared when the queue fully drains (`work()`), so an unrelated later batch
 never copies from a stale key. Main + alt also now upload **concurrently**
 (`Promise.all`) instead of sequentially — free wall-time win on swappable
