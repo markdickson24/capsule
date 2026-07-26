@@ -161,6 +161,14 @@ export default function CameraScreen() {
   const segmentsRef = useRef<string[]>([]);
   // Mirrors recordSeconds for reads inside callbacks without stale closure risk.
   const recordSecondsRef = useRef(0);
+  // Wall clock (recordSecondsRef) is what the on-screen timer shows, but it keeps
+  // ticking through every camera flip — and a flip records nothing: the segment
+  // is stopped, React re-renders with the new facing, and the loop waits 400ms
+  // for the lens to settle (up to 1500ms via the race below). Charging that dead
+  // time against the recording budget shortened how much footage a flip-heavy
+  // take could hold. This accumulates only time actually spent inside
+  // recordAsync.
+  const recordedMsRef = useRef(0);
   // Set by flipCameraDuringRecording before stopRecording so the segment loop
   // knows to continue rather than finalize.
   const pendingFlipRef = useRef(false);
@@ -284,6 +292,7 @@ export default function CameraScreen() {
     isRecordingRef.current = true;
     segmentsRef.current = [];
     recordSecondsRef.current = 0;
+    recordedMsRef.current = 0;
     setIsRecording(true);
     setRecordSeconds(0);
     animateShutter(1);
@@ -299,10 +308,14 @@ export default function CameraScreen() {
     // Segment loop: keeps recording across camera flips until the user stops or
     // the app-max total cap (MAX_RECORD_SECONDS) is reached.
     while (isRecordingRef.current) {
-      const remaining = MAX_RECORD_SECONDS - recordSecondsRef.current;
+      // Budget against footage actually captured, not wall-clock elapsed, so
+      // flip gaps don't eat the cap.
+      const remaining = MAX_RECORD_SECONDS - Math.floor(recordedMsRef.current / 1000);
       if (remaining <= 0) break;
       try {
+        const segmentStart = Date.now();
         const video = await cameraRef.current!.recordAsync({ maxDuration: remaining });
+        recordedMsRef.current += Date.now() - segmentStart;
         if (video?.uri) segmentsRef.current.push(video.uri);
       } catch {
         break;
@@ -331,7 +344,10 @@ export default function CameraScreen() {
     // navigate the user into Preview for a recording they've already left.
     if (segments.length > 0 && !abortedByBlurRef.current) {
       if (segments.length === 1) {
-        goToPreview({ uri: segments[0], mediaType: 'video', facing: facingRef.current, durationMs: recordSecondsRef.current * 1000 });
+        // recordedMsRef, not the wall-clock timer: with a flip the timer counts
+        // the dead lens-switch time too, so it overstates the file's real
+        // length — which then feeds Preview's tier video-length gate.
+        goToPreview({ uri: segments[0], mediaType: 'video', facing: facingRef.current, durationMs: recordedMsRef.current });
       } else {
         let stitchedUri: string | null = null;
         try {
@@ -340,7 +356,7 @@ export default function CameraScreen() {
         } catch { /* native module not yet built, or stitching failed */ }
 
         if (stitchedUri) {
-          goToPreview({ uri: stitchedUri, mediaType: 'video', facing: facingRef.current, durationMs: recordSecondsRef.current * 1000 });
+          goToPreview({ uri: stitchedUri, mediaType: 'video', facing: facingRef.current, durationMs: recordedMsRef.current });
         } else {
           // Fallback: show all clips as a multi-item Preview so no segment is lost.
           // Per-segment duration is unknown here (recordSecondsRef is the TOTAL
