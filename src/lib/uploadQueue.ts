@@ -140,8 +140,31 @@ async function copyOrUpload(
   if (cached) {
     const key = `${capsuleId}/${randomUUID()}.${cached.ext}`;
     const { error } = await supabase.storage.from('capsule-media').copy(cached.key, key);
-    if (error) throw new Error(error.message);
-    return { key, size: cached.size, ext: cached.ext };
+    if (!error) return { key, size: cached.size, ext: cached.ext };
+
+    // A copy has to READ the source, and the capsule-media SELECT policy is
+    //   status = 'unlocked' OR (role in (owner,contributor) AND NOT owner_preview_locked)
+    // so under surprise mode — ON BY DEFAULT — nobody can read a locked
+    // capsule's objects, not even the uploader. RLS makes the row invisible, so
+    // storage answers 400 "Object not found" and the whole task used to fail.
+    // Multi-selecting into two capsules where the first is a locked
+    // surprise-mode capsule is the common case, not an edge case.
+    //
+    // Earlier reasoning here only checked the INSERT policy ("a copy is
+    // permitted for exactly the capsules the caller could upload to directly"),
+    // which is true of the destination and irrelevant to the source.
+    //
+    // The copy is only ever a bandwidth optimisation, so degrade to the thing it
+    // optimises rather than failing the upload. Drop the cache entry first: if
+    // the source is unreadable it will stay unreadable for the rest of this
+    // batch, and retrying a doomed copy per task just adds a round-trip each.
+    // This also covers any other reason a source can vanish (capsule deleted
+    // mid-batch, object removed by a cleanup).
+    cacheMap.delete(sourceUri);
+    reportError(new Error(`storage.copy fell back to upload: ${error.message}`), {
+      where: 'uploadQueue.copyOrUpload',
+      extra: { capsuleId, sourceKey: cached.key },
+    });
   }
   // Snapshot before the (possibly long-running / timed-out) upload so a
   // late write below can detect a drain that happened while it was in flight.
