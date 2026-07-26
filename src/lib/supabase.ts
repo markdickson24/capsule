@@ -2,7 +2,28 @@ import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import { sessionStore } from './sessionStore';
+import { reportError } from './sentry';
 import type { Database } from '../types/supabase';
+
+// expo-secure-store defaults to WHEN_UNLOCKED, which makes the keychain item
+// unreadable while the device is locked — SecureStore then throws
+// "User interaction is not allowed", the auth client sees no stored session, and
+// the user lands on the Welcome screen as if signed out. Seen in production:
+// a getValueWithKeyAsync failure with `screen: Welcome` in the same trace.
+//
+// The app reads the session precisely when the device tends to be locked: a push
+// tap, a Live Activity tap from the lock screen, and the background
+// autoRefreshToken timer. AFTER_FIRST_UNLOCK keeps the item readable once the
+// device has been unlocked at least once since boot, which is the standard
+// accessibility for a session token — it is still protected at rest before that
+// first unlock.
+//
+// ⚠️ Accessibility is fixed WHEN THE ITEM IS WRITTEN, so existing installs keep
+// WHEN_UNLOCKED until the session is next written (sign-in, or a token refresh
+// while unlocked). This is not a retroactive fix for already-stored sessions.
+const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+};
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL!;
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY!;
@@ -16,8 +37,22 @@ const authOptions =
       }
     : {
         storage: {
-          getItem: (key: string) => SecureStore.getItemAsync(key),
-          setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
+          getItem: async (key: string) => {
+            try {
+              return await SecureStore.getItemAsync(key);
+            } catch (e) {
+              // A read can still fail on an item written before
+              // AFTER_FIRST_UNLOCK was set (accessibility is fixed at write
+              // time), or on a device that hasn't been unlocked since boot.
+              // Returning null degrades to "no session" instead of throwing an
+              // unhandled exception through the auth client — same visible
+              // outcome, but recoverable and reported rather than a crash.
+              reportError(e, { where: 'supabase.secureStore.getItem' });
+              return null;
+            }
+          },
+          setItem: (key: string, value: string) =>
+            SecureStore.setItemAsync(key, value, SECURE_STORE_OPTS),
           removeItem: (key: string) => SecureStore.deleteItemAsync(key),
         },
         autoRefreshToken: true,
