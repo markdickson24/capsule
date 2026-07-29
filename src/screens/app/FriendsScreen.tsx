@@ -30,7 +30,7 @@ type UserResult = { id: string; display_name: string | null; avatar_url: string 
 type Props = NativeStackScreenProps<AppStackParamList, 'Friends'>;
 
 export default function FriendsScreen({ navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [incoming, setIncoming] = useState<FriendProfile[]>([]);
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,7 +134,7 @@ export default function FriendsScreen({ navigation }: Props) {
                       onPress={() => accept(p.id)}
                       disabled={busy === p.id}
                     >
-                      <Text style={styles.acceptText}>{busy === p.id ? '…' : 'Accept'}</Text>
+                      <Text style={[styles.acceptText, { color: onAccentColor }]}>{busy === p.id ? '…' : 'Accept'}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.declineBtn}
@@ -164,8 +164,8 @@ export default function FriendsScreen({ navigation }: Props) {
                   style={[styles.findBtn, { backgroundColor: accentColor }]}
                   onPress={() => setShowFind(true)}
                 >
-                  <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
-                  <Text style={styles.findBtnText}>Find people</Text>
+                  <Ionicons name="person-add-outline" size={18} color={onAccentColor} />
+                  <Text style={[styles.findBtnText, { color: onAccentColor }]}>Find people</Text>
                 </TouchableOpacity>
               </View>
             ) : (

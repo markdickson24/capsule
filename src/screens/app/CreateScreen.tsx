@@ -49,7 +49,7 @@ function defaultUnlockDate() {
 
 
 export default function CreateScreen() {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const { isPro, loading: entitlementsLoading } = useEntitlements();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   // Screen is reused for both the Create tab and the CreateCapsule stack route.
@@ -639,10 +639,10 @@ export default function CreateScreen() {
         {errors.general ? <Text style={styles.error}>{errors.general}</Text> : null}
 
         <TouchableOpacity style={[styles.createButton, { backgroundColor: accentColor }]} onPress={handleCreate} disabled={loading}>
-          {loading ? <LoadingBrand size="small" color="#fff" /> : (
+          {loading ? <LoadingBrand size="small" color={onAccentColor} /> : (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={styles.createButtonText}>Lock Capsule</Text>
-              <Ionicons name="lock-closed-outline" size={18} color="#FFFFFF" />
+              <Text style={[styles.createButtonText, { color: onAccentColor }]}>Lock Capsule</Text>
+              <Ionicons name="lock-closed-outline" size={18} color={onAccentColor} />
             </View>
           )}
         </TouchableOpacity>

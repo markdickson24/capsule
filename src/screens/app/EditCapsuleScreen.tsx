@@ -37,7 +37,7 @@ function unlockModeHint(mode: UnlockMode) {
 }
 
 export default function EditCapsuleScreen({ route, navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const { capsuleId } = route.params;
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -309,7 +309,7 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={[styles.saveButton, { backgroundColor: accentColor }]} onPress={handleSave} disabled={saving}>
-          {saving ? <LoadingBrand size="small" color="#fff" /> : <Text style={styles.saveButtonText}>Save Changes</Text>}
+          {saving ? <LoadingBrand size="small" color={onAccentColor} /> : <Text style={[styles.saveButtonText, { color: onAccentColor }]}>Save Changes</Text>}
         </TouchableOpacity>
 
         <View style={styles.dangerZone}>

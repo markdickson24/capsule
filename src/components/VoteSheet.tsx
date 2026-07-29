@@ -60,7 +60,7 @@ type Props = {
 export default function VoteSheet({
   visible, category, members, media, currentVote, onClose, onSaved,
 }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const session = sessionStore.get();
   const userId = session?.user.id;
 
@@ -197,9 +197,9 @@ export default function VoteSheet({
             disabled={!canSave}
           >
             {saving ? (
-              <LoadingBrand size="small" color="#FFFFFF" />
+              <LoadingBrand size="small" color={onAccentColor} />
             ) : (
-              <Text style={styles.saveBtnText}>
+              <Text style={[styles.saveBtnText, { color: onAccentColor }]}>
                 {hadVote ? 'Update vote' : 'Cast vote'}
               </Text>
             )}
@@ -278,7 +278,7 @@ function MediaGrid({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
 
   if (media.length === 0) {
     return (
@@ -318,7 +318,7 @@ function MediaGrid({
             )}
             {isSel && (
               <View style={[styles.tileCheck, { backgroundColor: accentColor }]}>
-                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                <Ionicons name="checkmark" size={14} color={onAccentColor} />
               </View>
             )}
           </TouchableOpacity>

@@ -48,7 +48,7 @@ const TAB_CONFIG: Record<string, TabConfig> = {
 
 function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [unreadCount, setUnreadCount] = useState(0);
   const { registerTarget, unregisterTarget } = useTour();
   const makeTabRef = React.useCallback((routeName: string) => (node: any) => {
@@ -117,7 +117,7 @@ function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                     accessibilityLabel="Open camera"
                   >
                     <AccentSurface style={styles.cameraBtnFill}>
-                      <Ionicons name="camera" size={26} color="#FFFFFF" />
+                      <Ionicons name="camera" size={26} color={onAccentColor} />
                     </AccentSurface>
                   </TouchableOpacity>
                 </View>

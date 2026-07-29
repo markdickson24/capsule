@@ -60,7 +60,7 @@ const MOMENT_ROWS: Moment[][] = [];
 for (let i = 0; i < MOMENTS.length; i += 2) MOMENT_ROWS.push(MOMENTS.slice(i, i + 2));
 
 export default function OnboardingScreen({ navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [step, setStep] = useState<Step>(1);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -427,7 +427,7 @@ export default function OnboardingScreen({ navigation }: Props) {
                   <Image source={avatarUri} style={styles.avatarImg} />
                 ) : (
                   <View style={[styles.avatarPlaceholder, { backgroundColor: accentColor }]}>
-                    <Ionicons name="camera-outline" size={32} color="#FFFFFF" />
+                    <Ionicons name="camera-outline" size={32} color={onAccentColor} />
                   </View>
                 )}
                 <Text style={[styles.avatarHint, { color: accentColor }]}>
@@ -452,8 +452,8 @@ export default function OnboardingScreen({ navigation }: Props) {
                 ) : (
                   <View style={[styles.previewAvatar, styles.previewAvatarFallback, { backgroundColor: accentColor }]}>
                     {avatarInitial
-                      ? <Text style={styles.previewInitial}>{avatarInitial}</Text>
-                      : <Ionicons name="person-outline" size={16} color="#FFFFFF" />}
+                      ? <Text style={[styles.previewInitial, { color: onAccentColor }]}>{avatarInitial}</Text>
+                      : <Ionicons name="person-outline" size={16} color={onAccentColor} />}
                   </View>
                 )}
                 <View style={{ flex: 1 }}>
@@ -614,8 +614,8 @@ export default function OnboardingScreen({ navigation }: Props) {
                 activeOpacity={0.85}
               >
                 {saving
-                  ? <LoadingBrand size="small" color="#fff" />
-                  : <Text style={styles.primaryBtnText}>Create my capsule</Text>}
+                  ? <LoadingBrand size="small" color={onAccentColor} />
+                  : <Text style={[styles.primaryBtnText, { color: onAccentColor }]}>Create my capsule</Text>}
               </TouchableOpacity>
             </View>
           )}
@@ -640,9 +640,9 @@ export default function OnboardingScreen({ navigation }: Props) {
                 activeOpacity={0.85}
               >
                 {saving
-                  ? <LoadingBrand size="small" color="#fff" />
+                  ? <LoadingBrand size="small" color={onAccentColor} />
                   : (
-                    <Text style={styles.primaryBtnText}>
+                    <Text style={[styles.primaryBtnText, { color: onAccentColor }]}>
                       {Platform.OS === 'web' ? "Sounds good" : '🔔 Yes, notify me'}
                     </Text>
                   )}
@@ -683,7 +683,7 @@ export default function OnboardingScreen({ navigation }: Props) {
                 onPress={invitePeople}
                 activeOpacity={0.85}
               >
-                <Text style={styles.primaryBtnText}>Invite people</Text>
+                <Text style={[styles.primaryBtnText, { color: onAccentColor }]}>Invite people</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.secondaryBtn, styles.fullWidth]}
@@ -732,8 +732,8 @@ export default function OnboardingScreen({ navigation }: Props) {
                 disabled={saving}
                 activeOpacity={0.85}
               >
-                <Text style={styles.footerPrimaryText}>Next</Text>
-                <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                <Text style={[styles.footerPrimaryText, { color: onAccentColor }]}>Next</Text>
+                <Ionicons name="arrow-forward" size={18} color={onAccentColor} />
               </TouchableOpacity>
             )}
 
@@ -745,8 +745,8 @@ export default function OnboardingScreen({ navigation }: Props) {
                   disabled={saving}
                   activeOpacity={0.85}
                 >
-                  <Text style={styles.footerPrimaryText}>Next</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                  <Text style={[styles.footerPrimaryText, { color: onAccentColor }]}>Next</Text>
+                  <Ionicons name="arrow-forward" size={18} color={onAccentColor} />
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity onPress={skipToHome} style={styles.footerSkip} disabled={saving}>

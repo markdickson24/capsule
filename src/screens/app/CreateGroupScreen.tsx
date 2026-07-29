@@ -87,7 +87,7 @@ function defaultAnchor(): RecurrenceAnchor {
 }
 
 export default function CreateGroupScreen() {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const navigation = useNavigation<NavProp>();
   const { isPro, loading: entitlementsLoading } = useEntitlements();
 
@@ -465,9 +465,9 @@ export default function CreateGroupScreen() {
           disabled={creating}
         >
           {creating ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={onAccentColor} />
           ) : (
-            <Text style={styles.createButtonText}>Create Group</Text>
+            <Text style={[styles.createButtonText, { color: onAccentColor }]}>Create Group</Text>
           )}
         </TouchableOpacity>
       </ScrollView>

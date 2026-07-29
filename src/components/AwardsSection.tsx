@@ -354,7 +354,7 @@ function PendingCard({
   busy: boolean;
   onToggleUpvote: () => void;
 }) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const pct = Math.min(1, category.upvote_count / threshold);
   return (
     <View style={styles.card}>
@@ -383,9 +383,9 @@ function PendingCard({
           <Ionicons
             name={category.i_upvoted ? 'checkmark' : 'arrow-up-outline'}
             size={16}
-            color={category.i_upvoted ? '#FFFFFF' : '#888'}
+            color={category.i_upvoted ? onAccentColor : '#888'}
           />
-          <Text style={[styles.upvoteCount, category.i_upvoted && { color: '#FFFFFF' }]}>
+          <Text style={[styles.upvoteCount, category.i_upvoted && { color: onAccentColor }]}>
             {category.upvote_count}
           </Text>
           {category.i_upvoted && (

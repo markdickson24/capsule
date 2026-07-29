@@ -261,7 +261,7 @@ function InviteModal({
   onClose: () => void;
   onInvited: () => void;
 }) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [tab, setTab] = useState<'friends' | 'search'>('friends');
   const [friends, setFriends] = useState<FriendProfile[]>([]);
   const [query, setQuery] = useState('');
@@ -396,7 +396,7 @@ function InviteModal({
               onPress={() => setTab(t)}
               activeOpacity={0.8}
             >
-              <Text style={[ms.tabText, tab === t && ms.tabTextActive]}>
+              <Text style={[ms.tabText, tab === t && ms.tabTextActive, tab === t && { color: onAccentColor }]}>
                 {t === 'friends' ? 'Friends' : 'Search'}
               </Text>
             </TouchableOpacity>
@@ -428,7 +428,7 @@ function InviteModal({
                       onPress={() => invite(u.id)}
                       disabled={!!inviting}
                     >
-                      <Text style={ms.inviteBtnText}>{inviting === u.id ? '…' : 'Invite'}</Text>
+                      <Text style={[ms.inviteBtnText, { color: onAccentColor }]}>{inviting === u.id ? '…' : 'Invite'}</Text>
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -455,7 +455,7 @@ function InviteModal({
                     onPress={() => invite(f.id)}
                     disabled={!!inviting}
                   >
-                    <Text style={ms.inviteBtnText}>{inviting === f.id ? '…' : 'Invite'}</Text>
+                    <Text style={[ms.inviteBtnText, { color: onAccentColor }]}>{inviting === f.id ? '…' : 'Invite'}</Text>
                   </TouchableOpacity>
                 </View>
               ))
@@ -1272,7 +1272,7 @@ const chk = StyleSheet.create({
 });
 
 export default function CapsuleDetailScreen({ route, navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const { capsuleId, justCreated } = route.params;
   const [capsule, setCapsule] = useState<Capsule | null>(null);
   // Last-applied status, so applyCapsule() can tell a live active→unlocked
@@ -2230,7 +2230,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
               onPress={() => setShowInvite(true)}
             >
-              <Text style={styles.inviteNudgeBtnText}>Invite</Text>
+              <Text style={[styles.inviteNudgeBtnText, { color: onAccentColor }]}>Invite</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.inviteNudgeClose}
@@ -2260,7 +2260,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
               style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
               onPress={() => presentPaywall()}
             >
-              <Text style={styles.inviteNudgeBtnText}>Upgrade</Text>
+              <Text style={[styles.inviteNudgeBtnText, { color: onAccentColor }]}>Upgrade</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.inviteNudgeClose}
@@ -2493,7 +2493,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                 style={[styles.addPhotoBtn, { backgroundColor: accentColor }]}
                 onPress={() => { setUploadError(''); setShowPickerOptions(true); }}
               >
-                <Text style={styles.addPhotoBtnText}>+ Add Media</Text>
+                <Text style={[styles.addPhotoBtnText, { color: onAccentColor }]}>+ Add Media</Text>
               </TouchableOpacity>
             )}
           </View>

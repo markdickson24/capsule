@@ -232,7 +232,7 @@ function GroupsSection({ groups, onCreatePress, onGroupPress }: {
 }
 
 export default function HomeScreen() {
-  const { accentColor, homeLayout, setHomeLayout } = useTheme();
+  const { accentColor, onAccentColor, homeLayout, setHomeLayout } = useTheme();
   const { startTour } = useTour();
   const capsuleCardRef = useTourTarget('capsule-card');
   const scanRef = useTourTarget('home-scan');
@@ -468,7 +468,7 @@ export default function HomeScreen() {
               style={[styles.emptyBtn, { backgroundColor: accentColor }]}
               onPress={() => navigation.navigate('Tabs', { screen: 'Create' })}
             >
-              <Text style={styles.emptyBtnText}>Create a Capsule</Text>
+              <Text style={[styles.emptyBtnText, { color: onAccentColor }]}>Create a Capsule</Text>
             </TouchableOpacity>
           </View>
         </View>

@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { toast } from '../lib/toast';
 import { parseGradient, serializeGradient } from '../lib/accentPresets';
+import { onAccent, onAccentForGradient } from '../lib/accentContrast';
 
 // Brand reddish-coral, matching the website (--accent: #FC6A5B). New accounts
 // default to this (DB column default on users.accent_color is set to match);
@@ -60,6 +61,13 @@ function writeCachedTheme(userId: string, prefs: { accentColor: string; homeLayo
 type ThemeContextType = {
   accentColor: string;
   setAccentColor: (color: string) => Promise<void>;
+  /**
+   * Readable text/icon color for content sitting ON accentColor. Use this
+   * instead of a hardcoded '#fff' anywhere something renders on an accent
+   * background — a Pro user can pick a pale custom color, where white is
+   * invisible (see src/lib/accentContrast.ts).
+   */
+  onAccentColor: string;
   homeLayout: HomeLayout;
   setHomeLayout: (layout: HomeLayout) => Promise<void>;
   accentGradient: [string, string] | null;
@@ -69,6 +77,7 @@ type ThemeContextType = {
 const ThemeContext = createContext<ThemeContextType>({
   accentColor: DEFAULT_ACCENT,
   setAccentColor: async () => {},
+  onAccentColor: onAccent(DEFAULT_ACCENT),
   homeLayout: DEFAULT_HOME_LAYOUT,
   setHomeLayout: async () => {},
   accentGradient: null,
@@ -208,8 +217,17 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  // When a gradient is set it decides on its LIGHTER stop, since text has to
+  // stay readable at the accent's lightest point. accentColor tracks the
+  // gradient's first stop (see setAccentGradient), so the solid path alone
+  // would under-report how light the surface actually gets.
+  const onAccentColor = useMemo(
+    () => (accentGradient ? onAccentForGradient(accentGradient) : onAccent(accentColor)),
+    [accentColor, accentGradient]
+  );
+
   return (
-    <ThemeContext.Provider value={{ accentColor, setAccentColor, homeLayout, setHomeLayout, accentGradient, setAccentGradient }}>
+    <ThemeContext.Provider value={{ accentColor, setAccentColor, onAccentColor, homeLayout, setHomeLayout, accentGradient, setAccentGradient }}>
       {children}
     </ThemeContext.Provider>
   );

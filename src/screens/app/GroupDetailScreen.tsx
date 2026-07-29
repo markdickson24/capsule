@@ -25,6 +25,7 @@ import {
 } from '../../lib/groups';
 import { computeUpcomingOccurrences } from '../../lib/recurrence';
 import { AppStackParamList } from '../../types/navigation';
+import { onAccent } from '../../lib/accentContrast';
 
 type NavProp = NativeStackNavigationProp<AppStackParamList>;
 type RoutePropType = RouteProp<AppStackParamList, 'GroupDetail'>;
@@ -38,7 +39,7 @@ interface GroupCapsule {
 }
 
 function CapsuleRow({ item, onPress }: { item: GroupCapsule; onPress: () => void }) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const isUnlocked = item.status === 'unlocked';
   return (
     <TouchableOpacity style={styles.capsuleRow} onPress={onPress}>
@@ -83,7 +84,7 @@ function MemberBubble({
           accessible
           accessibilityLabel={`${displayName ?? 'Member'} is the group creator`}
         >
-          <Ionicons name="star" size={9} color="#FFFFFF" />
+          <Ionicons name="star" size={9} color={onAccent(accentColor)} />
         </View>
       )}
     </View>
@@ -91,7 +92,7 @@ function MemberBubble({
 }
 
 export default function GroupDetailScreen() {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const navigation = useNavigation<NavProp>();
   const route = useRoute<RoutePropType>();
   const { groupId } = route.params;
@@ -298,7 +299,7 @@ export default function GroupDetailScreen() {
                   style={[styles.inviteNudgeBtn, { backgroundColor: accentColor }]}
                   onPress={() => navigation.navigate('ManageGroup', { groupId })}
                 >
-                  <Text style={styles.inviteNudgeBtnText}>Add</Text>
+                  <Text style={[styles.inviteNudgeBtnText, { color: onAccentColor }]}>Add</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.inviteNudgeClose}
@@ -360,8 +361,8 @@ export default function GroupDetailScreen() {
                 groupUnlockHours: group.unlock_duration_hours,
               })}
             >
-              <Ionicons name="add" size={20} color="#FFFFFF" />
-              <Text style={styles.newCapsuleBtnText}>Start New Capsule</Text>
+              <Ionicons name="add" size={20} color={onAccentColor} />
+              <Text style={[styles.newCapsuleBtnText, { color: onAccentColor }]}>Start New Capsule</Text>
             </TouchableOpacity>
 
             <Text style={styles.sectionLabel}>Capsules</Text>
