@@ -896,7 +896,59 @@ Full strategy/pricing rationale lives in `docs/monetization-strategy.md`. This s
 - **Auth is a shared secret**, not `CRON_SECRET` — RevenueCat sends the value configured as the webhook's "Authorization header" verbatim; the function compares it against the `REVENUECAT_WEBHOOK_SECRET` Edge Function secret (**constant-time compare**) and fails closed (401) if either side is unset/mismatched. Deployed with `verify_jwt: false` (RevenueCat doesn't send a Supabase JWT).
 - **Production-only.** The function ignores any event whose `event.environment` is present and not `PRODUCTION` (returns `ignored (<env>)`), so a Test Store / sandbox purchase can never mirror real Pro. The dashboard webhook integration (`whintgrfc186311f2`) is *also* scoped to the production App Store app (`app7b40141214`) + `production` environment, so those events don't even reach the function — defense-in-depth on top of the code filter.
 - `event.app_user_id` is the Supabase `users.id` UUID, because `identifyUser()` always logs the client in with that id — a regex guards against writing to anonymous RevenueCat ids (`$RCAnonymousID:...`) if one ever leaks through.
-- **GRANT set** (`INITIAL_PURCHASE`, `RENEWAL`, `UNCANCELLATION`, `PRODUCT_CHANGE`, `NON_RENEWING_PURCHASE` [lifetime], `SUBSCRIPTION_EXTENDED`) → `'pro'`. **REVOKE set** (`EXPIRATION`, `SUBSCRIPTION_PAUSED`) → `'free'`. `TRANSFER` (entitlement moved between app-user-ids, e.g. anonymous→identified on first `logIn`) grants the destination id(s) and revokes the origin id(s). `CANCELLATION`/`BILLING_ISSUE` are deliberately **no-ops** — auto-renew-off or a billing grace period still means the user is entitled until an actual `EXPIRATION` arrives.
+- **GRANT set** (`INITIAL_PURCHASE`, `RENEWAL`, `UNCANCELLATION`, `PRODUCT_CHANGE`, `NON_RENEWING_PURCHASE` [lifetime], `SUBSCRIPTION_EXTENDED`) → `'pro'`, interpreted from the event type alone — no RC API call. **REVOKE set** (`SUBSCRIPTION_PAUSED`) → `'free'`, also blind. `TRANSFER` (entitlement moved between app-user-ids, e.g. anonymous→identified on first `logIn`) grants the destination id(s) and revokes the origin id(s).
+- **VERIFY set** (`CANCELLATION`, `EXPIRATION`, `REFUND_REVERSED`) does not infer
+  anything from the event type: it calls
+  `GET /v2/projects/proj72b0a2e3/customers/{id}/active_entitlements` with the
+  read-only `REVENUECAT_API_KEY` secret and mirrors whatever RevenueCat reports.
+  A **refund** arrives as `CANCELLATION` with `cancellation_reason:
+  CUSTOMER_SUPPORT`; treating that as a no-op meant a refunded customer kept Pro,
+  and a refunded **lifetime** purchase has **no `EXPIRATION` event** to ever
+  clean it up, so it kept Pro *permanently*. `EXPIRATION` verifies too, so a
+  resubscribe whose old `EXPIRATION` lands after the new `INITIAL_PURCHASE`
+  can't strip a paying customer. `BILLING_ISSUE` is still a plain no-op (grace
+  period = still entitled).
+  ⚠️ **The two surfaces use different identifiers for the same entitlement.**
+  Webhook payloads carry the **lookup key** (`'Capsule Pro'`, matched against
+  `event.entitlement_ids`); the v2 REST API returns the **object id**
+  (`'entl2d972407b4'`) in `active_entitlements[].entitlement_id`. Hence two
+  constants in `entitlements.ts`. Comparing an API response against the lookup
+  key never matches, so every verification would report "not active" and revoke
+  Pro from **every paying customer** — strictly worse than the bug this fixed,
+  and invisible in a project with no purchases to test against.
+  ⚠️ **Never delete/recreate the `Capsule Pro` entitlement in the RevenueCat
+  dashboard without updating `PRO_ENTITLEMENT_OBJECT_ID`.** A recreated
+  entitlement gets a new object id — the lookup key (`'Capsule Pro'`) can stay
+  identical while the object id silently changes underneath it. The existing
+  regression test only guards against the lookup-key-vs-object-id mixup above;
+  it does not catch a changed object id, since that's an external RevenueCat
+  state change, not a code change. If it happens unnoticed, every VERIFY
+  comparison reports "not active" and every `CANCELLATION`/`EXPIRATION` revokes
+  Pro from every paying customer — the same failure mode as the mismatch above,
+  triggered externally instead of in code.
+  ⚠️ **Never guess a tier.** Any verification failure (unset key, non-2xx,
+  malformed body) leaves `subscription_tier` untouched and returns **500** so
+  RevenueCat retries (5 attempts over ~2.5h). `isProActive` *throws* rather than
+  returning false on a malformed body precisely so a bad response can't be
+  mistaken for "no entitlement" and silently revoke a paying customer.
+  ⚠️ **`SUBSCRIPTION_PAUSED` is still a blind revoke** — it's **Google Play only**
+  (Apple has no consumer pause), so it can't fire on iOS. When Android ships,
+  move it into the VERIFY set: a pause is only *scheduled* at the event and the
+  customer keeps access until the period actually ends.
+  ⚠️ **Comp grants are not protected — and this change widened that surface.**
+  A tier set by direct DB write with no purchase behind it (the App Store
+  reviewer account, support grants) would be revoked if a VERIFY event ever
+  fired for that `app_user_id`, since RevenueCat correctly reports no
+  entitlement. Before this change, only `EXPIRATION` (a subscription-only
+  event) could do that; verifying `CANCELLATION` too means a comp account with
+  *any* RevenueCat purchase/cancellation activity is now exposed to this on the
+  cancellation path as well, not just at term end. Not reachable without
+  RevenueCat purchase activity on that account, but it's why comp accounts
+  must never be used as webhook test targets, and why production currently
+  holds two comp-Pro accounts by direct DB write, one of which is the App
+  Store reviewer account — **the pre-submission checklist should confirm the
+  reviewer account's `subscription_tier` is still `'pro'`** before each
+  submission, alongside re-arming its countdown capsule.
 - Any code that gates a feature by subscription tier reads `users.subscription_tier` (server-side, un-bypassable) for the two hard gates, and the client mirrors the same limits for UX — see "Tier enforcement" below.
 
 ### Post-unlock upsell
@@ -1264,6 +1316,21 @@ EXPO_PUBLIC_REVENUECAT_ANDROID_KEY=...  # goog_... — not yet configured (no An
 EXPO_PUBLIC_SENTRY_DSN=...              # unset = Sentry never inits; set = release-only reporting, see "Error Monitoring"
 EXPO_PUBLIC_SENTRY_ENV=...              # optional — overrides the Sentry `environment` tag (else production/development)
 ```
+
+**Server-side secrets** (Supabase Edge Function secrets — never `EXPO_PUBLIC_`,
+these must not reach the client bundle):
+
+```
+REVENUECAT_WEBHOOK_SECRET=...  # shared secret RevenueCat sends as the Authorization header
+REVENUECAT_API_KEY=...         # RevenueCat V2 key, customer_information:customers:read ONLY
+CRON_SECRET=...                # project-wide, read by every cron-triggered function
+```
+
+`REVENUECAT_API_KEY` must be the **read-only** V2 key, not the full-access key
+used by the RevenueCat MCP — least privilege, since a leak of this one only
+exposes customer entitlement reads. The webhook fails closed (500, tier
+untouched, RevenueCat retries) when it is unset, so **set the secret before
+deploying**.
 
 App config: `app.json`. Bundle ID: `com.markdickson.capsule`. EAS Project ID: `2e004e6f-2e9d-4309-a172-46b6976eb3d9`.
 
