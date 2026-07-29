@@ -1,6 +1,6 @@
 # Capsule — Agent Handoff
 
-_Last updated: 2026-07-24_
+_Last updated: 2026-07-29_
 
 For architecture, schema, and per-feature implementation detail, **CLAUDE.md is
 the source of truth** — kept current after every major change. `APP_CONTEXT.md`
@@ -16,9 +16,14 @@ Monetization (Capsule Pro via RevenueCat) is fully wired; the remaining launch
 work is mostly **App Store Connect / RevenueCat dashboard steps, not code.**
 
 - **iOS** — on **TestFlight**. ⚠️ The currently-submitted build is **build 24
-  (dated 7/19), which is stale** — it predates all the recent fixes below. The
-  immediate next step is a **fresh production build** (`autoIncrement` bumps it
-  to 25) + resubmit. App version `1.0.0`.
+  (dated 7/19), which is badly stale** — it predates the Live Activity feature
+  and *every* production bug fix below. A failed `eas build` already consumed
+  25-27, so the next successful one is ~28. App version `1.0.0`.
+  ⚠️ **That build must be run INTERACTIVELY once** (`npx eas-cli build --platform
+  ios --profile production`, no `--non-interactive`): the Live Activity widget
+  extension is a brand-new bundle ID and EAS will not auto-generate its
+  provisioning profile in non-interactive mode. It fails at the credentials step
+  otherwise. Subsequent builds are fine non-interactively.
 - **Android** — builds, but several native features are iOS-only (dual camera,
   video-stitcher orientation). No Play Store submission (later phase).
 - **Web** — dev target, works, not marketed.
@@ -27,10 +32,11 @@ work is mostly **App Store Connect / RevenueCat dashboard steps, not code.**
 
 ---
 
-## What's shipped since the last handoff (high level — see CLAUDE.md for how)
+## Earlier this cycle (pre-2026-07-24)
 
 Core loop (create → invite → contribute → unlock → reveal → award voting) works
-end to end. Major additions this cycle, all merged to `main`:
+end to end. Everything below is merged and on `main`; see "Recently landed" for
+the most recent work:
 
 - **Monetization / Capsule Pro (RevenueCat)** — full stack: `purchases.*`
   wrapper, `useRevenueCat`/`useEntitlements`, hosted paywall, and the
@@ -76,61 +82,123 @@ onboarding v2 + coach-mark tour, proximity unlock. See CLAUDE.md.
 
 ---
 
-## In flight (not merged)
+## Recently landed (2026-07-24 → 07-29)
 
-### Live Activity countdown — **draft PR #91**, needs device verification
-Branch `feat/live-activity-countdown` · 28 files, +3.9k · spec and plan in
-`docs/superpowers/specs|plans/2026-07-24-live-activity-countdown.*`
+### Live Activity countdown — **merged** (PR #91), working on device
+Lock-screen / Dynamic Island card counting down to a capsule's uploads deadline,
+with a one-tap camera button. Verified rendering on a physical iPhone. Owner sets
+`capsules.live_activity_enabled`; each member can override via
+`capsule_members.live_activity_override`. Free for all tiers. No server
+component — iOS ticks the countdown from `staleDate`. Architecture + seven known
+limitations: CLAUDE.md → "Live Activity Countdown".
 
-A lock-screen / Dynamic Island card counting down to a capsule's **uploads
-deadline** (`contribution_lock_at ?? unlock_at`) while it's open for photos,
-with a one-tap camera button — modelled on Once's. The owner sets a capsule
-default (`capsules.live_activity_enabled`, on for new capsules); each member can
-override it for themselves (`capsule_members.live_activity_override`). Free for
-all tiers.
+Post-merge formatting fixes: the expanded Dynamic Island had no countdown at all
+(it lived only in the compact pill), the countdown rendered as raw hours
+(`742:55:38`) because `Text(timerInterval:)` has no day rollover — now `31d left`
+above 24h, ticking `HH:MM:SS` below — and content sat flush against the pill's
+rounded corners.
 
-- **No server component.** iOS ticks the countdown itself from `staleDate`, so a
-  started card stays correct with zero updates from the app. Deliberately **no
-  push-to-start**, which means a card only appears once the app has run during
-  the window. Adding it later needs an Apple `.p8`, an ES256-signing edge
-  function talking to APNs directly (Expo's push service cannot send
-  `apns-push-type: liveactivity`), per-device token sync, and iOS 17.2+.
-- **Built with `@bacons/apple-targets`** (widget target in `targets/liveactivity/`)
-  because the official `expo-widgets` needs **SDK 56+** and we're on 54 —
-  upgrading would collide with the RN 0.81.5 patch, `expo-share-intent` 5.1.1,
-  and the dual-camera module. Revisit only if we pass SDK 56.
-- ⚠️ **The migrations are ALREADY APPLIED to production** — two columns, a column
-  grant, and `create_capsule_with_owner`'s 12th param. Backward compatible with
-  the shipped build (PostgREST maps by name, the new param defaults), and all 20
-  pre-existing capsules were backfilled to *off*, so nothing changes for anyone
-  until the new binary ships. Don't be alarmed by columns on prod that aren't in
-  `main` yet.
-- ⚠️ **Not verified on device.** Needs `eas build --profile development` on a
-  physical iPhone (16.2+) — a new native target is invisible to Expo Go and the
-  simulator has no real lock screen. PR #91 carries a prioritized 7-step
-  checklist; start with the deadline-moment test (a range-precondition crash
-  lived exactly there and was fixed late).
-- **Before building:** register a provisioning profile for
-  `com.markdickson.capsule.liveactivity` in `eas credentials`, alongside the main
-  app and `com.markdickson.capsule.share-extension`. A past extension-target
-  name collision made EAS sign the main app with the wrong profile.
+⚠️ **`ios/` must be regenerated with `npx expo prebuild --clean` if it predates
+the merge.** `expo run:ios` reuses an existing `ios/` and runs a *non-clean*
+prebuild, which updates JS and pods but **will not add a new native target** — so
+the app builds and installs with no widget extension and no
+`NSSupportsLiveActivities`, and the feature silently does nothing. Pods link
+either way, so it looks half-wired.
 
-Full architecture and seven known limitations: CLAUDE.md → "Live Activity
-Countdown".
+### Production bug fixes — all live, most need only a rebuild
+
+Found via Sentry and user reports. Full detail in each commit + CLAUDE.md.
+
+- **Superlative voting was dead for four days** (fixed, DB-side, no rebuild
+  needed). `audit_hygiene_revokes` revoked EXECUTE on `_superlative_target_valid`
+  from `authenticated` reasoning "RLS-internal use is unaffected" — the exact
+  opposite of true: **policies evaluate as the querying role**, so both write
+  policies denied every vote with `42501`. Hidden because the only votes still
+  landing were demo fixtures seeded via `service_role`, which bypasses RLS — the
+  row count looked healthy.
+- **Capsule + account deletion were both broken** (fixed, DB-side). Two
+  independent blockers: Supabase added `storage.protect_delete()`, which rejects
+  the direct `storage.objects` DELETE both RPCs did; and `superlative_winners`'
+  target FKs were `ON DELETE SET NULL` against an XOR check that makes SET NULL
+  unsatisfiable, so any capsule with a finalized media-target winner raised 23514.
+  Storage cleanup now runs **client-side and before** the RPC (new owner-only
+  delete policies + `capsule_storage_keys` / `my_account_storage_keys`).
+- **Invite links and QR codes all 404'd/500'd** — `/join/*` edge function crashed
+  on unset env vars. Now fails *open* (renders the redirect with generic copy)
+  since the capsule id is in the URL and Supabase is only needed for a pretty
+  unfurl. Still `x-join-fn: degraded` until the env vars are scoped — see open
+  threads.
+- **Silent sign-outs** — SecureStore defaulted to `WHEN_UNLOCKED`, so the session
+  was unreadable while the device was locked and the user landed on Welcome. Now
+  `AFTER_FIRST_UNLOCK`. ⚠️ **Not retroactive** — accessibility is fixed at write
+  time, so existing installs settle only after the next sign-in or unlocked
+  refresh.
+- **Multi-capsule upload failed** when the first target was a locked
+  surprise-mode capsule: the bucket-side copy has to *read* the source, which RLS
+  hides. Now falls back to a real upload.
+- **Every dual-camera recording reported failure** (`Recording failed: unknown`)
+  — `finishWriting`'s completion handler captured the writer `[weak]`, and it was
+  the last strong reference. `nil?.status != .completed` → failure branch;
+  `nil?.error` → "unknown". Files were probably fine on disk.
+- **Camera flip shortened clips** — the record budget was charged wall-clock time
+  including the dead lens-switch gap, and Preview was told the inflated duration
+  (which feeds the tier trim gate). Some loss is inherent (~0.4-1.5s/flip).
+- **QR scanner** — camera permanently dead after a signed-out scan, duplicate
+  scans from a state-based guard, and a pending invite reading as "already a
+  member" with no way to join (`capsule_join_preview` now reports three states).
+- **Deep links all mis-routed** — `NavigationContainer` had a `linking` prop with
+  no `config` *and* `useDeepLinks` had its own listener; React Navigation
+  auto-derived screen names from path segments, so `capsule://capsule/<id>/camera`
+  tried to navigate to a screen named `capsule`. Prop removed; `useDeepLinks` is
+  the sole owner.
+- **Avatars burned the image-transform quota** — Storage Image Transformations
+  bill per *distinct origin image* (100/month on Pro), and avatars alone
+  exhausted it for negligible byte savings. `transformAvatarUrl` is now a
+  pass-through. Don't "fix" it back.
+
+### Landing site / SEO
+Full audit + fixes: mobile Lighthouse **100/100/100/100**, LCP 3.5s → 0.9s, page
+weight ~520KB → ~83KB, JSON-LD sitewide, guide pages ~400 → ~1100 words,
+WCAG AA contrast fixed. Google Search Console verified, sitemap submitted,
+indexing requested. Reports in `audits/SEO_AUDIT_2026-07-24/` and
+`audits/QR_SCANNER_AUDIT_2026-07-24.md`.
+
+Brand: background-removed logos (SVG + PNG, transparent) in `assets/brand/` —
+**not** app assets; `assets/icon.png` must stay opaque (iOS rejects alpha).
 
 ---
 
 ## Active open threads (pick up first) — mostly dashboard, not code
 
-### 1. Ship a fresh production build
-Build 24 is stale. `eas build --platform ios --profile production` (auto-bumps
-to 25, includes everything above) → `eas submit … --latest`. **Pull `main`
-first** — local `main` went stale repeatedly this session and builds silently
-missed merged fixes. Note this build will **not** contain the Live Activity work
-above (still on a branch) — decide whether to land PR #91 first or ship without
-it.
+### 1. Ship a fresh production build — now the single biggest blocker
+Build 24 (7/19) predates the Live Activity feature and **every** bug fix above.
+Nothing in "Recently landed" reaches a TestFlight user until this ships, and
+Sentry only reports from release builds — so the app is currently both unfixed
+and unobserved in the field.
 
-### 2. Apple's first-IAP submission blocker
+```bash
+git checkout main && git pull          # local main went stale repeatedly
+npx eas-cli build --platform ios --profile production   # INTERACTIVE — see below
+npx eas-cli submit --platform ios --profile production --latest
+```
+
+⚠️ **Must be interactive the first time.** The Live Activity widget extension
+(`com.markdickson.capsule.liveactivity`) is a new bundle ID; EAS will not
+generate its provisioning profile in `--non-interactive` mode and the build dies
+at the credentials step. A local `xcodebuild -allowProvisioningUpdates` run has
+already created the *development* profile, but the production one still needs
+approving once.
+
+### 2. Netlify env vars for the invite-link edge function — 2 minutes
+`/join/*` returns `200` with header `x-join-fn: degraded`, meaning invites work
+but previews read *"Someone invited you to a Capsule"* instead of the real title
+and owner. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` (or
+`SUPABASE_ANON_KEY`) in Netlify env vars **with the Edge Functions scope
+enabled** — a different scope from Functions, which is almost certainly the
+original cause. No redeploy needed; `x-join-fn` flips to `ok`. The function logs
+exactly which variable is missing.
+
+### 3. Apple's first-IAP submission blocker
 The three products (monthly $4.99 / yearly $39.99 / lifetime $79.99) are created
 and priced in App Store Connect but show `needs_action`. **Apple requires the
 first-ever IAP to be submitted attached to an app version through the ASC UI**
@@ -138,7 +206,7 @@ before any purchase can complete — until that's approved, **real purchases fai
 only the Test Store works.** Monthly/Yearly have full ~180-territory pricing;
 **Lifetime is priced US-only** and needs international pricing.
 
-### 3. RevenueCat hosted paywall (dashboard, manual)
+### 4. RevenueCat hosted paywall (dashboard, manual)
 - **Plan-selection highlight doesn't follow the tapped plan** — the accent is
   hardcoded on the Yearly card instead of bound to the Selected state. Fix in
   the Paywall Builder: each package card's **Selected** state → border
@@ -149,18 +217,37 @@ only the Test Store works.** Monthly/Yearly have full ~180-territory pricing;
   1920px for all tiers) is saved but **not published**. Publish it in the same
   pass. Builder preview shows Test Store prices ($9.99) — cosmetic only.
 
-### 4. Confirm the OTP email template
+### 5. Confirm the OTP email template
 Custom SMTP (**Resend**) is set up behind Supabase Auth. Verify the "Confirm
 signup" template includes `{{ .Token }}` (keep the `{{ .ConfirmationURL }}`
 link too for older installed builds) or new signups get no code.
 
-### 5. Re-verify the `audits/` docs — they're stale
+### 6. Re-verify the `audits/` docs — they're stale
 `audits/APP_STORE_REVIEW.md`, `BUGS.md`, `GAPS.md` predate the monetization +
 polish work; **don't trust their old percentages.** Known-resolved since:
 legal URLs now point at real pages (`getcapsuleapp.com/legal.html`), Apple
 Sign In is implemented, support contact is in Settings, the surprise-mode
 storage-orphan bug was fixed via a server-side delete RPC. Re-audit before
 acting on any item.
+
+---
+
+### 7. Smaller outstanding items
+- **The app's own button contrast is still 2.86:1** — every primary button uses
+  white on `#FC6A5B`, the same WCAG AA failure fixed on the website. This is the
+  surface App Review actually looks at. Website fix used dark `#0A0A0A` text on
+  the unchanged brand coral (6.93:1), which keeps the hue identical.
+- **Orphaned storage blobs from before 2026-07-26** — deletions prior to the fix
+  left their files behind. A one-off sweep comparing `storage.objects` against
+  live `media` keys would reclaim them; it's a bulk delete on production, so it
+  wants explicit sign-off.
+- **Sentry read access** — the `SENTRY_AUTH_TOKEN` in `.env.local` is
+  source-maps-only (403 on every read endpoint). A token with `event:read` +
+  `org:read` would let an agent triage issues directly.
+- **`_superlative_target_valid` is still callable via PostgREST** — the original
+  hardening concern (a cross-capsule membership oracle) is unaddressed, because
+  fixing it *and* keeping RLS working means moving the function to a non-exposed
+  schema and repointing both policies. Rated Low, "not a live exploit today".
 
 ---
 
@@ -183,6 +270,31 @@ acting on any item.
   `grant execute … to authenticated` in the same migration, and verify with
   `has_function_privilege`. Also drop the old overload first, or PostgREST fails
   the pre-existing call with `PGRST203`.
+- ⚠️ **A function called from inside an RLS policy must be EXECUTE-granted to
+  the querying role.** Policies evaluate as the *caller*, not the table owner, so
+  revoking `execute … from authenticated` on a policy helper silently breaks
+  every statement that policy guards (`42501`). This killed all voting for four
+  days. Before revoking EXECUTE on anything, grep the policy expressions for its
+  name (query in CLAUDE.md → Key RLS Constraints). Revoking from `anon` alone is
+  safe.
+- **Demo fixtures seeded via `service_role` bypass RLS**, so a healthy-looking
+  row count can hide a feature that is completely broken for real users. When
+  checking whether something works in production, filter out the `facade`-prefixed
+  ids.
+- **`storage.protect_delete()` now blocks `DELETE FROM storage.objects` in SQL.**
+  Server-side storage cleanup inside a definer RPC no longer works — it must go
+  through the Storage API from the client, which needs a delete policy *and* must
+  run BEFORE the row delete (the policy checks ownership of a row that's about to
+  vanish; for account deletion the JWT dies with the user).
+- **A `SET NULL` FK against an XOR check constraint is unsatisfiable** and aborts
+  the whole cascade with 23514. `superlative_winners` had exactly this.
+- **`expo run:ios` will not add a new native target** — it reuses `ios/` with a
+  non-clean prebuild. After merging anything that adds a widget extension or
+  local module, run `npx expo prebuild --clean --platform ios` or the feature
+  silently doesn't exist in the build.
+- **Sentry is release-only** (`enabled: !!DSN && !__DEV__`). Nothing from a
+  `expo run:ios` Debug build ever reaches it — so "no errors in Sentry" means
+  nothing while TestFlight is stale.
 - **`capsule_members` has no table-wide UPDATE grant** (the July 2026 audit
   revoked it, granting back only `joined_at`). Any new client-written column
   there needs its own `grant update (col)` in the same migration, or the write
@@ -221,10 +333,12 @@ acting on any item.
 | Community links | `src/lib/communityLinks.ts` |
 | Capsule detail (~2200 lines) | `src/screens/app/CapsuleDetailScreen.tsx` |
 | Camera + native modules | `src/screens/app/CameraScreen.tsx`, `modules/expo-dual-camera/`, `modules/expo-video-stitcher/` |
-| Live Activity (PR #91, in flight) | `targets/liveactivity/`, `modules/expo-live-activity/`, `src/hooks/useLiveActivities.ts`, `src/lib/liveActivityPlan.ts` |
+| Live Activity | `targets/liveactivity/`, `modules/expo-live-activity/`, `src/hooks/useLiveActivities.ts`, `src/lib/liveActivityPlan.ts` |
 | Preview (upload staging) | `src/screens/app/PreviewScreen.tsx` |
 | Edge functions | `supabase/functions/` (unlock-capsules, revenuecat-webhook, contribution-nudges, create-group-capsules, dispatch-capsule-start, …) |
 | DB migrations (schema truth) | `supabase/migrations/` |
+| Brand assets (transparent logos) | `assets/brand/` |
+| Landing site + invite edge fn | `landing/`, `netlify/edge-functions/join.ts` |
 | Full external overview | `APP_CONTEXT.md` |
 
 ## Environment
