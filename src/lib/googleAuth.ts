@@ -49,18 +49,28 @@ export async function signInWithGoogle(): Promise<{ error?: string }> {
     return { error: decodeURIComponent(oauthError.replace(/\+/g, ' ')) };
   }
 
-  const accessToken = query.get('access_token') ?? hash.get('access_token');
-  const refreshToken = query.get('refresh_token') ?? hash.get('refresh_token');
-
-  if (!accessToken || !refreshToken) {
+  // PKCE. The client is configured with `flowType: 'pkce'` (src/lib/supabase.ts),
+  // so signInWithOAuth appends a code_challenge and Supabase redirects back with
+  // `?code=<auth code>` instead of an `#access_token=` fragment. This flow used to
+  // read those tokens and hand them to setSession — that path is now unreachable
+  // and has been removed rather than left as a fallback, because accepting bearer
+  // tokens straight off a redirect is the exact shape the 2026-07-29 audit closed
+  // (H-1, session fixation). Exchanging the code requires the code_verifier THIS
+  // device stored when the flow started, so a code observed or injected by anyone
+  // else is inert.
+  //
+  // Note on `url.searchParams` above: React Native globally overrides `URL`, and
+  // its host/hostname/pathname getters only match `^https?://` — they return ''
+  // for a `capsule://` URL. `protocol`, `search`/`searchParams` and `hash` are
+  // scheme-agnostic, which is why reading params here works while ROUTING on
+  // pathname would not (see src/lib/deepLinkRoute.ts, which hand-parses instead).
+  const code = query.get('code');
+  if (!code) {
     return { error: 'Could not get session from Google.' };
   }
 
-  const { error: sessionError } = await supabase.auth.setSession({
-    access_token: accessToken,
-    refresh_token: refreshToken,
-  });
+  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
 
-  if (sessionError) return { error: sessionError.message };
+  if (exchangeError) return { error: exchangeError.message };
   return {};
 }
