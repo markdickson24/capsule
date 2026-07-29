@@ -173,6 +173,33 @@ Known limitation: if all five retries fail, the tier stays stale with only a
 Supabase edge-function log recording it. Edge functions have no Sentry wiring
 (`src/lib/sentry.ts` is client-only); adding it is out of scope.
 
+### This is not a pure win — the trade being made
+
+Verifying `EXPIRATION` closes the resubscribe race described above, but it
+opens a different, one-directional failure mode that the blind revoke never
+had. `EXPIRATION` is the *terminal* event for a subscription — nothing fires
+after it to correct a wrong answer. If RevenueCat's read model has not yet
+dropped the just-expired entitlement at the moment the webhook calls
+`active_entitlements` (i.e. the webhook delivery races RevenueCat's own
+internal state update), verification reports "still active", we write
+`'pro'`, and the tier is now wrong with **no further event ever arriving to
+fix it** — a customer who is genuinely no longer paying keeps Pro
+permanently, the mirror image of the bug this change fixes.
+
+The pre-change blind revoke had no such window: it flipped to `'free'`
+unconditionally on `EXPIRATION`, and if that was ever wrong (the resubscribe
+race), the next `RENEWAL` self-healed it. The new behavior trades a
+self-healing wrongful-revoke race for a non-self-healing wrongful-grant race.
+
+This is still the right trade — a revenue leak (a non-paying user keeps
+access) is recoverable and bounded, while stripping a paying customer's access
+is a trust-destroying support incident — but it should be recorded honestly
+rather than presented as a pure win. **Before meaningful subscription volume,
+add a low-frequency reconciliation sweep**: periodically list `users` where
+`subscription_tier = 'pro'`, check each against RevenueCat's
+`active_entitlements`, and correct any that have silently drifted false-`pro`.
+No such sweep exists today.
+
 ## Security
 
 A new V2 secret key scoped to **`customer_information:customers:read`**, stored

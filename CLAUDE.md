@@ -916,6 +916,16 @@ Full strategy/pricing rationale lives in `docs/monetization-strategy.md`. This s
   key never matches, so every verification would report "not active" and revoke
   Pro from **every paying customer** — strictly worse than the bug this fixed,
   and invisible in a project with no purchases to test against.
+  ⚠️ **Never delete/recreate the `Capsule Pro` entitlement in the RevenueCat
+  dashboard without updating `PRO_ENTITLEMENT_OBJECT_ID`.** A recreated
+  entitlement gets a new object id — the lookup key (`'Capsule Pro'`) can stay
+  identical while the object id silently changes underneath it. The existing
+  regression test only guards against the lookup-key-vs-object-id mixup above;
+  it does not catch a changed object id, since that's an external RevenueCat
+  state change, not a code change. If it happens unnoticed, every VERIFY
+  comparison reports "not active" and every `CANCELLATION`/`EXPIRATION` revokes
+  Pro from every paying customer — the same failure mode as the mismatch above,
+  triggered externally instead of in code.
   ⚠️ **Never guess a tier.** Any verification failure (unset key, non-2xx,
   malformed body) leaves `subscription_tier` untouched and returns **500** so
   RevenueCat retries (5 attempts over ~2.5h). `isProActive` *throws* rather than
@@ -925,12 +935,20 @@ Full strategy/pricing rationale lives in `docs/monetization-strategy.md`. This s
   (Apple has no consumer pause), so it can't fire on iOS. When Android ships,
   move it into the VERIFY set: a pause is only *scheduled* at the event and the
   customer keeps access until the period actually ends.
-  ⚠️ **Comp grants are not protected.** A tier set by direct DB write with no
-  purchase behind it (the App Store reviewer account, support grants) would be
-  revoked if a VERIFY event ever fired for that `app_user_id`, since RevenueCat
-  correctly reports no entitlement. Not reachable without RevenueCat purchase
-  activity on that account, but it's why comp accounts must never be used as
-  webhook test targets.
+  ⚠️ **Comp grants are not protected — and this change widened that surface.**
+  A tier set by direct DB write with no purchase behind it (the App Store
+  reviewer account, support grants) would be revoked if a VERIFY event ever
+  fired for that `app_user_id`, since RevenueCat correctly reports no
+  entitlement. Before this change, only `EXPIRATION` (a subscription-only
+  event) could do that; verifying `CANCELLATION` too means a comp account with
+  *any* RevenueCat purchase/cancellation activity is now exposed to this on the
+  cancellation path as well, not just at term end. Not reachable without
+  RevenueCat purchase activity on that account, but it's why comp accounts
+  must never be used as webhook test targets, and why production currently
+  holds two comp-Pro accounts by direct DB write, one of which is the App
+  Store reviewer account — **the pre-submission checklist should confirm the
+  reviewer account's `subscription_tier` is still `'pro'`** before each
+  submission, alongside re-arming its countdown capsule.
 - Any code that gates a feature by subscription tier reads `users.subscription_tier` (server-side, un-bypassable) for the two hard gates, and the client mirrors the same limits for UX — see "Tier enforcement" below.
 
 ### Post-unlock upsell

@@ -23,12 +23,15 @@ import {
  * emits a TRANSFER we handle below — so we never need to resolve anon ids.
  *
  * Design: grant events are interpreted from the event type alone, so the
- * money-in path stays fully self-contained (no RC API call). Access-removing
- * events are not: BILLING_ISSUE deliberately does NOT revoke — a grace
- * period still means the user is entitled — while CANCELLATION, EXPIRATION
- * and REFUND_REVERSED are verified against the RevenueCat API rather than
+ * money-in path stays fully self-contained (no RC API call). Most
+ * access-removing events are not: CANCELLATION, EXPIRATION and
+ * REFUND_REVERSED are verified against the RevenueCat API rather than
  * inferred, because the event type alone does not determine access (see the
- * VERIFY set below).
+ * VERIFY set below) — REFUND_REVERSED is actually access-*restoring*, the one
+ * verified event that can move in the grant direction. BILLING_ISSUE
+ * deliberately does NOT revoke — a grace period still means the user is
+ * entitled. SUBSCRIPTION_PAUSED is the one event still blind-revoked with no
+ * API round-trip (see the REVOKE set below).
  */
 
 const corsHeaders = {
@@ -133,13 +136,23 @@ const VERIFY = new Set([
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function setTier(userId: string | null | undefined, tier: 'pro' | 'free') {
-  if (!userId || !UUID_RE.test(userId)) return;
+// Returns true on success (including the no-op skip for a non-UUID id, which
+// is correct behavior, not a failure). Returns false only when the DB write
+// itself failed — callers must turn that into a 500 so RevenueCat retries;
+// supabase-js v2 returns fetch failures as `{error}` rather than throwing, so
+// a swallowed error here would otherwise return 200 with no row written (see
+// Finding 1 in the 2026-07-29 review).
+async function setTier(userId: string | null | undefined, tier: 'pro' | 'free'): Promise<boolean> {
+  if (!userId || !UUID_RE.test(userId)) return true;
   const { error } = await admin
     .from('users')
     .update({ subscription_tier: tier })
     .eq('id', userId);
-  if (error) console.warn(`[rc-webhook] setTier(${userId}, ${tier}) failed:`, error.message);
+  if (error) {
+    console.warn(`[rc-webhook] setTier(${userId}, ${tier}) failed:`, error.message);
+    return false;
+  }
+  return true;
 }
 
 Deno.serve(async (req) => {
@@ -182,10 +195,14 @@ Deno.serve(async (req) => {
     // or across two real accounts). Grant the destination, revoke the origin.
     const to: string[] = event.transferred_to ?? [];
     const from: string[] = event.transferred_from ?? [];
-    await Promise.all([
+    const results = await Promise.all([
       ...to.map((id) => setTier(id, 'pro')),
       ...from.map((id) => setTier(id, 'free')),
     ]);
+    if (results.some((ok) => !ok)) {
+      console.error(`[rc-webhook] TRANSFER: one or more setTier writes failed`);
+      return json({ error: 'write failed' }, 500);
+    }
     return json({ ok: true, handled: 'TRANSFER', to: to.length, from: from.length });
   }
 
@@ -214,16 +231,28 @@ Deno.serve(async (req) => {
       return json({ error: 'verification failed' }, 500);
     }
 
-    await setTier(userId, active ? 'pro' : 'free');
+    const wrote = await setTier(userId, active ? 'pro' : 'free');
+    if (!wrote) {
+      console.error(`[rc-webhook] ${type}: setTier(${userId}) DB write failed`);
+      return json({ error: 'write failed' }, 500);
+    }
     return json({ ok: true, handled: type, tier: active ? 'pro' : 'free', verified: true });
   }
 
   if (GRANT.has(type)) {
-    await setTier(event.app_user_id, 'pro');
+    const wrote = await setTier(event.app_user_id, 'pro');
+    if (!wrote) {
+      console.error(`[rc-webhook] ${type}: setTier(${event.app_user_id}) DB write failed`);
+      return json({ error: 'write failed' }, 500);
+    }
     return json({ ok: true, handled: type, tier: 'pro' });
   }
   if (REVOKE.has(type)) {
-    await setTier(event.app_user_id, 'free');
+    const wrote = await setTier(event.app_user_id, 'free');
+    if (!wrote) {
+      console.error(`[rc-webhook] ${type}: setTier(${event.app_user_id}) DB write failed`);
+      return json({ error: 'write failed' }, 500);
+    }
     return json({ ok: true, handled: type, tier: 'free' });
   }
 
