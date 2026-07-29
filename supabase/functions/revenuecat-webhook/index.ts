@@ -22,11 +22,11 @@ import {
  * ($RCAnonymousID:...) are merged into that id by logIn, and RevenueCat then
  * emits a TRANSFER we handle below — so we never need to resolve anon ids.
  *
- * Design: we interpret the event type rather than calling back into the
- * RevenueCat API, so the function is fully self-contained (no RC secret key,
- * no extra round-trip). BILLING_ISSUE deliberately does NOT revoke — a grace
- * period still means the user is entitled. CANCELLATION, EXPIRATION and
- * REFUND_REVERSED are verified against the RevenueCat API rather than
+ * Design: grant events are interpreted from the event type alone, so the
+ * money-in path stays fully self-contained (no RC API call). Access-removing
+ * events are not: BILLING_ISSUE deliberately does NOT revoke — a grace
+ * period still means the user is entitled — while CANCELLATION, EXPIRATION
+ * and REFUND_REVERSED are verified against the RevenueCat API rather than
  * inferred, because the event type alone does not determine access (see the
  * VERIFY set below).
  */
