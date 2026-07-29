@@ -1,11 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireCronSecret } from '../_shared/cronAuth.ts';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
-
-const CRON_SECRET = Deno.env.get('CRON_SECRET');
 
 type Row = {
   id: string;
@@ -52,10 +51,8 @@ function buildPayload(row: Row): { title: string; body: string } | null {
 }
 
 Deno.serve(async (req) => {
-  const auth = req.headers.get('Authorization');
-  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
 
   const { data: notifs, error } = await supabase
     .from('notifications')
