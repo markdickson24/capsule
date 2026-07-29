@@ -87,11 +87,42 @@ GET https://api.revenuecat.com/v2/projects/{project_id}/customers/{customer_id}/
 Authorization: Bearer <REVENUECAT_API_KEY>
 ```
 
-Pro is active iff an item with `entitlement_id === 'Capsule Pro'` is present.
+Pro is active iff an item with `entitlement_id === 'entl2d972407b4'` is present.
 
-`project_id` is the constant `proj72b0a2e3`, declared alongside the existing
-`PRO_ENTITLEMENT_ID` — not an env var, matching how the entitlement id is
-already handled in this function.
+### ⚠️ The two surfaces use different identifiers for the same entitlement
+
+Confirmed live (probe, 2026-07-29) — v2 `active_entitlements` returns the
+RevenueCat **object id**, not the lookup key:
+
+```json
+{"items":[{"entitlement_id":"entl2d972407b4",
+           "expires_at":1785339831934,
+           "object":"customer.active_entitlement"}]}
+```
+
+| Surface | Identifier | Value |
+|---|---|---|
+| Webhook payload `event.entitlement_ids` | lookup key | `Capsule Pro` |
+| v2 REST `active_entitlements[].entitlement_id` | object id | `entl2d972407b4` |
+
+The existing `PRO_ENTITLEMENT_ID = 'Capsule Pro'` is correct for the webhook
+filter and **must not** be reused for the API check. Comparing the API response
+against `'Capsule Pro'` never matches, so every verification would report
+"not active" and every `CANCELLATION` / `EXPIRATION` / `SUBSCRIPTION_PAUSED`
+would revoke Pro from **every paying customer** — strictly worse than the bug
+being fixed, and undetectable in this project today because it has no purchases
+to test against.
+
+Therefore a second, separately-named constant:
+
+```ts
+const PRO_ENTITLEMENT_ID = 'Capsule Pro';        // webhook payloads (existing)
+const PRO_ENTITLEMENT_OBJECT_ID = 'entl2d972407b4'; // v2 REST responses (new)
+const RC_PROJECT_ID = 'proj72b0a2e3';
+```
+
+All three are hardcoded constants, matching how `PRO_ENTITLEMENT_ID` is already
+handled in this function.
 
 ### Why v2, not the v1 `/subscribers` map
 
@@ -152,12 +183,20 @@ No test framework in this repo (by design), so this follows the
    `supabase/functions/revenuecat-webhook/entitlements.ts` (no Deno globals, so
    `tsx` can import it) and test `isProActive(items)`: entitlement present,
    absent, empty list, a different entitlement, malformed/missing `items`.
-2. **Response-shape confirmation** — `entitlement_id` is the one field name not
-   yet confirmed against real data, because no customer in the project holds an
-   entitlement. Grant `Capsule Pro` via MCP to a throwaway `app_user_id` that
-   does **not** exist in Supabase `users`, read the shape back, then revoke. The
-   webhook's own write no-ops (the `UPDATE` matches zero rows), so this touches
-   no real account.
+   **Must include a regression test asserting the lookup key `'Capsule Pro'`
+   does _not_ match** — that is the failure mode described above, and it is the
+   one bug in this change that would be invisible in production until the first
+   refund of the first real sale.
+2. ~~**Response-shape confirmation**~~ — **done 2026-07-29.** Granted
+   `Capsule Pro` to the anonymous customer
+   `$RCAnonymousID:0ce84de92b2f4314ad2448afe4e1bd2a` with a 10-minute
+   `expires_at`, read the shape back, confirmed the object-id finding above.
+   An anonymous id was chosen deliberately: it fails the function's existing
+   `UUID_RE` guard, so `setTier` cannot write to Supabase *by construction*
+   rather than by luck. No revoke endpoint exists at
+   `/customers/{id}/entitlements/{eid}/actions/revoke` (404 on every variant
+   tried), so cleanup relies on the short `expires_at` — verify the customer's
+   `active_entitlements` is empty again before closing this out.
 3. **End-to-end** — create a disposable `users` row at tier `'pro'`, POST a
    crafted `CANCELLATION` to the deployed function with the real webhook secret,
    assert the tier flips to `'free'`, then delete the row.
@@ -181,7 +220,10 @@ No test framework in this repo (by design), so this follows the
 
 ## Manual steps
 
-1. RevenueCat dashboard → Project settings → API keys → **+ New** → V2 →
-   permission `customer_information:customers:read` → Generate. (Secret keys
-   cannot be minted through the MCP, which exposes public keys only.)
-2. Set it as the Supabase secret `REVENUECAT_API_KEY` **before** deploying.
+1. ~~Create the V2 read-only key.~~ **Done 2026-07-29** — key issued and
+   verified: `200` on
+   `GET /v2/projects/proj72b0a2e3/customers/{id}/active_entitlements`, and
+   `403 authorization_error` on an attempted entitlement write, confirming it
+   carries `customer_information:customers:read` and nothing more.
+2. Set it as the Supabase secret `REVENUECAT_API_KEY` **before** deploying —
+   the function fails loud (500) when the key is absent.
