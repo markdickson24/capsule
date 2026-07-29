@@ -50,9 +50,9 @@ costs a paying customer's trust.
 |---|---|---|
 | `CANCELLATION` | no-op | **verify** |
 | `EXPIRATION` | blind revoke | **verify** |
-| `SUBSCRIPTION_PAUSED` | blind revoke | **verify** |
 | `REFUND_REVERSED` | unhandled | **verify** |
 | `INITIAL_PURCHASE`, `RENEWAL`, `UNCANCELLATION`, `PRODUCT_CHANGE`, `NON_RENEWING_PURCHASE`, `SUBSCRIPTION_EXTENDED` | grant | unchanged |
+| `SUBSCRIPTION_PAUSED` | blind revoke | unchanged — see below |
 | `TRANSFER`, `TEST`, auth, environment filter, entitlement filter | — | unchanged |
 
 Verifying *all* `CANCELLATION` rather than only
@@ -65,11 +65,26 @@ direction. It is verified rather than fast-pathed because it is rare, arrives
 only after a prior revocation, and carries no reliable signal about whether the
 reversal actually restored entitlement — the API answers that directly.
 
-Two secondary bugs fall out of the same rule. `EXPIRATION` currently revokes
+One secondary bug falls out of the same rule: `EXPIRATION` currently revokes
 blind, so a resubscribe whose old `EXPIRATION` lands after the new
 `INITIAL_PURCHASE` wrongly strips a paying customer until the next `RENEWAL`.
-`SUBSCRIPTION_PAUSED` revokes the moment a pause is *scheduled*, though the
-customer keeps access until the period actually ends.
+
+### `SUBSCRIPTION_PAUSED` is deliberately left alone
+
+It is **Google Play only** — RevenueCat's event table marks it ✅ Google Play,
+❌ App Store, ❌ Amazon, ❌ Stripe, ❌ Promo, ❌ Roku, ❌ RevenueCat Billing.
+Apple has no consumer subscription-pause feature; its off-ramp is the
+cancellation retention offer, already configured in Customer Center. Capsule is
+iOS-only with no Play Store submission, so **this event cannot fire today.**
+
+It stays in `REVOKE` as a blind revoke. That is knowingly wrong for Google Play
+— a pause is only *scheduled* at the event, and the customer keeps access until
+the current period actually ends — but it is unreachable code here, and this
+change stays scoped to the refund hole rather than pre-building for a platform
+that hasn't shipped.
+
+**For the Android phase:** move `SUBSCRIPTION_PAUSED` from `REVOKE` into the
+verified set. This is a deliberate deferral, not an oversight.
 
 ### Why not verify on every event
 
@@ -108,10 +123,9 @@ RevenueCat **object id**, not the lookup key:
 The existing `PRO_ENTITLEMENT_ID = 'Capsule Pro'` is correct for the webhook
 filter and **must not** be reused for the API check. Comparing the API response
 against `'Capsule Pro'` never matches, so every verification would report
-"not active" and every `CANCELLATION` / `EXPIRATION` / `SUBSCRIPTION_PAUSED`
-would revoke Pro from **every paying customer** — strictly worse than the bug
-being fixed, and undetectable in this project today because it has no purchases
-to test against.
+"not active" and every `CANCELLATION` and `EXPIRATION` would revoke Pro from
+**every paying customer** — strictly worse than the bug being fixed, and
+undetectable in this project today because it has no purchases to test against.
 
 Therefore a second, separately-named constant:
 
@@ -195,8 +209,8 @@ No test framework in this repo (by design), so this follows the
    `UUID_RE` guard, so `setTier` cannot write to Supabase *by construction*
    rather than by luck. No revoke endpoint exists at
    `/customers/{id}/entitlements/{eid}/actions/revoke` (404 on every variant
-   tried), so cleanup relies on the short `expires_at` — verify the customer's
-   `active_entitlements` is empty again before closing this out.
+   tried), so cleanup relied on the short `expires_at`; confirmed afterwards
+   that the customer's `active_entitlements` is `[]` again.
 3. **End-to-end** — create a disposable `users` row at tier `'pro'`, POST a
    crafted `CANCELLATION` to the deployed function with the real webhook secret,
    assert the tier flips to `'free'`, then delete the row.
