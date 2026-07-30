@@ -434,10 +434,43 @@ Large file (~2200 lines). Key sub-components and patterns:
   so two-finger handling is hand-rolled, the same way `CameraScreen` does its
   pinch. Two touches scale between 1x and 4x; one touch while `scale > 1` pans,
   clamped to `±(scale − 1) × dimension / 2` so the image can't be dragged past
-  its own edge. Paging and swipe-to-close are both suppressed while zoomed, and
-  `goToIndex` resets zoom, so scale is always 1 whenever more than one slide is
-  visible. The pure math is `src/lib/zoomMath.ts` (unit-tested); the gesture
-  wiring is in the viewer.
+  its own edge — `dimension` here is the photo's actual **contain-fit rendered
+  size** (`renderedSizeFor()`, derived from the intrinsic pixel size expo-image
+  reports on `onLoad`, cached per media id in `intrinsicSizeRef`), not
+  `SCREEN_WIDTH`/`SCREEN_HEIGHT`. The image renders with `contentFit="contain"`
+  and is letterboxed on one axis whenever its aspect ratio doesn't match the
+  screen's; clamping against the raw screen dimensions there let a fully-panned
+  photo be dragged completely off screen. Falls back to the screen dimensions
+  only until that photo's first `onLoad` fires. Paging and swipe-to-close are
+  both suppressed while zoomed, and `goToIndex` resets zoom, so scale is always
+  1 whenever more than one slide is visible. A released pinch below
+  `SNAP_BACK_BELOW` (1.15, deliberately well above "looks unzoomed" — an
+  invisible ~1.08x residual scale from a fumbled pinch would otherwise leave
+  paging/dismiss silently dead with no visual cue) snaps back to exactly 1. The
+  pure math is `src/lib/zoomMath.ts` (unit-tested); the gesture wiring is in the
+  viewer.
+  ⚠️ **The `PanResponder`'s handlers (and `goToIndex`, which they call) read
+  `itemsRef.current`, never the closed-over `items` parameter.** The responder
+  is created once via `useRef`, so its handlers otherwise close over whichever
+  `items` array existed at mount — and `items` is the parent's `photos` list,
+  wholesale-replaced by `fetchPhotos()` from several triggers that can fire
+  while the viewer is open (background upload landing, etc. — same root cause
+  as the `currentItemId` resync above). A stale `items` read let the
+  photo-only gesture gate report "photo" for a slide that had actually become
+  a video after `items` shrank, letting a pinch silently accumulate zoom state
+  with nothing on screen to show for it and then block paging. `itemsRef` is
+  assigned `itemsRef.current = items` on every render; only the gesture-branch
+  and `goToIndex` reads need it — JSX/render-time reads of `items` are already
+  correct since they aren't wrapped in a `useRef`-memoized callback.
+  ⚠️ **`onPanResponderTerminate` must perform the same cleanup as the release
+  handler's zoom branch.** `onPanResponderTerminationRequest` defaults to
+  `true`, so a third finger landing on a header button (close/flag/download)
+  mid-pinch terminates the responder instead of releasing it —
+  `onPanResponderRelease` then never runs, and without this handler `scaleRef`
+  is left stranded above 1 with paging blocked from then on, no different from
+  the snap-back-drift bug above. `snapBackIfNeeded()` and `endGesture()` are
+  extracted helpers shared by both the release and terminate paths so this
+  cleanup can't drift out of sync between them.
   ⚠️ **Videos are excluded, and the gate is in the gesture branch — not the
   render.** `VideoSlide` uses expo-video's default `nativeControls`, whose
   overlay consumes touches, so a pinch likely never reaches the handler anyway;
