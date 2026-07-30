@@ -456,9 +456,16 @@ Large file (~2200 lines). Key sub-components and patterns:
   through its existing release path keeps `translateX` correct. This looks like
   an arbitrary condition in isolation; it isn't.
   ⚠️ **`zoomScale`/`panX`/`panY` must animate with `useNativeDriver: true`
-  everywhere.** They're component-lifetime `useRef` values, so they have exactly
-  the exposure that made the members sheet stop responding on its second open —
-  see that entry below.
+  everywhere.** Once the first animation on one of these latches it to the
+  native driver, an `Animated.timing`/`.spring()` call anywhere else in the same
+  viewer session that omits `useNativeDriver: true` silently stops moving it —
+  mixing drivers on an already-latched value breaks within that single session,
+  it doesn't need to survive across multiple opens to fail. (Contrast the
+  members sheet below, a *related but distinct* case: `MediaViewerModal` is
+  conditionally mounted and remounts fresh per open, so these three are
+  recreated by `useRef` every time and can't carry a bad driver forward from a
+  previous session the way `membersSheetTranslateY` — a value that persists
+  across opens — does.)
   ⚠️ **Transform order is `[{translateX}, {translateY}, {scale}]`.** Translate
   before scale means the pan is applied in untransformed space and tracks the
   finger 1:1, which is the assumption `clampPan`'s bound encodes. Reordering it

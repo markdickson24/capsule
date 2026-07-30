@@ -777,11 +777,15 @@ function MediaViewerModal({
 
   // Pinch-to-zoom state (photos only).
   //
-  // ⚠️ Every animation on these three MUST pass useNativeDriver: true. React
-  // Native permanently latches an Animated.Value to the native driver the first
-  // time a native-driven animation runs on it; mixing drivers on a
-  // component-lifetime value works for one cycle and then silently stops
-  // responding. This repo already shipped that bug in the members bottom sheet.
+  // ⚠️ Every animation on these three MUST pass useNativeDriver: true. Once the
+  // first native-driven animation latches one of these to the native driver, a
+  // later animation on it that omits useNativeDriver: true silently stops
+  // responding — this breaks within a single viewer session, since mixing
+  // drivers on an already-latched value is what fails, not surviving across
+  // multiple opens. (This modal is conditionally mounted and remounts fresh
+  // per open, so these three are recreated by useRef each time — a different
+  // shape from the members bottom sheet's bug, where the persistent
+  // membersSheetTranslateY value carries a bad driver across opens instead.)
   const zoomScale = useRef(new Animated.Value(1)).current;
   const panX = useRef(new Animated.Value(0)).current;
   const panY = useRef(new Animated.Value(0)).current;
