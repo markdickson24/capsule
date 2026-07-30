@@ -57,6 +57,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall } from '../../lib/purchases';
 import { reportError } from '../../lib/sentry';
+import { clampPan, distanceBetween, scaleFromPinch, shouldSnapBack } from '../../lib/zoomMath';
 import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -643,6 +644,21 @@ function MediaViewerModal({
   onClose: () => void;
   onCaptionSave: (itemId: string, caption: string | null) => void;
 }) {
+  // Mirrors `items` on every render so the PanResponder's handlers (and
+  // goToIndex, which those handlers call) — created once via useRef and
+  // therefore closed over whichever `items` array existed at mount — always
+  // read the current array instead of a stale one. `items` is the parent's
+  // `photos` list, which gets wholesale-replaced by fetchPhotos() from
+  // several triggers that can fire while this modal is open (see the
+  // `currentItemId` comment below). Without this, a stale read inside the
+  // responder could report the wrong mediaType for the item actually on
+  // screen — e.g. read "photo" while a video is showing after `items`
+  // shrank — letting a pinch silently accumulate zoom state that then blocks
+  // paging, exactly the leak the `currentItemId` resync exists to prevent
+  // elsewhere.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   const currentIndexRef = useRef(startIndex);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   // Track the *id* of the item being viewed, not just its index — `items` is the
@@ -774,8 +790,67 @@ function MediaViewerModal({
   const translateY = useRef(new Animated.Value(0)).current;
   const bgOpacity = useRef(new Animated.Value(1)).current;
 
+  // Pinch-to-zoom state (photos only).
+  //
+  // ⚠️ Every animation on these three MUST pass useNativeDriver: true. Once the
+  // first native-driven animation latches one of these to the native driver, a
+  // later animation on it that omits useNativeDriver: true silently stops
+  // responding — this breaks within a single viewer session, since mixing
+  // drivers on an already-latched value is what fails, not surviving across
+  // multiple opens. (This modal is conditionally mounted and remounts fresh
+  // per open, so these three are recreated by useRef each time — a different
+  // shape from the members bottom sheet's bug, where the persistent
+  // membersSheetTranslateY value carries a bad driver across opens instead.)
+  const zoomScale = useRef(new Animated.Value(1)).current;
+  const panX = useRef(new Animated.Value(0)).current;
+  const panY = useRef(new Animated.Value(0)).current;
+
+  // JS-side mirrors of the above. Animated.Value has no synchronous getter, and
+  // the gesture handlers need the current values to do their math each move.
+  const scaleRef = useRef(1);
+  const panRef = useRef({ x: 0, y: 0 });
+
+  // Snapshots taken at the start of a gesture.
+  const pinchStartDistance = useRef(0);
+  const pinchStartScale = useRef(1);
+  const panStart = useRef({ x: 0, y: 0 });
+
+  // Intrinsic (natural, pre-scale) pixel size of each loaded photo, keyed by
+  // media id — populated from expo-image's onLoad event (source.width/height).
+  // A plain ref, not state: it's read only from inside the PanResponder's
+  // math each move, and must not trigger a re-render on every image load.
+  const intrinsicSizeRef = useRef<Record<string, { w: number; h: number }>>({});
+
+  // The pan bound must match the image's actual on-screen (contain-fit)
+  // size, not the raw screen dimensions — the image renders with
+  // contentFit="contain", so a photo whose aspect ratio doesn't match the
+  // screen is letterboxed on one axis. Clamping against SCREEN_WIDTH/HEIGHT
+  // there is far too generous and lets the user drag the photo fully off
+  // screen (see CLAUDE.md). Falls back to the screen dimensions — the
+  // previous, less-precise behavior — when the intrinsic size isn't known
+  // yet (image still loading); panning is never blocked on this.
+  const renderedSizeFor = (itemId: string | undefined): { dispW: number; dispH: number } => {
+    const intrinsic = itemId ? intrinsicSizeRef.current[itemId] : undefined;
+    if (!intrinsic || !(intrinsic.w > 0) || !(intrinsic.h > 0)) {
+      return { dispW: SCREEN_WIDTH, dispH: SCREEN_HEIGHT };
+    }
+    const fit = Math.min(SCREEN_WIDTH / intrinsic.w, SCREEN_HEIGHT / intrinsic.h);
+    return { dispW: intrinsic.w * fit, dispH: intrinsic.h * fit };
+  };
+
   // Track which axis this gesture is locked to so we don't move diagonally
-  const axis = useRef<'none' | 'h' | 'v'>('none');
+  const axis = useRef<'none' | 'h' | 'v' | 'zoom'>('none');
+
+  // Return to fit-to-window immediately, with no animation. Used when changing
+  // photo, where an animated unzoom would visibly play during the page slide.
+  const resetZoom = () => {
+    scaleRef.current = 1;
+    panRef.current = { x: 0, y: 0 };
+    pinchStartDistance.current = 0;
+    zoomScale.setValue(1);
+    panX.setValue(0);
+    panY.setValue(0);
+  };
 
   async function saveCaption() {
     const item = items[currentIndex];
@@ -817,10 +892,11 @@ function MediaViewerModal({
   }
 
   const goToIndex = (index: number) => {
+    resetZoom();
     setEditingCaption(false);
     currentIndexRef.current = index;
     setCurrentIndex(index);
-    setCurrentItemId(items[index]?.id ?? null);
+    setCurrentItemId(itemsRef.current[index]?.id ?? null);
     Animated.spring(translateX, { toValue: -index * SCREEN_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
   };
 
@@ -856,12 +932,105 @@ function MediaViewerModal({
     }
   }, [items]);
 
+  // Snaps the zoom/pan animated values back to defaults when the released
+  // scale is below SNAP_BACK_BELOW (an accidental drift, not a deliberate
+  // zoom). Shared by onPanResponderRelease's zoom branch and
+  // onPanResponderTerminate, which must perform the identical cleanup when a
+  // third finger landing on a header/footer button steals the gesture
+  // mid-pinch (onPanResponderTerminationRequest defaults to true).
+  const snapBackIfNeeded = () => {
+    if (!shouldSnapBack(scaleRef.current)) return;
+    scaleRef.current = 1;
+    panRef.current = { x: 0, y: 0 };
+    Animated.parallel([
+      Animated.spring(zoomScale, { toValue: 1, useNativeDriver: true, bounciness: 0 }),
+      Animated.spring(panX, { toValue: 0, useNativeDriver: true, bounciness: 0 }),
+      Animated.spring(panY, { toValue: 0, useNativeDriver: true, bounciness: 0 }),
+    ]).start();
+  };
+
+  // Resets gesture-tracking state at the end of any release/termination
+  // path. Extracted because it appears identically in three places: the
+  // release handler's zoom branch, the release handler's final line (shared
+  // by the 'v' and paging branches), and onPanResponderTerminate below.
+  const endGesture = () => {
+    axis.current = 'none';
+    pinchStartDistance.current = 0;
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => { axis.current = 'none'; },
-      onPanResponderMove: (_, { dx, dy }) => {
-        // Lock axis on first meaningful movement
+      onPanResponderGrant: () => {
+        axis.current = 'none';
+        pinchStartDistance.current = 0;
+        // Snapshot where the image already sits, so a pan continues from here
+        // rather than jumping back to centre.
+        panStart.current = { ...panRef.current };
+      },
+      onPanResponderMove: (evt, { dx, dy }) => {
+        const touches = evt.nativeEvent.touches;
+        // Photo-only gate lives HERE, not in the render. If a pinch on a video
+        // were allowed to run and only the drawing were suppressed, the scale
+        // state would still accumulate and leak into the next photo. Reads
+        // itemsRef (not a closed-over `items`) so this stays correct even
+        // after `items` has been wholesale-replaced since this PanResponder
+        // was created — see the itemsRef comment above.
+        const currentItem = itemsRef.current[currentIndexRef.current];
+        const isPhoto = currentItem?.mediaType === 'photo';
+
+        // --- two fingers: pinch ---
+        // Gated to axis 'none' or already-'zoom' — a second finger touching
+        // down after the gesture has already committed to 'h' or 'v' (a
+        // normal horizontal/vertical drag in progress) must NOT hijack it
+        // into a pinch. Doing so would both zoom a cell that's only
+        // partially visible mid-drag (breaking the render's "zoom is always
+        // 1 whenever more than one cell can be seen" invariant) and strand
+        // translateX at a non-multiple-of-SCREEN_WIDTH offset, since the
+        // zoom release branch never re-syncs it. Letting the swipe/dismiss
+        // finish through its existing release path keeps translateX correct.
+        if (touches.length === 2 && isPhoto && (axis.current === 'none' || axis.current === 'zoom')) {
+          axis.current = 'zoom';
+          const distance = distanceBetween(touches[0], touches[1]);
+          if (pinchStartDistance.current === 0) {
+            // First frame of this pinch — record the baseline and wait.
+            pinchStartDistance.current = distance;
+            pinchStartScale.current = scaleRef.current;
+            return;
+          }
+          const nextScale = scaleFromPinch(pinchStartScale.current, pinchStartDistance.current, distance);
+          scaleRef.current = nextScale;
+          zoomScale.setValue(nextScale);
+          // Re-clamp the existing pan against the new scale: zooming back out
+          // shrinks the allowed range, and without this the image would be left
+          // stranded off-centre with no way to recover it. Clamped against the
+          // image's actual rendered (contain-fit) size, not the raw screen
+          // dimensions — see renderedSizeFor above.
+          const { dispW, dispH } = renderedSizeFor(currentItem?.id);
+          const cx = clampPan(panRef.current.x, nextScale, dispW);
+          const cy = clampPan(panRef.current.y, nextScale, dispH);
+          panRef.current = { x: cx, y: cy };
+          panX.setValue(cx);
+          panY.setValue(cy);
+          return;
+        }
+
+        // A pinch stays a pinch for the rest of the gesture, even if one finger
+        // lifts — otherwise releasing a finger mid-zoom would page or dismiss.
+        if (axis.current === 'zoom') return;
+
+        // --- one finger while zoomed: pan the image ---
+        if (scaleRef.current > 1 && isPhoto) {
+          const { dispW, dispH } = renderedSizeFor(currentItem?.id);
+          const cx = clampPan(panStart.current.x + dx, scaleRef.current, dispW);
+          const cy = clampPan(panStart.current.y + dy, scaleRef.current, dispH);
+          panRef.current = { x: cx, y: cy };
+          panX.setValue(cx);
+          panY.setValue(cy);
+          return;
+        }
+
+        // --- unzoomed: existing axis-locked paging / swipe-to-close ---
         if (axis.current === 'none') {
           if (dy > 8 && dy > Math.abs(dx)) axis.current = 'v';
           else if (Math.abs(dx) > 8) axis.current = 'h';
@@ -874,6 +1043,13 @@ function MediaViewerModal({
         }
       },
       onPanResponderRelease: (_, { dx, dy, vx, vy }) => {
+        // Anything zoom-related ends here — never page or dismiss out of a zoom.
+        if (axis.current === 'zoom' || scaleRef.current > 1) {
+          snapBackIfNeeded();
+          endGesture();
+          return;
+        }
+
         if (axis.current === 'v') {
           if (dy > 120 || vy > 1.5) {
             Animated.timing(translateY, { toValue: SCREEN_HEIGHT, duration: 220, useNativeDriver: true }).start(onClose);
@@ -886,11 +1062,25 @@ function MediaViewerModal({
         } else {
           const idx = currentIndexRef.current;
           let next = idx;
-          if ((dx < -SCREEN_WIDTH * 0.25 || vx < -0.5) && idx < items.length - 1) next = idx + 1;
+          if ((dx < -SCREEN_WIDTH * 0.25 || vx < -0.5) && idx < itemsRef.current.length - 1) next = idx + 1;
           else if ((dx > SCREEN_WIDTH * 0.25 || vx > 0.5) && idx > 0) next = idx - 1;
           goToIndex(next);
         }
-        axis.current = 'none';
+        endGesture();
+      },
+      // A third finger landing on a header/footer button (close, flag,
+      // download) mid-gesture requests termination by default — without
+      // this handler, onPanResponderRelease never runs, so a mid-pinch
+      // zoom/pan never snaps back or clears its gesture-tracking state,
+      // leaving scaleRef stranded above 1 and paging blocked from then on.
+      // Mirrors onPanResponderRelease's zoom branch exactly: snap back only
+      // when the terminated gesture was actually zoom-related, but always
+      // clear the gesture-tracking state.
+      onPanResponderTerminate: () => {
+        if (axis.current === 'zoom' || scaleRef.current > 1) {
+          snapBackIfNeeded();
+        }
+        endGesture();
       },
     })
   ).current;
@@ -910,30 +1100,59 @@ function MediaViewerModal({
                   <VideoSlide item={item} isActive={index === currentIndex} />
                 ) : (
                   <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
-                    <Image
-                      source={{
-                        uri: shownUrl(item),
-                        // Stable cacheKey (the storage path, not the signed URL) so
-                        // expo-image's disk cache survives re-signing — signed URLs
-                        // get a fresh token roughly every 50 minutes, which would
-                        // otherwise look like a brand-new image and force a re-download.
-                        // `:full` suffix keeps this full-resolution load from colliding
-                        // with the thumbnail-resolution grid/gallery cache slot for the
-                        // same storage_key (see those sites' `:thumb` suffix) — without
-                        // it, whichever loads first "wins" the shared cache key and the
-                        // other can end up permanently showing the wrong resolution.
-                        // NOTE: the branch condition must mirror shownUrl() exactly (gate on
-                        // altSignedUrl) — if the alt key failed to sign, shownUrl falls back
-                        // to the MAIN bytes, so the cacheKey must fall back with it.
-                        cacheKey: swapped[item.id] && item.altSignedUrl && item.altStorageKey
-                          ? `${item.altStorageKey}:full`
-                          : `${item.storage_key}:full`,
+                    <Animated.View
+                      style={{
+                        width: SCREEN_WIDTH,
+                        height: SCREEN_HEIGHT,
+                        // Applied to every photo cell, not just the current one.
+                        // That is safe because zoom is always 1 whenever more
+                        // than one cell can be seen: paging is suppressed while
+                        // zoomed, and goToIndex resets zoom. Keeping it
+                        // unconditional avoids swapping a native-driven
+                        // transform on and off a mounted view.
+                        //
+                        // Order matters: translate BEFORE scale, so the pan is
+                        // applied in untransformed space and tracks the finger
+                        // 1:1 — the assumption clampPan's bound encodes.
+                        transform: [{ translateX: panX }, { translateY: panY }, { scale: zoomScale }],
                       }}
-                      style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
-                      contentFit="contain"
-                      transition={150}
-                    />
-                    {/* Dual (PiP) photo — tap the corner bubble to swap which lens is the main frame. */}
+                    >
+                      <Image
+                        source={{
+                          uri: shownUrl(item),
+                          // Stable cacheKey (the storage path, not the signed URL) so
+                          // expo-image's disk cache survives re-signing — signed URLs
+                          // get a fresh token roughly every 50 minutes, which would
+                          // otherwise look like a brand-new image and force a re-download.
+                          // `:full` suffix keeps this full-resolution load from colliding
+                          // with the thumbnail-resolution grid/gallery cache slot for the
+                          // same storage_key (see those sites' `:thumb` suffix) — without
+                          // it, whichever loads first "wins" the shared cache key and the
+                          // other can end up permanently showing the wrong resolution.
+                          // NOTE: the branch condition must mirror shownUrl() exactly (gate on
+                          // altSignedUrl) — if the alt key failed to sign, shownUrl falls back
+                          // to the MAIN bytes, so the cacheKey must fall back with it.
+                          cacheKey: swapped[item.id] && item.altSignedUrl && item.altStorageKey
+                            ? `${item.altStorageKey}:full`
+                            : `${item.storage_key}:full`,
+                        }}
+                        style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                        contentFit="contain"
+                        transition={150}
+                        // Records the photo's natural pixel size so the pinch/pan
+                        // clamp can bound against its actual contain-fit rendered
+                        // size instead of the raw (letterboxed) screen dimensions —
+                        // see renderedSizeFor and intrinsicSizeRef above. A ref
+                        // write only; must not cause a re-render.
+                        onLoad={e => {
+                          const { width, height } = e.source;
+                          if (width > 0 && height > 0) {
+                            intrinsicSizeRef.current[item.id] = { w: width, h: height };
+                          }
+                        }}
+                      />
+                    </Animated.View>
+                    {/* swap button stays here, OUTSIDE the Animated.View — unscaled */}
                     {item.altSignedUrl && (
                       <TouchableOpacity
                         style={styles.swapBubble}

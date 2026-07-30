@@ -427,6 +427,82 @@ Large file (~2200 lines). Key sub-components and patterns:
 **Post-create invite nudge** — when `route.params.justCreated` is true (set by `CreateScreen` on navigation right after a capsule is made) and `members.length === 1`, a dismissible callout ("Invite people — capsules are better together") renders above the Media section, with an Invite button opening the same `InviteModal`. A single-member capsule is a failed core loop (no reveal, no award voting to anticipate), so this is the one moment worth nudging; it's gone once another member joins or the user dismisses it, and never reappears on a later visit (the param isn't persisted).
 
 **`MediaViewerModal`** — full-screen swipe carousel. Gesture axis is locked on first movement (prevents diagonal). Vertical swipe > 120px or velocity > 1.5 closes modal. Header controls (close, page counter, download) sit inside a `LinearGradient` overlay (top 120px, `rgba(0,0,0,0.6)` → transparent) so buttons don't get lost against light images. Download button uses `expo-media-library` on native (saves to camera roll) and anchor-element download on web.
+  **Pinch-to-zoom (photos only).** The single `PanResponder` carries a third
+  axis, `zoom`, driven by reading `evt.nativeEvent.touches` — there is no
+  gesture library in this project (`react-native-gesture-handler` and
+  `react-native-reanimated` are absent from `package.json` *and* `node_modules`),
+  so two-finger handling is hand-rolled, the same way `CameraScreen` does its
+  pinch. Two touches scale between 1x and 4x; one touch while `scale > 1` pans,
+  clamped to `±(scale − 1) × dimension / 2` so the image can't be dragged past
+  its own edge — `dimension` here is the photo's actual **contain-fit rendered
+  size** (`renderedSizeFor()`, derived from the intrinsic pixel size expo-image
+  reports on `onLoad`, cached per media id in `intrinsicSizeRef`), not
+  `SCREEN_WIDTH`/`SCREEN_HEIGHT`. The image renders with `contentFit="contain"`
+  and is letterboxed on one axis whenever its aspect ratio doesn't match the
+  screen's; clamping against the raw screen dimensions there let a fully-panned
+  photo be dragged completely off screen. Falls back to the screen dimensions
+  only until that photo's first `onLoad` fires. Paging and swipe-to-close are
+  both suppressed while zoomed, and `goToIndex` resets zoom, so scale is always
+  1 whenever more than one slide is visible. A released pinch below
+  `SNAP_BACK_BELOW` (1.15, deliberately well above "looks unzoomed" — an
+  invisible ~1.08x residual scale from a fumbled pinch would otherwise leave
+  paging/dismiss silently dead with no visual cue) snaps back to exactly 1. The
+  pure math is `src/lib/zoomMath.ts` (unit-tested); the gesture wiring is in the
+  viewer.
+  ⚠️ **The `PanResponder`'s handlers (and `goToIndex`, which they call) read
+  `itemsRef.current`, never the closed-over `items` parameter.** The responder
+  is created once via `useRef`, so its handlers otherwise close over whichever
+  `items` array existed at mount — and `items` is the parent's `photos` list,
+  wholesale-replaced by `fetchPhotos()` from several triggers that can fire
+  while the viewer is open (background upload landing, etc. — same root cause
+  as the `currentItemId` resync above). A stale `items` read let the
+  photo-only gesture gate report "photo" for a slide that had actually become
+  a video after `items` shrank, letting a pinch silently accumulate zoom state
+  with nothing on screen to show for it and then block paging. `itemsRef` is
+  assigned `itemsRef.current = items` on every render; only the gesture-branch
+  and `goToIndex` reads need it — JSX/render-time reads of `items` are already
+  correct since they aren't wrapped in a `useRef`-memoized callback.
+  ⚠️ **`onPanResponderTerminate` must perform the same cleanup as the release
+  handler's zoom branch.** `onPanResponderTerminationRequest` defaults to
+  `true`, so a third finger landing on a header button (close/flag/download)
+  mid-pinch terminates the responder instead of releasing it —
+  `onPanResponderRelease` then never runs, and without this handler `scaleRef`
+  is left stranded above 1 with paging blocked from then on, no different from
+  the snap-back-drift bug above. `snapBackIfNeeded()` and `endGesture()` are
+  extracted helpers shared by both the release and terminate paths so this
+  cleanup can't drift out of sync between them.
+  ⚠️ **Videos are excluded, and the gate is in the gesture branch — not the
+  render.** `VideoSlide` uses expo-video's default `nativeControls`, whose
+  overlay consumes touches, so a pinch likely never reaches the handler anyway;
+  and scaling the container would distort the controls. If the gate were only on
+  the drawing, a pinch on a video would still accumulate scale state that
+  nothing displays and then leak into the next photo.
+  ⚠️ **A second finger joining a gesture already locked to `h` or `v` does NOT
+  start a pinch.** The two-touch branch only fires when `axis.current` is
+  `'none'` or already `'zoom'` — a normal horizontal/vertical drag already in
+  progress keeps going as that drag. Without this guard, a pinch begun mid-swipe
+  would zoom a cell that's only partially visible (breaking the "zoom is always
+  1 whenever more than one cell can be seen" invariant the unconditional
+  transform above relies on) and strand `translateX` at a non-multiple-of-
+  `SCREEN_WIDTH` offset, since the zoom release path never re-syncs it —
+  `goToIndex` is the only thing that does. Letting the swipe/dismiss finish
+  through its existing release path keeps `translateX` correct. This looks like
+  an arbitrary condition in isolation; it isn't.
+  ⚠️ **`zoomScale`/`panX`/`panY` must animate with `useNativeDriver: true`
+  everywhere.** Once the first animation on one of these latches it to the
+  native driver, an `Animated.timing`/`.spring()` call anywhere else in the same
+  viewer session that omits `useNativeDriver: true` silently stops moving it —
+  mixing drivers on an already-latched value breaks within that single session,
+  it doesn't need to survive across multiple opens to fail. (Contrast the
+  members sheet below, a *related but distinct* case: `MediaViewerModal` is
+  conditionally mounted and remounts fresh per open, so these three are
+  recreated by `useRef` every time and can't carry a bad driver forward from a
+  previous session the way `membersSheetTranslateY` — a value that persists
+  across opens — does.)
+  ⚠️ **Transform order is `[{translateX}, {translateY}, {scale}]`.** Translate
+  before scale means the pan is applied in untransformed space and tracks the
+  finger 1:1, which is the assumption `clampPan`'s bound encodes. Reordering it
+  silently makes panning drift at high zoom.
 
 **Members bottom sheet** — tap the avatar cluster to open; swipe-down-to-close on top of the usual backdrop-tap/X button. Three real bugs went into getting this gesture right, worth knowing before touching it again:
 - `membersSheetTranslateY` is a persistent (component-lifetime) `useRef` `Animated.Value`, unlike `MediaViewerModal`'s (which remounts fresh every open) — so **every** animation on it (open, close, release-cancel spring) must use `useNativeDriver: false`. React Native's native driver permanently latches a value the first time `useNativeDriver: true` runs on it; mixing drivers on a value that's only ever created once works on the first open/close cycle and silently stops responding to drags on the second.
