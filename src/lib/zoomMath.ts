@@ -12,7 +12,7 @@ export const MIN_ZOOM = 1;
 export const MAX_ZOOM = 4;
 
 /** Below this, a released pinch snaps back to exactly MIN_ZOOM. */
-export const SNAP_BACK_BELOW = 1.05;
+export const SNAP_BACK_BELOW = 1.15;
 
 export type TouchPoint = { pageX: number; pageY: number };
 

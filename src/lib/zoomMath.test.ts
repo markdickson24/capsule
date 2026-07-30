@@ -13,7 +13,7 @@ import {
 
 assert.equal(MIN_ZOOM, 1);
 assert.equal(MAX_ZOOM, 4);
-assert.equal(SNAP_BACK_BELOW, 1.05);
+assert.equal(SNAP_BACK_BELOW, 1.15);
 
 // --- distanceBetween -------------------------------------------------------
 // 3-4-5 triangle.
@@ -71,7 +71,7 @@ assert.equal(clampPan(200, 2, 400), 200);
 
 // --- shouldSnapBack --------------------------------------------------------
 assert.equal(shouldSnapBack(1), true);
-assert.equal(shouldSnapBack(1.04), true);
+assert.equal(shouldSnapBack(1.14), true);
 assert.equal(shouldSnapBack(SNAP_BACK_BELOW), false);
 assert.equal(shouldSnapBack(2), false);
 assert.equal(shouldSnapBack(MAX_ZOOM), false);

@@ -644,6 +644,21 @@ function MediaViewerModal({
   onClose: () => void;
   onCaptionSave: (itemId: string, caption: string | null) => void;
 }) {
+  // Mirrors `items` on every render so the PanResponder's handlers (and
+  // goToIndex, which those handlers call) — created once via useRef and
+  // therefore closed over whichever `items` array existed at mount — always
+  // read the current array instead of a stale one. `items` is the parent's
+  // `photos` list, which gets wholesale-replaced by fetchPhotos() from
+  // several triggers that can fire while this modal is open (see the
+  // `currentItemId` comment below). Without this, a stale read inside the
+  // responder could report the wrong mediaType for the item actually on
+  // screen — e.g. read "photo" while a video is showing after `items`
+  // shrank — letting a pinch silently accumulate zoom state that then blocks
+  // paging, exactly the leak the `currentItemId` resync exists to prevent
+  // elsewhere.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
   const currentIndexRef = useRef(startIndex);
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   // Track the *id* of the item being viewed, not just its index — `items` is the
@@ -800,6 +815,29 @@ function MediaViewerModal({
   const pinchStartScale = useRef(1);
   const panStart = useRef({ x: 0, y: 0 });
 
+  // Intrinsic (natural, pre-scale) pixel size of each loaded photo, keyed by
+  // media id — populated from expo-image's onLoad event (source.width/height).
+  // A plain ref, not state: it's read only from inside the PanResponder's
+  // math each move, and must not trigger a re-render on every image load.
+  const intrinsicSizeRef = useRef<Record<string, { w: number; h: number }>>({});
+
+  // The pan bound must match the image's actual on-screen (contain-fit)
+  // size, not the raw screen dimensions — the image renders with
+  // contentFit="contain", so a photo whose aspect ratio doesn't match the
+  // screen is letterboxed on one axis. Clamping against SCREEN_WIDTH/HEIGHT
+  // there is far too generous and lets the user drag the photo fully off
+  // screen (see CLAUDE.md). Falls back to the screen dimensions — the
+  // previous, less-precise behavior — when the intrinsic size isn't known
+  // yet (image still loading); panning is never blocked on this.
+  const renderedSizeFor = (itemId: string | undefined): { dispW: number; dispH: number } => {
+    const intrinsic = itemId ? intrinsicSizeRef.current[itemId] : undefined;
+    if (!intrinsic || !(intrinsic.w > 0) || !(intrinsic.h > 0)) {
+      return { dispW: SCREEN_WIDTH, dispH: SCREEN_HEIGHT };
+    }
+    const fit = Math.min(SCREEN_WIDTH / intrinsic.w, SCREEN_HEIGHT / intrinsic.h);
+    return { dispW: intrinsic.w * fit, dispH: intrinsic.h * fit };
+  };
+
   // Track which axis this gesture is locked to so we don't move diagonally
   const axis = useRef<'none' | 'h' | 'v' | 'zoom'>('none');
 
@@ -858,7 +896,7 @@ function MediaViewerModal({
     setEditingCaption(false);
     currentIndexRef.current = index;
     setCurrentIndex(index);
-    setCurrentItemId(items[index]?.id ?? null);
+    setCurrentItemId(itemsRef.current[index]?.id ?? null);
     Animated.spring(translateX, { toValue: -index * SCREEN_WIDTH, useNativeDriver: true, bounciness: 0 }).start();
   };
 
@@ -894,6 +932,32 @@ function MediaViewerModal({
     }
   }, [items]);
 
+  // Snaps the zoom/pan animated values back to defaults when the released
+  // scale is below SNAP_BACK_BELOW (an accidental drift, not a deliberate
+  // zoom). Shared by onPanResponderRelease's zoom branch and
+  // onPanResponderTerminate, which must perform the identical cleanup when a
+  // third finger landing on a header/footer button steals the gesture
+  // mid-pinch (onPanResponderTerminationRequest defaults to true).
+  const snapBackIfNeeded = () => {
+    if (!shouldSnapBack(scaleRef.current)) return;
+    scaleRef.current = 1;
+    panRef.current = { x: 0, y: 0 };
+    Animated.parallel([
+      Animated.spring(zoomScale, { toValue: 1, useNativeDriver: true, bounciness: 0 }),
+      Animated.spring(panX, { toValue: 0, useNativeDriver: true, bounciness: 0 }),
+      Animated.spring(panY, { toValue: 0, useNativeDriver: true, bounciness: 0 }),
+    ]).start();
+  };
+
+  // Resets gesture-tracking state at the end of any release/termination
+  // path. Extracted because it appears identically in three places: the
+  // release handler's zoom branch, the release handler's final line (shared
+  // by the 'v' and paging branches), and onPanResponderTerminate below.
+  const endGesture = () => {
+    axis.current = 'none';
+    pinchStartDistance.current = 0;
+  };
+
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
@@ -908,8 +972,12 @@ function MediaViewerModal({
         const touches = evt.nativeEvent.touches;
         // Photo-only gate lives HERE, not in the render. If a pinch on a video
         // were allowed to run and only the drawing were suppressed, the scale
-        // state would still accumulate and leak into the next photo.
-        const isPhoto = items[currentIndexRef.current]?.mediaType === 'photo';
+        // state would still accumulate and leak into the next photo. Reads
+        // itemsRef (not a closed-over `items`) so this stays correct even
+        // after `items` has been wholesale-replaced since this PanResponder
+        // was created — see the itemsRef comment above.
+        const currentItem = itemsRef.current[currentIndexRef.current];
+        const isPhoto = currentItem?.mediaType === 'photo';
 
         // --- two fingers: pinch ---
         // Gated to axis 'none' or already-'zoom' — a second finger touching
@@ -935,9 +1003,12 @@ function MediaViewerModal({
           zoomScale.setValue(nextScale);
           // Re-clamp the existing pan against the new scale: zooming back out
           // shrinks the allowed range, and without this the image would be left
-          // stranded off-centre with no way to recover it.
-          const cx = clampPan(panRef.current.x, nextScale, SCREEN_WIDTH);
-          const cy = clampPan(panRef.current.y, nextScale, SCREEN_HEIGHT);
+          // stranded off-centre with no way to recover it. Clamped against the
+          // image's actual rendered (contain-fit) size, not the raw screen
+          // dimensions — see renderedSizeFor above.
+          const { dispW, dispH } = renderedSizeFor(currentItem?.id);
+          const cx = clampPan(panRef.current.x, nextScale, dispW);
+          const cy = clampPan(panRef.current.y, nextScale, dispH);
           panRef.current = { x: cx, y: cy };
           panX.setValue(cx);
           panY.setValue(cy);
@@ -950,8 +1021,9 @@ function MediaViewerModal({
 
         // --- one finger while zoomed: pan the image ---
         if (scaleRef.current > 1 && isPhoto) {
-          const cx = clampPan(panStart.current.x + dx, scaleRef.current, SCREEN_WIDTH);
-          const cy = clampPan(panStart.current.y + dy, scaleRef.current, SCREEN_HEIGHT);
+          const { dispW, dispH } = renderedSizeFor(currentItem?.id);
+          const cx = clampPan(panStart.current.x + dx, scaleRef.current, dispW);
+          const cy = clampPan(panStart.current.y + dy, scaleRef.current, dispH);
           panRef.current = { x: cx, y: cy };
           panX.setValue(cx);
           panY.setValue(cy);
@@ -973,17 +1045,8 @@ function MediaViewerModal({
       onPanResponderRelease: (_, { dx, dy, vx, vy }) => {
         // Anything zoom-related ends here — never page or dismiss out of a zoom.
         if (axis.current === 'zoom' || scaleRef.current > 1) {
-          if (shouldSnapBack(scaleRef.current)) {
-            scaleRef.current = 1;
-            panRef.current = { x: 0, y: 0 };
-            Animated.parallel([
-              Animated.spring(zoomScale, { toValue: 1, useNativeDriver: true, bounciness: 0 }),
-              Animated.spring(panX, { toValue: 0, useNativeDriver: true, bounciness: 0 }),
-              Animated.spring(panY, { toValue: 0, useNativeDriver: true, bounciness: 0 }),
-            ]).start();
-          }
-          axis.current = 'none';
-          pinchStartDistance.current = 0;
+          snapBackIfNeeded();
+          endGesture();
           return;
         }
 
@@ -999,12 +1062,25 @@ function MediaViewerModal({
         } else {
           const idx = currentIndexRef.current;
           let next = idx;
-          if ((dx < -SCREEN_WIDTH * 0.25 || vx < -0.5) && idx < items.length - 1) next = idx + 1;
+          if ((dx < -SCREEN_WIDTH * 0.25 || vx < -0.5) && idx < itemsRef.current.length - 1) next = idx + 1;
           else if ((dx > SCREEN_WIDTH * 0.25 || vx > 0.5) && idx > 0) next = idx - 1;
           goToIndex(next);
         }
-        axis.current = 'none';
-        pinchStartDistance.current = 0;
+        endGesture();
+      },
+      // A third finger landing on a header/footer button (close, flag,
+      // download) mid-gesture requests termination by default — without
+      // this handler, onPanResponderRelease never runs, so a mid-pinch
+      // zoom/pan never snaps back or clears its gesture-tracking state,
+      // leaving scaleRef stranded above 1 and paging blocked from then on.
+      // Mirrors onPanResponderRelease's zoom branch exactly: snap back only
+      // when the terminated gesture was actually zoom-related, but always
+      // clear the gesture-tracking state.
+      onPanResponderTerminate: () => {
+        if (axis.current === 'zoom' || scaleRef.current > 1) {
+          snapBackIfNeeded();
+        }
+        endGesture();
       },
     })
   ).current;
@@ -1063,6 +1139,17 @@ function MediaViewerModal({
                         style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
                         contentFit="contain"
                         transition={150}
+                        // Records the photo's natural pixel size so the pinch/pan
+                        // clamp can bound against its actual contain-fit rendered
+                        // size instead of the raw (letterboxed) screen dimensions —
+                        // see renderedSizeFor and intrinsicSizeRef above. A ref
+                        // write only; must not cause a re-render.
+                        onLoad={e => {
+                          const { width, height } = e.source;
+                          if (width > 0 && height > 0) {
+                            intrinsicSizeRef.current[item.id] = { w: width, h: height };
+                          }
+                        }}
                       />
                     </Animated.View>
                     {/* swap button stays here, OUTSIDE the Animated.View — unscaled */}
