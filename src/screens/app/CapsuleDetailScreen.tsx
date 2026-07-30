@@ -908,7 +908,16 @@ function MediaViewerModal({
         const isPhoto = items[currentIndexRef.current]?.mediaType === 'photo';
 
         // --- two fingers: pinch ---
-        if (touches.length === 2 && isPhoto) {
+        // Gated to axis 'none' or already-'zoom' — a second finger touching
+        // down after the gesture has already committed to 'h' or 'v' (a
+        // normal horizontal/vertical drag in progress) must NOT hijack it
+        // into a pinch. Doing so would both zoom a cell that's only
+        // partially visible mid-drag (breaking the render's "zoom is always
+        // 1 whenever more than one cell can be seen" invariant) and strand
+        // translateX at a non-multiple-of-SCREEN_WIDTH offset, since the
+        // zoom release branch never re-syncs it. Letting the swipe/dismiss
+        // finish through its existing release path keeps translateX correct.
+        if (touches.length === 2 && isPhoto && (axis.current === 'none' || axis.current === 'zoom')) {
           axis.current = 'zoom';
           const distance = distanceBetween(touches[0], touches[1]);
           if (pinchStartDistance.current === 0) {
