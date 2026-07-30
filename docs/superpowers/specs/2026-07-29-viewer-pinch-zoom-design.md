@@ -22,17 +22,17 @@ a group, a whiteboard, or a document, there is no way to look closer.
   two-finger gesture handling has an in-repo precedent to follow.
 - **`VideoSlide` does not set `nativeControls`**, so expo-video's default native
   controls are active. That overlay consumes touches, so a pinch would likely
-  never reach the `PanResponder`; and scaling the container would scale the
-  controls along with the video.
+  never reach the `PanResponder`, and scaling the container would distort the
+  controls along with the video. This is why video is excluded — see below.
 
 ## Decisions
 
 | Decision | Choice | Why |
 |---|---|---|
 | Gesture implementation | Extend the existing `PanResponder` | No new native dependency, so it ships in the build already being planned — no extra EAS/provisioning churn mid-submission. Matches `CameraScreen`'s existing pinch idiom. |
-| Surfaces | Full-screen viewer only — photos **and** videos | The grid/gallery would fight the `FlatList` scroll gesture, and nobody inspects detail from a thumbnail. |
+| Surfaces | Full-screen viewer, **photos only** | The grid/gallery would fight the `FlatList` scroll gesture, and nobody inspects detail from a thumbnail. |
 | Interactions | Pinch to zoom + drag to pan | Double-tap-to-zoom and rubber-band-past-limits deliberately excluded. |
-| Video controls | `nativeControls={false}` + tap to play/pause | Required for pinch to reach the handler at all. Videos already autoplay and loop, so the scrubber is the only real loss. |
+| Video | **Excluded entirely** — `VideoSlide` is not modified | Zooming video would require disabling native controls (the overlay eats the touches), which costs the scrubber and adds a tap-to-pause replacement. All of the device-only risk in this feature sat there; photos carry none of it. |
 
 Accepted cost of the `PanResponder` route: gesture tracking runs on the JS
 thread, so zoom may feel marginally less silky than a native-thread
@@ -54,9 +54,17 @@ starts reading `evt.nativeEvent.touches` to distinguish:
 
 | Touches | Condition | Behavior |
 |---|---|---|
-| 2 | any | **Pinch.** Scale = `baseScale × (currentDistance / startDistance)`, clamped `[1, 4]`. Sets `axis.current = 'zoom'`. |
+| 2 | current item is a **photo** | **Pinch.** Scale = `baseScale × (currentDistance / startDistance)`, clamped `[1, 4]`. Sets `axis.current = 'zoom'`. |
+| 2 | current item is a **video** | Ignored — falls through to today's behavior. |
 | 1 | `scale > 1` | **Pan** the zoomed image, clamped to its own edges. |
 | 1 | `scale === 1` | Today's behavior — unchanged. |
+
+⚠️ **The photo-only gate must live in the gesture branch, not just the render.**
+If the pinch branch ran for videos and only the render were gated, a two-finger
+gesture on a video would silently accumulate scale state that nothing draws —
+and then the *next* photo could inherit a non-1 scale, or panning would engage
+with nothing zoomed. Gate at the source so video slides behave exactly as they
+do today.
 
 `axis.current = 'zoom'` locks out both paging and swipe-to-close for the
 duration of the gesture, so a two-finger pinch can never be misread as a
@@ -92,24 +100,14 @@ drags forever, because React Native permanently latches a value to the native
 driver the first time `useNativeDriver: true` runs on it. The new values are
 component-lifetime `useRef`s with the same exposure.
 
-### Video changes
+### Video is not modified
 
-`VideoSlide` gains `nativeControls={false}` and a tap-to-toggle play/pause,
-wrapped so the zoom transform applies to the `VideoView` container. Everything
-else about playback (autoplay on active, pause on inactive, loop) is unchanged.
-
-⚠️ **The tap cannot be an `onPress` on the video.** `onStartShouldSetPanResponder`
-returns `true`, so the viewer's `PanResponder` claims every touch before a child
-`Pressable` would see it — a tap currently reaches `onPanResponderRelease` with
-`dx`/`dy` near zero and falls through the horizontal branch to
-`goToIndex(sameIndex)`, a deliberate no-op.
-
-So the tap is detected **in `onPanResponderRelease`**: if `axis.current === 'none'`
-(no axis ever locked, i.e. the finger never moved meaningfully) and the current
-item is a video, toggle playback instead of the no-op `goToIndex`. This also
-means the existing no-op page call is replaced rather than added to, and that a
-tap while zoomed must NOT toggle playback — check `scale === 1` too, or pinching
-a video would pause it on every gesture end.
+`VideoSlide` is untouched: native controls stay on, playback behavior is
+unchanged, and no tap handler is added. Excluding video also removes the
+tap-detection problem entirely — the viewer's `onStartShouldSetPanResponder`
+returns `true`, so it claims every touch before any child `Pressable` could see
+it, and a tap-to-pause would have had to be reverse-engineered out of
+`onPanResponderRelease`. None of that is needed now.
 
 ## Testability
 
@@ -128,6 +126,10 @@ zero distance, which must not produce `NaN` or `Infinity` scale).
 
 ## Out of scope
 
+- **Video zoom** — deliberately deferred. Would need `nativeControls={false}`
+  (losing the scrubber), a replacement tap-to-pause detected inside
+  `onPanResponderRelease`, and on-device verification that a scaled video layer
+  renders acceptably. All of this feature's unverifiable risk lived there.
 - Double-tap to zoom, rubber-banding past limits.
 - Zoom in the 3-up grid or `MediaGalleryModal`.
 - Page-flip while zoomed at the pan edge.
@@ -139,5 +141,5 @@ zero distance, which must not produce `NaN` or `Infinity` scale).
 |---|---|
 | `src/lib/zoomMath.ts` | new — pure clamping/distance helpers |
 | `src/lib/zoomMath.test.ts` | new — unit tests |
-| `src/screens/app/CapsuleDetailScreen.tsx` | `MediaViewerModal` gesture routing + per-slide transform; `VideoSlide` controls + tap |
+| `src/screens/app/CapsuleDetailScreen.tsx` | `MediaViewerModal` gesture routing + per-slide transform on photo cells. `VideoSlide` unchanged. |
 | `CLAUDE.md` | document the gesture-axis model and the native-driver constraint |
