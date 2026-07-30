@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { haptics } from '../lib/haptics';
 import InfoTooltip from './InfoTooltip';
+import { onAccent } from '../lib/accentContrast';
 
 // Delegate to the shared wrapper (web-no-op-safe) instead of calling
 // expo-haptics directly. All call sites use the light/selection defaults.
@@ -261,7 +262,7 @@ const Calendar = memo(function Calendar({
                   >
                     <Text style={[
                       cs.monthCellText,
-                      isSel && { color: '#FFFFFF', fontWeight: '700' },
+                      isSel && { color: onAccent(accentColor), fontWeight: '700' },
                       isCurrent && !isSel && { color: accentColor },
                       isPast && cs.dayTextPast,
                     ]}>
@@ -321,6 +322,7 @@ const Calendar = memo(function Calendar({
                   <Text style={[
                     cs.dayText,
                     isSel && cs.dayTextSel,
+                    isSel && { color: onAccent(accentColor) },
                     isToday && !isSel && { color: accentColor },
                     isPast && cs.dayTextPast,
                   ]}>

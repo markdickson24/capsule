@@ -8,6 +8,7 @@ import { RecurrenceAnchor } from '../lib/recurrence';
 import { GroupRecurrence } from '../lib/groups';
 import { useTheme } from '../context/ThemeContext';
 import { haptics } from '../lib/haptics';
+import { onAccent } from '../lib/accentContrast';
 
 // Same LayoutAnimation setup as DatePicker.tsx, whose collapsible
 // pill + dark expanded card + calendar-with-mode-switch this component is
@@ -90,7 +91,7 @@ function DayGrid({ days, selected, onSelect, accentColor }: {
                 activeOpacity={0.6}
               >
                 <View style={[s.dayInner, active && { backgroundColor: accentColor }]}>
-                  <Text style={[s.dayText, active && s.dayTextActive]}>{day}</Text>
+                  <Text style={[s.dayText, active && s.dayTextActive, active && { color: onAccent(accentColor) }]}>{day}</Text>
                 </View>
               </TouchableOpacity>
             );
@@ -126,7 +127,7 @@ function MonthGrid({ selected, onSelect, accentColor }: {
                 onPress={() => { haptics.selection(); onSelect(m); }}
                 activeOpacity={0.6}
               >
-                <Text style={[s.monthCellText, active && s.monthCellTextActive]}>{MONTH_LABELS[m - 1]}</Text>
+                <Text style={[s.monthCellText, active && s.monthCellTextActive, active && { color: onAccent(accentColor) }]}>{MONTH_LABELS[m - 1]}</Text>
               </TouchableOpacity>
             );
           })}
@@ -137,7 +138,7 @@ function MonthGrid({ selected, onSelect, accentColor }: {
 }
 
 export default function RecurrenceAnchorPicker({ interval, anchor, onChange }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   // Expanded by default — unlike DatePicker's unlock-date field (one of many
   // fields in a long form, so collapsing it reduces clutter), this picker is
   // the primary reason you're in the Schedule section once a real interval
@@ -206,7 +207,7 @@ export default function RecurrenceAnchorPicker({ interval, anchor, onChange }: P
                     onPress={() => { haptics.selection(); onChange({ ...anchor, weekday: i }); }}
                     activeOpacity={0.6}
                   >
-                    <Text style={[s.weekdayChipText, active && s.weekdayChipTextActive]} numberOfLines={1}>{label}</Text>
+                    <Text style={[s.weekdayChipText, active && s.weekdayChipTextActive, active && { color: onAccentColor }]} numberOfLines={1}>{label}</Text>
                   </TouchableOpacity>
                 );
               })}

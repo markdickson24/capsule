@@ -62,7 +62,7 @@ function getPinchDistance(touches: ArrayLike<{ pageX: number; pageY: number }>) 
 }
 
 export default function CameraScreen() {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const route = useRoute<RouteProp<AppTabParamList, 'Camera'>>();
   const isFocused = useIsFocused();
@@ -637,7 +637,7 @@ export default function CameraScreen() {
         <Text style={styles.permTitle}>Camera access needed</Text>
         <Text style={styles.permSubtext}>Allow Capsule to use your camera</Text>
         <TouchableOpacity style={[styles.permBtn, { backgroundColor: accentColor }]} onPress={requestCameraPermission}>
-          <Text style={styles.permBtnText}>Grant Access</Text>
+          <Text style={[styles.permBtnText, { color: onAccentColor }]}>Grant Access</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -742,8 +742,8 @@ export default function CameraScreen() {
               activeOpacity={0.8}
               onPress={toggleDual}
             >
-              <Ionicons name="copy-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.modeChipLabel}>{isDual ? 'Dual on' : 'Dual'}</Text>
+              <Ionicons name="copy-outline" size={18} color={isDual ? onAccentColor : '#FFFFFF'} />
+              <Text style={[styles.modeChipLabel, isDual && { color: onAccentColor }]}>{isDual ? 'Dual on' : 'Dual'}</Text>
             </TouchableOpacity>
             <InfoTooltip
               title="Dual Camera"
@@ -775,8 +775,8 @@ export default function CameraScreen() {
                     activeOpacity={0.85}
                     onPress={() => setDualLayout(value)}
                   >
-                    <Ionicons name={icon} size={16} color="#FFFFFF" />
-                    <Text style={styles.layoutOptionLabel}>{label}</Text>
+                    <Ionicons name={icon} size={16} color={active ? onAccentColor : '#FFFFFF'} />
+                    <Text style={[styles.layoutOptionLabel, active && { color: onAccentColor }]}>{label}</Text>
                   </TouchableOpacity>
                 );
               })}

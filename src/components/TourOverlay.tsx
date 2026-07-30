@@ -9,7 +9,7 @@ const TOOLTIP_W = 300;
 
 export default function TourOverlay() {
   const { active, steps, stepIndex, currentRect, next, back, skip } = useTour();
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const insets = useSafeAreaInsets();
   const { width: SW, height: SH } = Dimensions.get('window');
 
@@ -73,7 +73,7 @@ export default function TourOverlay() {
               </Pressable>
             )}
             <Pressable onPress={isLast ? skip : next} accessibilityRole="button" accessibilityLabel={isLast ? 'Finish tour' : 'Next step'} style={[styles.nextBtn, { backgroundColor: accentColor }]}>
-              <Text style={styles.nextText}>{isLast ? 'Done' : 'Next'}</Text>
+              <Text style={[styles.nextText, { color: onAccentColor }]}>{isLast ? 'Done' : 'Next'}</Text>
             </Pressable>
           </View>
         </View>

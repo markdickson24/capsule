@@ -13,7 +13,7 @@ import { useTheme } from '../../context/ThemeContext';
 type Props = NativeStackScreenProps<AppStackParamList, 'ResetPassword'>;
 
 export default function ResetPasswordScreen({ navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,7 +40,7 @@ export default function ResetPasswordScreen({ navigation }: Props) {
           <Text style={styles.title}>Password updated</Text>
           <Text style={styles.subtitle}>You're all set. Go ahead and use the app.</Text>
           <TouchableOpacity style={[styles.button, { backgroundColor: accentColor }]} onPress={() => navigation.replace('Tabs', undefined)}>
-            <Text style={styles.buttonText}>Continue</Text>
+            <Text style={[styles.buttonText, { color: onAccentColor }]}>Continue</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -75,7 +75,7 @@ export default function ResetPasswordScreen({ navigation }: Props) {
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TouchableOpacity style={[styles.button, { backgroundColor: accentColor }]} onPress={handleReset} disabled={loading}>
-          {loading ? <LoadingBrand size="small" color="#fff" /> : <Text style={styles.buttonText}>Update Password</Text>}
+          {loading ? <LoadingBrand size="small" color={onAccentColor} /> : <Text style={[styles.buttonText, { color: onAccentColor }]}>Update Password</Text>}
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>

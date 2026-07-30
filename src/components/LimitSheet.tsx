@@ -20,7 +20,7 @@ interface LimitSheetProps {
  * imperative show()/hide() API non-component code uses to trigger it.
  */
 export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   // The Modal itself has to outlive `config` going null for a moment so the
   // slide-down close animation is visible instead of the sheet vanishing
   // instantly (Modal has no exit-transition hook of its own for `visible`).
@@ -145,6 +145,7 @@ export function LimitSheet({ config, onDismiss }: LimitSheetProps) {
                         style={[
                           styles.actionText,
                           action.style === 'primary' && styles.actionTextPrimary,
+                          action.style === 'primary' && { color: onAccentColor },
                           action.style === 'destructive' && styles.actionTextDestructive,
                         ]}
                       >

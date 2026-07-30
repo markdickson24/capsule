@@ -40,7 +40,7 @@ function InviteToCapsuleModal({
   userId: string;
   onClose: () => void;
 }) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [capsules, setCapsules] = useState<OwnedCapsule[]>([]);
   const [loading, setLoading] = useState(true);
   const [inviting, setInviting] = useState<string | null>(null);
@@ -128,7 +128,7 @@ function InviteToCapsuleModal({
                     onPress={() => invite(c.id)}
                     disabled={inviting === c.id}
                   >
-                    <Text style={is.inviteBtnText}>{inviting === c.id ? '…' : 'Invite'}</Text>
+                    <Text style={[is.inviteBtnText, { color: onAccentColor }]}>{inviting === c.id ? '…' : 'Invite'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -142,7 +142,7 @@ function InviteToCapsuleModal({
 }
 
 export default function PublicProfileScreen({ route, navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const { userId } = route.params;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [mutualCapsules, setMutualCapsules] = useState<MutualCapsule[]>([]);
@@ -292,8 +292,8 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
                 onPress={onAddFriend}
                 disabled={friendBusy}
               >
-                <Ionicons name="person-add-outline" size={18} color="#FFFFFF" />
-                <Text style={styles.friendBtnText}>Add Friend</Text>
+                <Ionicons name="person-add-outline" size={18} color={onAccentColor} />
+                <Text style={[styles.friendBtnText, { color: onAccentColor }]}>Add Friend</Text>
               </TouchableOpacity>
             )}
             {friendStatus === 'outgoing' && (
@@ -309,8 +309,8 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
                   onPress={onAcceptFriend}
                   disabled={friendBusy}
                 >
-                  <Ionicons name="checkmark" size={18} color="#FFFFFF" />
-                  <Text style={styles.friendBtnText}>Accept Request</Text>
+                  <Ionicons name="checkmark" size={18} color={onAccentColor} />
+                  <Text style={[styles.friendBtnText, { color: onAccentColor }]}>Accept Request</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={styles.friendDecline} onPress={onRemoveFriend} disabled={friendBusy}>
                   <Text style={styles.friendDeclineText}>Decline</Text>
@@ -328,7 +328,7 @@ export default function PublicProfileScreen({ route, navigation }: Props) {
 
         {!isOwnProfile && !isBlocked && (
           <TouchableOpacity style={[styles.inviteBtn, { backgroundColor: accentColor }]} onPress={() => setShowInvite(true)}>
-            <Text style={styles.inviteBtnText}>Invite to Capsule</Text>
+            <Text style={[styles.inviteBtnText, { color: onAccentColor }]}>Invite to Capsule</Text>
           </TouchableOpacity>
         )}
 

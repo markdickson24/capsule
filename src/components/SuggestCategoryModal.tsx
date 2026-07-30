@@ -29,7 +29,7 @@ const PRESENT_MS = 360;
 const DISMISS_MS = 260;
 
 export default function SuggestCategoryModal({ visible, capsuleId, onClose, onSuggested }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const [label, setLabel] = useState('');
   const [targetType, setTargetType] = useState<SuperlativeTargetType>('person');
   const [submitting, setSubmitting] = useState(false);
@@ -185,9 +185,9 @@ export default function SuggestCategoryModal({ visible, capsuleId, onClose, onSu
               disabled={!valid || submitting}
             >
               {submitting ? (
-                <LoadingBrand size="small" color="#FFFFFF" />
+                <LoadingBrand size="small" color={onAccentColor} />
               ) : (
-                <Text style={styles.submitBtnText}>Add suggestion</Text>
+                <Text style={[styles.submitBtnText, { color: onAccentColor }]}>Add suggestion</Text>
               )}
             </TouchableOpacity>
           </Animated.View>

@@ -42,7 +42,7 @@ type CapsuleOption = {
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function PreviewScreen({ route, navigation }: Props) {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
 
   const items: PendingMedia[] = useMemo(() => {
     const params: any = route.params;
@@ -445,8 +445,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
                 style={[styles.addBtn, { backgroundColor: accentColor }]}
                 onPress={goCreateCapsule}
               >
-                <Ionicons name="add" size={18} color="#FFFFFF" />
-                <Text style={styles.addBtnText}>Create</Text>
+                <Ionicons name="add" size={18} color={onAccentColor} />
+                <Text style={[styles.addBtnText, { color: onAccentColor }]}>Create</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -465,8 +465,8 @@ export default function PreviewScreen({ route, navigation }: Props) {
                       style={[styles.chip, selected && [styles.chipSelected, { backgroundColor: accentColor, borderColor: accentColor }]]}
                       onPress={() => toggleCapsule(item.capsule_id)}
                     >
-                      {selected && <Ionicons name="checkmark" size={14} color="#FFFFFF" />}
-                      <Text style={[styles.chipText, selected && styles.chipTextSelected]} numberOfLines={1}>
+                      {selected && <Ionicons name="checkmark" size={14} color={onAccentColor} />}
+                      <Text style={[styles.chipText, selected && styles.chipTextSelected, selected && { color: onAccentColor }]} numberOfLines={1}>
                         {item.capsules?.title ?? 'Untitled'}
                       </Text>
                     </TouchableOpacity>
@@ -481,9 +481,9 @@ export default function PreviewScreen({ route, navigation }: Props) {
                 accessibilityLabel={selectedIds.size > 1 ? `Add to ${selectedIds.size} capsules` : 'Add to capsule'}
               >
                 {busy ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
+                  <ActivityIndicator color={onAccentColor} size="small" />
                 ) : (
-                  <Text style={styles.addBtnText}>
+                  <Text style={[styles.addBtnText, { color: onAccentColor }]}>
                     {selectedIds.size > 1 ? `Add (${selectedIds.size})` : 'Add'}
                   </Text>
                 )}

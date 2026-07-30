@@ -119,7 +119,7 @@ function AnimatedNotificationCard({ index, children }: { index: number; children
 }
 
 export default function NotificationsScreen() {
-  const { accentColor } = useTheme();
+  const { accentColor, onAccentColor } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
   const [pendingMap, setPendingMap] = useState<Record<string, string>>({});
@@ -441,7 +441,7 @@ export default function NotificationsScreen() {
           <Text style={styles.title}>Notifications</Text>
           {pendingCount > 0 && (
             <View style={[styles.badge, { backgroundColor: accentColor }]}>
-              <Text style={styles.badgeText} maxFontSizeMultiplier={1.3}>{pendingCount}</Text>
+              <Text style={[styles.badgeText, { color: onAccentColor }]} maxFontSizeMultiplier={1.3}>{pendingCount}</Text>
             </View>
           )}
           {clearableCount > 1 && (
@@ -628,7 +628,7 @@ export default function NotificationsScreen() {
                       style={[styles.acceptBtn, { backgroundColor: accentColor }]}
                       onPress={() => accept(item)}
                     >
-                      <Text style={styles.acceptBtnText}>
+                      <Text style={[styles.acceptBtnText, { color: onAccentColor }]}>
                         Accept
                       </Text>
                     </TouchableOpacity>
@@ -655,7 +655,7 @@ export default function NotificationsScreen() {
                       style={[styles.acceptBtn, { backgroundColor: accentColor }]}
                       onPress={() => acceptFriend(item)}
                       >
-                      <Text style={styles.acceptBtnText}>Accept</Text>
+                      <Text style={[styles.acceptBtnText, { color: onAccentColor }]}>Accept</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.declineBtn}

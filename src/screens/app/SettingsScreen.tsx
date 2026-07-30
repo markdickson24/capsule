@@ -39,7 +39,7 @@ function appVersionLabel(): string {
 }
 
 export default function SettingsScreen({ navigation }: Props) {
-  const { accentColor, setAccentColor, accentGradient, setAccentGradient } = useTheme();
+  const { accentColor, onAccentColor, setAccentColor, accentGradient, setAccentGradient } = useTheme();
   const { isPro, loading: entitlementsLoading } = useEntitlements();
   const [pending, setPending] = useState(accentColor);
   const [saving, setSaving] = useState(false);
@@ -119,7 +119,7 @@ export default function SettingsScreen({ navigation }: Props) {
                     style={[styles.primaryBtn, { backgroundColor: accentColor }]}
                     onPress={handleUpgrade}
                   >
-                    <Text style={styles.primaryBtnText}>Upgrade to Capsule Pro</Text>
+                    <Text style={[styles.primaryBtnText, { color: onAccentColor }]}>Upgrade to Capsule Pro</Text>
                   </TouchableOpacity>
                   <Text style={styles.helper}>
                     Unlimited capsules, longer videos, recurring groups, bigger capsules, and one-tap capsule export.
