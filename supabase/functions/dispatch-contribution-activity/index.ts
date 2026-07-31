@@ -1,11 +1,11 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireCronSecret } from '../_shared/cronAuth.ts';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-const CRON_SECRET = Deno.env.get('CRON_SECRET');
 const DEBOUNCE_MS = 2 * 60 * 1000;
 
 type ExpoMessage = {
@@ -30,10 +30,8 @@ async function sendExpoPush(messages: ExpoMessage[]): Promise<void> {
 }
 
 Deno.serve(async (req) => {
-  const auth = req.headers.get('Authorization');
-  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
 
   // Atomically claim every pending row whose debounce window has elapsed.
   // A DELETE...RETURNING can't be claimed twice by an overlapping tick.

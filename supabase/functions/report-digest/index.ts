@@ -1,11 +1,10 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireCronSecret } from '../_shared/cronAuth.ts';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
-
-const CRON_SECRET = Deno.env.get('CRON_SECRET');
 
 // Daily moderation digest (launch plan / APP_STORE_REVIEW.md #13): pushes an
 // Expo notification to the admin account whenever content_reports has pending
@@ -15,10 +14,8 @@ const CRON_SECRET = Deno.env.get('CRON_SECRET');
 // user id comes from Vault via the service-role-only get_report_digest_admin()
 // RPC; rotate it with vault.update_secret, no redeploy needed.
 Deno.serve(async (req) => {
-  const auth = req.headers.get('Authorization');
-  if (CRON_SECRET && auth !== `Bearer ${CRON_SECRET}`) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
 
   const { data: pending, error } = await supabase
     .from('content_reports')

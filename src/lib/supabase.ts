@@ -34,6 +34,12 @@ const authOptions =
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        // PKCE: an auth code is only redeemable by the device that generated
+        // and stored the matching code_verifier. A code (or, previously, an
+        // implicit-flow access_token/refresh_token) supplied by an attacker
+        // over the unauthenticated capsule:// scheme is therefore inert — see
+        // useDeepLinks.ts's reset-password branch.
+        flowType: 'pkce' as const,
       }
     : {
         storage: {
@@ -58,6 +64,12 @@ const authOptions =
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        // PKCE: an auth code is only redeemable by the device that generated
+        // and stored the matching code_verifier. A code (or, previously, an
+        // implicit-flow access_token/refresh_token) supplied by an attacker
+        // over the unauthenticated capsule:// scheme is therefore inert — see
+        // useDeepLinks.ts's reset-password branch.
+        flowType: 'pkce' as const,
       };
 
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {

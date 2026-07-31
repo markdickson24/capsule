@@ -8,6 +8,7 @@ import { cache } from '../lib/cache';
 import { toast } from '../lib/toast';
 import { pendingJoinStash } from '../lib/pendingJoinStash';
 import { pendingOpenStash } from '../lib/pendingOpenStash';
+import { parseDeepLink } from '../lib/deepLinkRoute';
 
 function navigateWhenReady(fn: () => void) {
   if (navigationRef.isReady()) {
@@ -117,57 +118,65 @@ function openCapsule(capsuleId: string, camera: boolean) {
 async function handleUrl(url: string | null) {
   if (!url) return;
 
-  // Password reset: capsule://reset-password#access_token=...&refresh_token=...
-  if (url.includes('reset-password')) {
-    const fragment = url.includes('#') ? url.split('#')[1] : url.split('?')[1];
-    if (!fragment) return;
-    const params = new URLSearchParams(fragment);
-    const access_token = params.get('access_token');
-    const refresh_token = params.get('refresh_token');
-    if (!access_token || !refresh_token) return;
-    const { error } = await supabase.auth.setSession({ access_token, refresh_token });
-    if (error) {
-      toast.show('This password reset link is invalid or expired — request a new one.');
+  const route = parseDeepLink(url);
+  if (!route) return;
+
+  switch (route.kind) {
+    case 'reset': {
+      // Password reset: capsule://reset-password?code=...
+      if (!route.code) {
+        // No PKCE code on the link. This is where an attacker-supplied
+        // implicit-flow #access_token=...&refresh_token=... fragment now
+        // lands — parseDeepLink discards the fragment entirely, so there is
+        // no code to redeem and nothing session-establishing happens here.
+        toast.show('This password reset link is invalid or expired — request a new one.');
+        return;
+      }
+      // exchangeCodeForSession only succeeds when THIS device holds the
+      // code_verifier that was stored locally when the reset was requested
+      // (resetPasswordForEmail persists it under PKCE). A code supplied by
+      // an attacker over the unauthenticated capsule:// scheme has no
+      // matching verifier on the victim's device and is rejected.
+      const { error } = await supabase.auth.exchangeCodeForSession(route.code);
+      if (error) {
+        toast.show('This password reset link is invalid or expired — request a new one.');
+        return;
+      }
+      // Signed-out is the canonical case here — exchangeCodeForSession just
+      // triggered a sign-in that swaps AuthNavigator for AppNavigator a tick
+      // later, and ResetPassword only exists in the latter. Retry until it's
+      // actually the active route (~10s budget) instead of
+      // navigateWhenReady's single shot, which drops silently if it fires
+      // before the swap.
+      navigateUntilRouteActive('ResetPassword', () => {
+        (navigationRef as any).navigate('ResetPassword');
+      });
       return;
     }
-    // Signed-out is the canonical case here — setSession just triggered a
-    // sign-in that swaps AuthNavigator for AppNavigator a tick later, and
-    // ResetPassword only exists in the latter. Retry until it's actually
-    // the active route (~10s budget) instead of navigateWhenReady's single
-    // shot, which drops silently if it fires before the swap.
-    navigateUntilRouteActive('ResetPassword', () => {
-      (navigationRef as any).navigate('ResetPassword');
-    });
-    return;
-  }
 
-  // Live Activity taps: capsule://capsule/<id> and capsule://capsule/<id>/camera
-  const openMatch = url.match(/capsule:\/\/capsule\/([a-zA-Z0-9-]+)(\/camera)?/);
-  if (openMatch) {
-    const capsuleId = openMatch[1];
-    const camera = !!openMatch[2];
-    if (!sessionStore.get()) {
-      // Don't drop the tap — drain it after sign-in.
-      pendingOpenStash.set({ capsuleId, camera });
+    case 'open': {
+      // Live Activity taps: capsule://capsule/<id> and capsule://capsule/<id>/camera
+      if (!sessionStore.get()) {
+        // Don't drop the tap — drain it after sign-in.
+        pendingOpenStash.set({ capsuleId: route.capsuleId, camera: route.camera });
+        return;
+      }
+      openCapsule(route.capsuleId, route.camera);
       return;
     }
-    openCapsule(capsuleId, camera);
-    return;
+
+    case 'join': {
+      const session = sessionStore.get();
+      if (!session) {
+        // Signed out: stash the id instead of dropping the link. useDeepLinks
+        // drains this the moment a session shows up (sign-in / sign-up).
+        pendingJoinStash.set(route.capsuleId);
+        return;
+      }
+      await joinAndNavigate(route.capsuleId, session.user.id);
+      return;
+    }
   }
-
-  const match = url.match(/capsule:\/\/join\/([a-zA-Z0-9-]+)/);
-  if (!match) return;
-  const capsuleId = match[1];
-
-  const session = sessionStore.get();
-  if (!session) {
-    // Signed out: stash the id instead of dropping the link. useDeepLinks
-    // drains this the moment a session shows up (sign-in / sign-up).
-    pendingJoinStash.set(capsuleId);
-    return;
-  }
-
-  await joinAndNavigate(capsuleId, session.user.id);
 }
 
 export function useDeepLinks(session?: Session | null) {

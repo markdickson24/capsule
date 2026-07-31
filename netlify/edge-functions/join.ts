@@ -237,13 +237,19 @@ function renderPage(capsuleId: string, preview: JoinPreview | null): string {
 </html>`;
 }
 
+// Every real capsule id is a server-generated UUID (Postgres
+// create_capsule_with_owner RPC) — anything else can't be a genuine invite.
+// Validated up front so a malformed/malicious id never reaches fetchPreview
+// or gets interpolated into the HTML/SVG response below.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export default async (req: Request, _context: Context) => {
   const url = new URL(req.url);
   const parts = url.pathname.split("/").filter(Boolean); // ["join", "<id>"] or ["join", "<id>", "image"]
   const capsuleId = parts[1];
   const isImage = parts[2] === "image";
 
-  if (!capsuleId) {
+  if (!capsuleId || !UUID_RE.test(capsuleId)) {
     return new Response("Not found", { status: 404 });
   }
 
@@ -299,6 +305,11 @@ export default async (req: Request, _context: Context) => {
       // Don't cache a degraded page for 5 minutes at the edge — once the data
       // source is healthy again the next request should get the rich version.
       "Cache-Control": preview ? "public, max-age=300" : "no-store",
+      // Defense in depth: this page has exactly one inline <script> and one
+      // inline <style>, both required for the redirect-into-app flow. No
+      // external resources are ever loaded except images (og:image).
+      "Content-Security-Policy":
+        "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https:",
     },
   });
 };
