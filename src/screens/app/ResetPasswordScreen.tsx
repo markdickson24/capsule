@@ -9,6 +9,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { AppStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
 import { useTheme } from '../../context/ThemeContext';
+import PasswordRequirements, { isPasswordValid } from '../../components/PasswordRequirements';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'ResetPassword'>;
 
@@ -22,7 +23,7 @@ export default function ResetPasswordScreen({ navigation }: Props) {
 
   async function handleReset() {
     setError('');
-    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    if (!isPasswordValid(password)) { setError('Password must be at least 8 characters.'); return; }
     if (password !== confirm) { setError('Passwords do not match.'); return; }
 
     setLoading(true);
@@ -62,6 +63,7 @@ export default function ResetPasswordScreen({ navigation }: Props) {
             onChangeText={setPassword}
             secureTextEntry
           />
+          {password.length > 0 && <PasswordRequirements password={password} />}
           <TextInput
             style={styles.input}
             placeholder="Confirm password"

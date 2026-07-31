@@ -11,6 +11,7 @@ import { AuthStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
 import { mapAuthError } from '../../lib/authErrors';
 import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
+import PasswordRequirements, { isPasswordValid } from '../../components/PasswordRequirements';
 
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
@@ -58,7 +59,7 @@ export default function SignUpScreen({ navigation }: Props) {
       setError('Please fill in all fields.');
       return;
     }
-    if (password.length < 8) {
+    if (!isPasswordValid(password)) {
       setError('Password must be at least 8 characters.');
       return;
     }
@@ -252,6 +253,7 @@ export default function SignUpScreen({ navigation }: Props) {
               <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={20} color="#888888" />
             </TouchableOpacity>
           </View>
+          {password.length > 0 && <PasswordRequirements password={password} />}
         </View>
 
         {error ? (
