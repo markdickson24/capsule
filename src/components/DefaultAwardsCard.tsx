@@ -45,7 +45,14 @@ export default function DefaultAwardsCard(props: Props) {
   // options" and CreateGroupScreen's "Schedule details": pre-seeded values that
   // are fine to leave alone, so the default state costs the owner nothing.
   // Not persisted; every visit starts collapsed, like those two.
-  const [open, setOpen] = useState(false);
+  //
+  // EXCEPT when there are no awards. Collapsing hides "Shuffle all", which is
+  // the only way to get any — and an empty card is precisely when the owner
+  // needs to act. Capsules seeded outside CreateScreen (the facade0* demo/
+  // reviewer fixtures, and anything created before default awards shipped)
+  // land here, so it is not a theoretical state. Manage mode re-evaluates
+  // this once the fetch resolves, since awards is empty until then.
+  const [open, setOpen] = useState(isPreview ? props.awards.length === 0 : false);
   const [loading, setLoading] = useState(!isPreview);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -59,7 +66,11 @@ export default function DefaultAwardsCard(props: Props) {
       .eq('capsule_id', capsuleId)
       .eq('is_default', true)
       .order('created_at', { ascending: true });
-    setManageAwards((data ?? []) as PresetAward[]);
+    const loaded = (data ?? []) as PresetAward[];
+    setManageAwards(loaded);
+    // Only fires on mount / capsule change (loadManage's own deps), so this
+    // can't re-open a card the owner deliberately collapsed.
+    if (loaded.length === 0) setOpen(true);
     setLoading(false);
   }, [isPreview, capsuleId]);
 
