@@ -533,6 +533,11 @@ const SCREEN_HEIGHT = Dimensions.get('window').height;
 // roughly screen-width/3 tiles — one shared thumbnail size covers both so
 // fetchPhotos only needs to derive one resized URL per photo.
 const GRID_THUMB_PX = Math.ceil(SCREEN_WIDTH / 3);
+// How many grid thumbnails to warm up front. The grid is 3-up, so this is
+// roughly four rows — a screenful plus a little scroll headroom. Kept modest
+// on purpose: prefetching the whole capsule would contend with the cells the
+// user is actually looking at, which is slower, not faster.
+const GRID_PREFETCH_COUNT = 12;
 
 // Shared with fetchPhotos' own `media:${capsuleId}` cache.get/set below, so a
 // same-shape patch (e.g. saveCaption) checks freshness the same way the
@@ -1811,6 +1816,22 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     setPhotos(items);
 
+    // Start pulling the first screenful of bytes immediately, in parallel,
+    // rather than waiting for each grid cell to mount and request its own.
+    // At unlock this overlaps with the reveal animation, which is the only
+    // free time available — the photos genuinely cannot be fetched any
+    // earlier (pre-unlock RLS hides the rows, so there are no keys to sign).
+    // expo-image dedupes against its own cache, so the cells that mount a
+    // moment later hit a warm cache instead of a second network request.
+    const warm = items
+      .slice(0, GRID_PREFETCH_COUNT)
+      .map(i => i.thumbnailUri ?? i.thumbSignedUrl ?? i.signedUrl)
+      .filter(Boolean) as string[];
+    if (warm.length) {
+      // Best-effort: a prefetch failure just means the cell loads normally.
+      Image.prefetch(warm).catch(() => {});
+    }
+
     // Fallback for videos uploaded before thumbnail_key existed: generate
     // from the remote signedUrl on-device, memoized per media id so
     // re-entering the screen within the same app session doesn't re-decode
@@ -1981,7 +2002,31 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       const untilUnlock = new Date(capsule.unlock_at).getTime() - Date.now();
       // Wake ~at unlock time if it's ahead; otherwise re-check every 15s.
       const delay = untilUnlock > 1000 ? untilUnlock + 1000 : 15_000;
-      id = setTimeout(() => { load().finally(schedule); }, Math.min(delay, 23 * 60 * 60 * 1000));
+      id = setTimeout(() => { tick().finally(schedule); }, Math.min(delay, 23 * 60 * 60 * 1000));
+    };
+    // Once the moment has arrived, don't just re-read and hope the cron has
+    // run — ask the server to do the flip now. claim_capsule_unlock re-checks
+    // unlock_at against the SERVER clock, so this can't open anything early;
+    // it only removes the 0-60s wait for the cron's next tick, which was by
+    // far the largest part of perceived unlock latency. 'time' mode only —
+    // 'both' still needs everyone physically present (check_in's job).
+    const tick = async () => {
+      const due = new Date(capsule.unlock_at).getTime() <= Date.now();
+      if (due && capsule.status === 'active' && capsule.unlock_mode === 'time') {
+        const { data: newStatus, error } = await supabase.rpc('claim_capsule_unlock', {
+          p_capsule_id: capsuleId,
+        });
+        // A failure here is not user-facing: the cron is still coming, so this
+        // degrades to exactly the old behaviour rather than to a broken screen.
+        if (error) reportError(error, { where: 'CapsuleDetail.claimUnlock', extra: { capsuleId } });
+        else if (newStatus === 'unlocked') {
+          // Reveal straight off the RPC result — waiting for the realtime echo
+          // or the next load() would give back the latency just saved.
+          applyCapsule({ ...capsule, status: 'unlocked' });
+          return;
+        }
+      }
+      await load();
     };
     schedule();
     return () => { cancelled = true; clearTimeout(id); };

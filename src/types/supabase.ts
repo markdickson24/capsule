@@ -934,6 +934,7 @@ export type Database = {
         Returns: string[]
       }
       check_cron_secret: { Args: { provided: string }; Returns: boolean }
+      claim_capsule_unlock: { Args: { p_capsule_id: string }; Returns: string }
       check_in: {
         Args: { p_capsule_id: string; p_lat: number; p_lng: number }
         Returns: Json
