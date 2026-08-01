@@ -75,7 +75,13 @@ type MemberRow = {
   users: { display_name: string; avatar_url: string | null } | null;
 };
 
-type UserResult = { id: string; display_name: string };
+type UserResult = { id: string; display_name: string; avatar_url: string | null };
+
+// Invite-row avatar. Uses the shared <Avatar>, same as the members list and
+// members sheet on this screen — these rows used to hard-render a letter
+// circle and never showed a real photo, and the search query didn't even
+// fetch avatar_url (the friends tab had it and ignored it).
+const AVATAR_PX = 36;
 
 type MediaItem = {
   id: string;
@@ -297,7 +303,7 @@ function InviteModal({
     debounce.current = setTimeout(async () => {
       const { data } = await supabase
         .from('users')
-        .select('id, display_name')
+        .select('id, display_name, avatar_url')
         .ilike('display_name', `%${text.trim()}%`)
         .limit(8);
       if (data) {
@@ -420,9 +426,7 @@ function InviteModal({
               <View style={ms.results}>
                 {results.map(u => (
                   <View key={u.id} style={ms.row}>
-                    <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
-                      <Text style={[ms.avatarText, { color: accentColor }]}>{u.display_name[0].toUpperCase()}</Text>
-                    </View>
+                    <Avatar url={u.avatar_url} name={u.display_name} size={AVATAR_PX} />
                     <Text style={ms.name}>{u.display_name}</Text>
                     <TouchableOpacity
                       style={[ms.inviteBtn, { backgroundColor: accentColor }]}
@@ -447,9 +451,7 @@ function InviteModal({
             ) : (
               friendsToShow.map(f => (
                 <View key={f.id} style={ms.row}>
-                  <View style={[ms.avatar, { backgroundColor: `${accentColor}30` }]}>
-                    <Text style={[ms.avatarText, { color: accentColor }]}>{(f.display_name[0] ?? '?').toUpperCase()}</Text>
-                  </View>
+                  <Avatar url={f.avatar_url} name={f.display_name} size={AVATAR_PX} />
                   <Text style={ms.name}>{f.display_name}</Text>
                   <TouchableOpacity
                     style={[ms.inviteBtn, { backgroundColor: accentColor }]}
@@ -3224,11 +3226,6 @@ const ms = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center',
     backgroundColor: '#1A1A1A', borderRadius: 12, padding: 12, gap: 12,
   },
-  avatar: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: '#FF6B3530', justifyContent: 'center', alignItems: 'center',
-  },
-  avatarText: { fontSize: 16, fontWeight: '700', color: '#FF6B35' },
   name: { flex: 1, fontSize: 15, fontWeight: '600', color: '#FFFFFF' },
   inviteBtn: {
     backgroundColor: '#FF6B35', borderRadius: 8,
