@@ -130,10 +130,11 @@
     </div>
 
     <div class="hero-visual load-in li2">
-      <div class="shot-frame" role="img" aria-label="App screenshot placeholder: capsule detail screen showing the locked countdown">
-        <svg class="shot-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18"/><circle cx="9" cy="14" r="2.4"/><path d="M15 12.5l2 1.5-2 1.5"/></svg>
-        <div class="shot-tag">App Screenshot</div>
-        <div class="shot-desc">Capsule detail — locked countdown to unlock</div>
+      <div class="shot-frame shot-frame--filled">
+        <picture>
+          <source type="image/webp" sizes="240px" srcset="screenshots/capsule-app-capsule-detail-screen-640.webp 640w, screenshots/capsule-app-capsule-detail-screen.webp 800w" />
+          <img src="screenshots/capsule-app-capsule-detail-screen.png" width="800" height="1739" fetchpriority="high" decoding="async" alt="Lake House Trip capsule, locked, with a countdown ring reading 20h 34m 41s left and unlocking August 2 2026, above a collapsed Default awards row and four members" />
+        </picture>
       </div>
     </div>
 
@@ -170,13 +171,13 @@
 
 <div class="wrap"><div class="rule"></div></div>
 
-<!-- SCREENSHOTS — every tile is an explicitly labeled placeholder reserved
-     for a real screenshot. Nothing here recreates the app's UI. -->
+<!-- SCREENSHOTS — real screenshots, plus any remaining tile as an explicitly
+     labeled placeholder reserved for one. Nothing here recreates the app's UI. -->
 <section id="screens">
   <div class="wrap">
     <div class="sec-eyebrow">See it in action</div>
     <h2 class="sec-title">A look inside the app.</h2>
-    <p class="sec-lead">Real screenshots land here as the build gets polished for launch — this is exactly where each one will sit.</p>
+    <p class="sec-lead">Real screenshots from the app. The last tile is still reserved — it lands as the build gets polished for launch.</p>
     <div class="shot-gallery">
       <div class="shot-item">
         <div class="shot-frame shot-frame--filled">
@@ -197,26 +198,29 @@
         <p class="shot-caption">Create a capsule</p>
       </div>
       <div class="shot-item">
-        <div class="shot-frame" role="img" aria-label="App screenshot placeholder: dual camera capture screen">
-          <svg class="shot-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
-          <div class="shot-tag">App Screenshot</div>
-          <div class="shot-desc">Camera — dual front &amp; back capture</div>
+        <div class="shot-frame shot-frame--filled">
+          <picture>
+            <source type="image/webp" sizes="(max-width: 520px) 320px, (max-width: 860px) 45vw, 381px" srcset="screenshots/capsule-app-dual-camera-screen-640.webp 640w, screenshots/capsule-app-dual-camera-screen.webp 720w" />
+            <img src="screenshots/capsule-app-dual-camera-screen.jpg" width="720" height="1560" loading="lazy" decoding="async" alt="Dual camera in split layout — the back lens showing five friends in a resort pool beside the front lens selfie, with Split and PiP layout options and a Dual on badge" />
+          </picture>
         </div>
         <p class="shot-caption">Dual camera</p>
       </div>
       <div class="shot-item">
-        <div class="shot-frame" role="img" aria-label="App screenshot placeholder: unlock reveal animation">
-          <svg class="shot-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.3-2.3"/></svg>
-          <div class="shot-tag">App Screenshot</div>
-          <div class="shot-desc">Unlock reveal — the whole story at once</div>
+        <div class="shot-frame shot-frame--filled">
+          <picture>
+            <source type="image/webp" sizes="(max-width: 520px) 320px, (max-width: 860px) 45vw, 381px" srcset="screenshots/capsule-app-invite-people-screen-640.webp 640w, screenshots/capsule-app-invite-people-screen.webp 800w" />
+            <img src="screenshots/capsule-app-invite-people-screen.png" width="800" height="1739" loading="lazy" decoding="async" alt="Invite People sheet on the Friends tab, listing three friends each with an Invite button, above Share Invite Link and Show QR Code options" />
+          </picture>
         </div>
-        <p class="shot-caption">Unlock reveal</p>
+        <p class="shot-caption">Invite people</p>
       </div>
       <div class="shot-item">
-        <div class="shot-frame" role="img" aria-label="App screenshot placeholder: awards voting screen">
-          <svg class="shot-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v4a5 5 0 0 1-10 0V4z"/><path d="M7 5H4a3 3 0 0 0 3 4M17 5h3a3 3 0 0 1-3 4"/><path d="M12 13v3"/><path d="M9 20h6"/></svg>
-          <div class="shot-tag">App Screenshot</div>
-          <div class="shot-desc">Awards — yearbook-style voting</div>
+        <div class="shot-frame shot-frame--filled">
+          <picture>
+            <source type="image/webp" sizes="(max-width: 520px) 320px, (max-width: 860px) 45vw, 381px" srcset="screenshots/capsule-app-awards-screen-640.webp 640w, screenshots/capsule-app-awards-screen.webp 800w" />
+            <img src="screenshots/capsule-app-awards-screen.png" width="800" height="1739" loading="lazy" decoding="async" alt="Awards winners list: Most likely to get lost, Best view captured, Biggest adventurer, and Funniest candid, each showing the winning person or photo and its vote count" />
+          </picture>
         </div>
         <p class="shot-caption">Awards</p>
       </div>
