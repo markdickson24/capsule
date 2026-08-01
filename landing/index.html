@@ -171,13 +171,12 @@
 
 <div class="wrap"><div class="rule"></div></div>
 
-<!-- SCREENSHOTS — real screenshots, plus any remaining tile as an explicitly
-     labeled placeholder reserved for one. Nothing here recreates the app's UI. -->
+<!-- SCREENSHOTS — real screenshots throughout. Nothing here recreates the app's UI. -->
 <section id="screens">
   <div class="wrap">
     <div class="sec-eyebrow">See it in action</div>
     <h2 class="sec-title">A look inside the app.</h2>
-    <p class="sec-lead">Real screenshots from the app. The last tile is still reserved — it lands as the build gets polished for launch.</p>
+    <p class="sec-lead">Real screenshots from the app.</p>
     <div class="shot-gallery">
       <div class="shot-item">
         <div class="shot-frame shot-frame--filled">
@@ -225,10 +224,11 @@
         <p class="shot-caption">Awards</p>
       </div>
       <div class="shot-item">
-        <div class="shot-frame" role="img" aria-label="App screenshot placeholder: media grid inside an unlocked capsule">
-          <svg class="shot-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-          <div class="shot-tag">App Screenshot</div>
-          <div class="shot-desc">Capsule detail — everyone's photos, unlocked</div>
+        <div class="shot-frame shot-frame--filled">
+          <picture>
+            <source type="image/webp" sizes="(max-width: 520px) 320px, (max-width: 860px) 45vw, 381px" srcset="screenshots/capsule-app-unlocked-detail-screen-640.webp 640w, screenshots/capsule-app-unlocked-detail-screen.webp 800w" />
+            <img src="screenshots/capsule-app-unlocked-detail-screen.png" width="800" height="1618" loading="lazy" decoding="async" alt="Unlocked College Summer capsule showing a 4-photo media grid of 15 total photos, 4 members, and the Awards winners list beginning below" />
+          </picture>
         </div>
         <p class="shot-caption">Capsule detail</p>
       </div>
