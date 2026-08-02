@@ -76,6 +76,31 @@
 -- is harder to get right blind (no live DB to test against) than this
 -- change is worth — matching CLAUDE.md's "correctness beats cleverness"
 -- steer, this is the safer stopping point.
+-- ⚠️ VERIFIED AGAINST PRODUCTION 2026-08-02, AFTER this file was written, by
+-- replaying it inside a rolled-back transaction on the live database:
+--
+--   proacl for public.check_cron_secret is already
+--     {postgres=X/postgres,service_role=X/postgres}
+--
+-- i.e. `authenticated`, `anon` and PUBLIC ALREADY have no EXECUTE — while the
+-- control functions checked alongside it (can_insert_capsule_member,
+-- create_capsule_with_owner, get_my_capsule_ids) all still carry
+-- `authenticated=X/postgres`, so this is a real per-function lockdown and not
+-- a misread.
+--
+-- So the premise of findings F14/F15/F18/F21 (and the reachability half of
+-- F5) — "any signed-in user can POST /rest/v1/rpc/check_cron_secret as a
+-- guess oracle for CRON_SECRET" — is NOT true of production. Those findings
+-- were derived from the migration history, which never records this revoke;
+-- each one flagged that its live-ACL claim was inferred rather than observed.
+-- This is the drift CLAUDE.md warns about, in the safe direction.
+--
+-- The revokes below are therefore a NO-OP against today's production. They
+-- are kept deliberately: they make the intended state explicit in the
+-- migration record, so a future `create or replace` that changes this
+-- function's signature (which DOES reset the ACL — see the Live Activity
+-- lesson in CLAUDE.md) cannot silently re-open the oracle. The digest
+-- comparison below is a real change and is worth having on its own.
 create or replace function public.check_cron_secret(provided text)
 returns boolean
 language sql
