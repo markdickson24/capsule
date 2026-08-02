@@ -6,6 +6,8 @@ import { useTheme } from '../context/ThemeContext';
 import { haptics } from '../lib/haptics';
 import { supabase } from '../lib/supabase';
 import { OccasionKey, PresetAward, pickDefaults, pickReplacement } from '../lib/awardPool';
+import { summarizeAwards } from '../lib/awardSummary';
+import { toast } from '../lib/toast';
 
 const MAX_AWARDS = 4;
 
@@ -39,6 +41,18 @@ export default function DefaultAwardsCard(props: Props) {
   const occasion = props.occasion;
 
   const [manageAwards, setManageAwards] = useState<PresetAward[]>([]);
+  // Collapsed by default — same disclosure convention as CreateScreen's "More
+  // options" and CreateGroupScreen's "Schedule details": pre-seeded values that
+  // are fine to leave alone, so the default state costs the owner nothing.
+  // Not persisted; every visit starts collapsed, like those two.
+  //
+  // EXCEPT when there are no awards. Collapsing hides "Shuffle all", which is
+  // the only way to get any — and an empty card is precisely when the owner
+  // needs to act. Capsules seeded outside CreateScreen (the facade0* demo/
+  // reviewer fixtures, and anything created before default awards shipped)
+  // land here, so it is not a theoretical state. Manage mode re-evaluates
+  // this once the fetch resolves, since awards is empty until then.
+  const [open, setOpen] = useState(isPreview ? props.awards.length === 0 : false);
   const [loading, setLoading] = useState(!isPreview);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -52,7 +66,11 @@ export default function DefaultAwardsCard(props: Props) {
       .eq('capsule_id', capsuleId)
       .eq('is_default', true)
       .order('created_at', { ascending: true });
-    setManageAwards((data ?? []) as PresetAward[]);
+    const loaded = (data ?? []) as PresetAward[];
+    setManageAwards(loaded);
+    // Only fires on mount / capsule change (loadManage's own deps), so this
+    // can't re-open a card the owner deliberately collapsed.
+    if (loaded.length === 0) setOpen(true);
     setLoading(false);
   }, [isPreview, capsuleId]);
 
@@ -80,7 +98,16 @@ export default function DefaultAwardsCard(props: Props) {
     if (rpcError) {
       setManageAwards(prev);
       setError('Could not update awards. Try again.');
+      // Also toast: the inline error lives in the collapsed-away body, so a
+      // user who collapses the card mid-save would otherwise just see the
+      // summary silently revert with no explanation.
+      toast.show('Could not update awards. Try again.');
     }
+  }
+
+  function toggleOpen() {
+    haptics.selection();
+    setOpen(o => !o);
   }
 
   function shuffleAll() {
@@ -110,62 +137,91 @@ export default function DefaultAwardsCard(props: Props) {
 
   return (
     <View style={styles.card}>
-      <View style={styles.header}>
+      {/* Whole header row is the toggle. "Shuffle all" is a nested touchable
+          (inner responder wins, so it never toggles the card) and only exists
+          while open — a blind tap on it would silently replace every award. */}
+      <TouchableOpacity
+        style={styles.header}
+        onPress={toggleOpen}
+        activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={
+          open
+            ? `Collapse ${isPreview ? 'suggested' : 'default'} awards`
+            : `Expand ${isPreview ? 'suggested' : 'default'} awards. ${summarizeAwards(awards)}`
+        }
+      >
         <View style={styles.headerText}>
           <Text style={styles.title}>{isPreview ? 'Suggested awards' : 'Default awards'}</Text>
-          <Text style={styles.subtitle}>
-            {isPreview
-              ? 'Live the moment this capsule unlocks — members can suggest more too.'
-              : 'Live the moment this capsule unlocks. Change them any time before then.'}
-          </Text>
+          {open ? (
+            <Text style={styles.subtitle}>
+              {isPreview
+                ? 'Live the moment this capsule unlocks — members can suggest more too.'
+                : 'Live the moment this capsule unlocks. Change them any time before then.'}
+            </Text>
+          ) : (
+            <Text style={styles.summary} numberOfLines={1}>{summarizeAwards(awards)}</Text>
+          )}
         </View>
-        <TouchableOpacity
-          style={[styles.shuffleBtn, { borderColor: accentColor }, saving && styles.disabled]}
-          onPress={shuffleAll}
-          disabled={saving}
-        >
-          <Ionicons name="shuffle-outline" size={14} color={accentColor} />
-          <Text style={[styles.shuffleText, { color: accentColor }]}>Shuffle all</Text>
-        </TouchableOpacity>
-      </View>
+        {open && (
+          <TouchableOpacity
+            style={[styles.shuffleBtn, { borderColor: accentColor }, saving && styles.disabled]}
+            onPress={shuffleAll}
+            disabled={saving}
+          >
+            <Ionicons name="shuffle-outline" size={14} color={accentColor} />
+            <Text style={[styles.shuffleText, { color: accentColor }]}>Shuffle all</Text>
+          </TouchableOpacity>
+        )}
+        <Ionicons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color="#888888"
+          style={styles.chevron}
+        />
+      </TouchableOpacity>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {open && (
+        <>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      {awards.length === 0 ? (
-        <Text style={styles.emptyText}>No default awards — tap "Shuffle all" to add some.</Text>
-      ) : (
-        <View style={styles.list}>
-          {awards.map((a, i) => (
-            <View key={`${a.label}-${i}`} style={[styles.chip, saving && styles.disabled]}>
-              <Ionicons
-                name={a.target_type === 'person' ? 'person-outline' : 'images-outline'}
-                size={14}
-                color="#888"
-              />
-              <Text style={styles.chipLabel} numberOfLines={1}>{a.label}</Text>
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => swapOne(i)}
-                disabled={saving}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel={`Swap "${a.label}" for another award`}
-              >
-                <Ionicons name="refresh-outline" size={15} color="#888888" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => removeOne(i)}
-                disabled={saving}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove "${a.label}" award`}
-              >
-                <Ionicons name="close" size={15} color="#888888" />
-              </TouchableOpacity>
+          {awards.length === 0 ? (
+            <Text style={styles.emptyText}>No default awards — tap "Shuffle all" to add some.</Text>
+          ) : (
+            <View style={styles.list}>
+              {awards.map((a, i) => (
+                <View key={`${a.label}-${i}`} style={[styles.chip, saving && styles.disabled]}>
+                  <Ionicons
+                    name={a.target_type === 'person' ? 'person-outline' : 'images-outline'}
+                    size={14}
+                    color="#888"
+                  />
+                  <Text style={styles.chipLabel} numberOfLines={1}>{a.label}</Text>
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => swapOne(i)}
+                    disabled={saving}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Swap "${a.label}" for another award`}
+                  >
+                    <Ionicons name="refresh-outline" size={15} color="#888888" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.iconBtn}
+                    onPress={() => removeOne(i)}
+                    disabled={saving}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove "${a.label}" award`}
+                  >
+                    <Ionicons name="close" size={15} color="#888888" />
+                  </TouchableOpacity>
+                </View>
+              ))}
             </View>
-          ))}
-        </View>
+          )}
+        </>
       )}
     </View>
   );
@@ -183,6 +239,10 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { fontSize: 15, fontWeight: '700', color: '#FFFFFF' },
   subtitle: { fontSize: 12, color: '#888888', marginTop: 3, lineHeight: 16 },
+  // Collapsed-state one-liner. #888888 (not #555555) — this is the only content
+  // shown when collapsed, so it has to be readable, not decorative.
+  summary: { fontSize: 12, color: '#888888', marginTop: 3, lineHeight: 16 },
+  chevron: { marginTop: 1 },
   shuffleBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 10, paddingVertical: 7,

@@ -165,17 +165,46 @@ Deno.serve(async (req) => {
 
   const messages: ExpoMessage[] = [];
 
-  // 1) Unlock any capsules whose time has come, and notify members.
-  const { data: unlocked, error } = await supabase
+  // 1a) Unlock any capsules whose time has come. This still matters for every
+  //     capsule nobody happens to have open — claim_capsule_unlock only covers
+  //     the ones with a member actually watching.
+  const { error } = await supabase
     .from('capsules')
     .update({ status: 'unlocked' })
     .eq('status', 'active')
     .eq('unlock_mode', 'time')
     .lte('unlock_at', new Date().toISOString())
-    .select('id, title');
+    .select('id');
 
   if (error) {
     return new Response(JSON.stringify({ error: 'Internal error' }), { status: 500 });
+  }
+
+  // 1b) Notify for every unlocked capsule that hasn't been notified YET,
+  //     regardless of which path flipped it.
+  //
+  //     This used to read the rows returned by the update above — which broke
+  //     the moment a client could win that race: the update matches zero rows,
+  //     and every member who wasn't looking at the screen (i.e. the entire
+  //     audience for this push) silently got nothing. The claim-and-stamp on
+  //     unlock_notified_at is race-safe against both a concurrent cron tick and
+  //     a client flip, so the push fires exactly once either way.
+  //
+  //     Scoped to unlock_mode='time' to match exactly who received a push
+  //     before. proximity/'both' capsules unlock via check_in(), which inserts
+  //     no notifications at all — so those members are told nothing today.
+  //     That's a real gap, but fixing it is a separate decision, not something
+  //     to slip in under a latency change.
+  const { data: unlocked, error: claimError } = await supabase
+    .from('capsules')
+    .update({ unlock_notified_at: new Date().toISOString() })
+    .eq('status', 'unlocked')
+    .eq('unlock_mode', 'time')
+    .is('unlock_notified_at', null)
+    .select('id, title');
+
+  if (claimError) {
+    console.error('Failed to claim unlock notifications:', claimError);
   }
 
   const unlockedMemberMap = await pushTokensForMany((unlocked ?? []).map((c) => c.id));
