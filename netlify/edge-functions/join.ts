@@ -43,8 +43,15 @@ type PreviewResult =
   | { kind: "missing" }
   | { kind: "unavailable"; reason: string };
 
+// Single read site for the project's own Supabase URL — reused by
+// fetchPreview (to build the client) and by the avatar SSRF guard below, so
+// the guard doesn't need a second `Netlify.env.get` call site.
+function getSupabaseUrl(): string | undefined {
+  return Netlify.env.get("SUPABASE_URL");
+}
+
 async function fetchPreview(capsuleId: string): Promise<PreviewResult> {
-  const url = Netlify.env.get("SUPABASE_URL");
+  const url = getSupabaseUrl();
   // Service role is preferred, but the anon key is enough: capsule_join_preview
   // is SECURITY DEFINER and returns only fields this public page already shows.
   const key =
@@ -106,7 +113,12 @@ function escapeXml(s: string): string {
 // is built. If words remain after filling maxLines, the last line is
 // truncated with an ellipsis rather than overflowing the card.
 function wrapTitle(title: string, maxCharsPerLine: number, maxLines: number): string[] {
-  const words = title.split(/\s+/).filter(Boolean);
+  // capsules.title has no server-side length cap (the 100-char limit is
+  // client-side only), so an adversarial title could be arbitrarily long.
+  // Clamp up front — well past anything this card could ever render — so the
+  // shrink step below is bounded regardless of input size.
+  const clampedTitle = title.slice(0, 200);
+  const words = clampedTitle.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
   let wordIndex = 0;
@@ -129,27 +141,108 @@ function wrapTitle(title: string, maxCharsPerLine: number, maxLines: number): st
   const consumedAllWords = wordIndex >= words.length;
   if (!consumedAllWords && lines.length === maxLines) {
     const lastIndex = lines.length - 1;
-    let last = lines[lastIndex];
-    while (last.length > maxCharsPerLine - 1) last = last.slice(0, -1);
+    const last = lines[lastIndex].slice(0, maxCharsPerLine - 1);
     lines[lastIndex] = last.replace(/\s+$/, "") + "…";
   }
   return lines;
 }
 
-// Best-effort: a slow or failing avatar fetch must never block the image
-// response. Returns null on any failure, in which case buildCardSvg falls
-// back to a plain initial-letter badge.
-async function fetchAvatarDataUri(url: string | null): Promise<string | null> {
-  if (!url) return null;
+// Hard cap on the avatar response body. Keeps a single request from OOMing
+// the edge isolate (which would take out co-tenant /join/* requests too).
+const MAX_AVATAR_BYTES = 512 * 1024;
+
+// users.avatar_url is client-writable to an arbitrary string — it is NOT
+// trusted to point at Supabase storage. Only fetch it if it resolves to
+// https on the project's own Supabase host; everything else (including a
+// redirect target we haven't validated) falls back to the initial-letter
+// badge instead of being fetched from Netlify's egress.
+function allowedAvatarHost(): string | null {
+  const supabaseUrl = getSupabaseUrl();
+  if (!supabaseUrl) return null;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    return new URL(supabaseUrl).hostname;
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedAvatarUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+  const allowedHost = allowedAvatarHost();
+  return !!allowedHost && parsed.hostname === allowedHost;
+}
+
+// Base64-encodes in fixed-size chunks instead of building a per-character
+// string rope (which multiplies memory ~24x for large inputs before btoa
+// even runs).
+function bytesToBase64(bytes: Uint8Array): string {
+  const CHUNK_SIZE = 8192;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK_SIZE) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK_SIZE));
+  }
+  return btoa(binary);
+}
+
+// Reads the body through a size-limited streaming reader rather than
+// trusting content-length alone — a hostile server can lie about or omit
+// that header, so the cap has to be enforced on the bytes actually received.
+async function readBodyWithLimit(res: Response, maxBytes: number): Promise<Uint8Array | null> {
+  if (!res.body) {
+    const buf = await res.arrayBuffer();
+    return buf.byteLength > maxBytes ? null : new Uint8Array(buf);
+  }
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      try {
+        await reader.cancel();
+      } catch {
+        // ignore — we're already discarding this response
+      }
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
+}
+
+// Best-effort: a slow, failing, or oversized avatar fetch must never block
+// the image response. Returns null on any failure, in which case
+// buildCardSvg falls back to a plain initial-letter badge.
+async function fetchAvatarDataUri(url: string | null): Promise<string | null> {
+  if (!url || !isAllowedAvatarUrl(url)) return null;
+  try {
+    // redirect: "manual" so an allowed origin can't 30x us to an
+    // unvalidated (e.g. private/internal) address — a manual redirect comes
+    // back as an opaque, non-ok response, which the check below discards.
+    const res = await fetch(url, { signal: AbortSignal.timeout(2000), redirect: "manual" });
     if (!res.ok) return null;
+    const contentLength = res.headers.get("content-length");
+    if (contentLength && Number(contentLength) > MAX_AVATAR_BYTES) return null;
     const contentType = res.headers.get("content-type") ?? "image/jpeg";
     if (!/^image\/(png|jpeg|jpg|gif|webp)$/.test(contentType)) return null;
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return `data:${contentType};base64,${btoa(binary)}`;
+    const bytes = await readBodyWithLimit(res, MAX_AVATAR_BYTES);
+    if (!bytes) return null;
+    return `data:${contentType};base64,${bytesToBase64(bytes)}`;
   } catch {
     return null;
   }
@@ -223,15 +316,22 @@ function renderPage(capsuleId: string, preview: JoinPreview | null): string {
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta name="twitter:card" content="summary_large_image" />
-<style>body{background:#0A0A0A;color:#fff;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;}</style>
+<style>body{background:#0A0A0A;color:#fff;font-family:-apple-system,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center;padding:0 24px;}p{margin:0 0 20px;color:#888;}button{background:${ACCENT};color:#fff;border:none;border-radius:12px;padding:14px 28px;font-size:17px;font-weight:600;font-family:inherit;cursor:pointer;}</style>
 </head>
 <body>
-<p>Opening Capsule…</p>
+<p>${owner} invited you to &quot;${title}&quot;</p>
+<button id="joinBtn" type="button">Join ${title}</button>
 <script>
-  window.location.href = ${JSON.stringify(appUrl)};
-  setTimeout(function () {
-    window.location.href = ${JSON.stringify(fallbackUrl)};
-  }, 1200);
+  // A capsule:// deep link performs a real membership write on open — it
+  // must only ever fire from an explicit user gesture, never automatically
+  // on page load (that would let any cross-origin navigation to this page
+  // silently enroll a signed-in visitor).
+  document.getElementById('joinBtn').addEventListener('click', function () {
+    window.location.href = ${JSON.stringify(appUrl)};
+    setTimeout(function () {
+      window.location.href = ${JSON.stringify(fallbackUrl)};
+    }, 1200);
+  });
 </script>
 </body>
 </html>`;

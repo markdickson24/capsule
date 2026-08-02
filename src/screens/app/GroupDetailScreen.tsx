@@ -23,7 +23,7 @@ import {
   getGroup, getGroupMembers, deleteGroup, removeGroupMember,
   GroupRow, GroupMemberProfile, recurrenceLabel, anchorFromGroup,
 } from '../../lib/groups';
-import { computeUpcomingOccurrences } from '../../lib/recurrence';
+import { computeUpcomingOccurrences, RecurrenceAnchor } from '../../lib/recurrence';
 import { AppStackParamList } from '../../types/navigation';
 import { onAccent } from '../../lib/accentContrast';
 
@@ -222,9 +222,35 @@ export default function GroupDetailScreen() {
   }
 
   const isPaused = group.recurrence_paused_at !== null;
-  const nextDate = !isPaused && group.recurrence_interval !== 'manual'
-    ? computeUpcomingOccurrences(group.recurrence_interval, anchorFromGroup(group), new Date(), 1)[0] ?? null
-    : null;
+  let nextDate: Date | null = null;
+  if (!isPaused && group.recurrence_interval !== 'manual') {
+    // Pre-existing groups only have the anchor sub-field for their ORIGINAL
+    // recurrence_interval populated (CLAUDE.md "Fixed calendar anchors" —
+    // 20260713010000_groups_recurrence_revamp.sql backfills just that one
+    // field per group), and a direct PATCH to the row can null a required
+    // sub-field without ever touching recurrence_interval (see F10 — RLS lets
+    // the creator write any column, and the CHECK constraint accepts NULL).
+    // Default any missing calendar sub-field to today's date (UTC, matching
+    // the anchor's own UTC hour/minute) exactly like ManageGroupScreen.load,
+    // then still guard the call itself — this runs on the render path with no
+    // error boundary above it, so an uncaught throw here would crash the
+    // whole app for every member who opens the group, not just fail to show
+    // a date.
+    const anchorFromDb = anchorFromGroup(group);
+    const now = new Date();
+    const seededAnchor: RecurrenceAnchor = {
+      ...anchorFromDb,
+      weekday: anchorFromDb.weekday ?? now.getUTCDay(),
+      dayOfMonth: anchorFromDb.dayOfMonth ?? now.getUTCDate(),
+      month: anchorFromDb.month ?? (now.getUTCMonth() + 1),
+      day: anchorFromDb.day ?? now.getUTCDate(),
+    };
+    try {
+      nextDate = computeUpcomingOccurrences(group.recurrence_interval, seededAnchor, now, 1)[0] ?? null;
+    } catch {
+      nextDate = null;
+    }
+  }
   const memberList = members ?? [];
   // Blocked members are hidden from the bubble list — same client-side
   // filtering as InviteModal/ManageGroupScreen search (CLAUDE.md "Content

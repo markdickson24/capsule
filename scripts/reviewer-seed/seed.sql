@@ -14,6 +14,15 @@
 -- transaction. Run as `postgres` / service_role: the guard_subscription_tier and
 -- enforce_* triggers exempt non-authenticated roles, and spreading uploader_id
 -- across members is impossible under the client column grants.
+--
+-- The reviewer account's password is NOT hardcoded below — it must never be
+-- committed to source (it's a real production credential). Pass it in as a psql
+-- variable instead. The credential itself lives in the password manager / App
+-- Store Connect review notes — see docs/REVIEWER_ACCOUNT.md.
+--
+--   psql "$DATABASE_URL" -v reviewer_password='<the real password>' -f seed.sql
+--
+-- (or, non-interactively: psql "$DATABASE_URL" -v reviewer_password="$REVIEWER_PASSWORD" -f seed.sql)
 
 
 -- ---------------------------------------------------------------------------
@@ -32,7 +41,7 @@ insert into auth.users (
 )
 values
   ('00000000-0000-0000-0000-000000000000','facade01-0000-4000-8000-000000000001','authenticated','authenticated',
-   'appreview@getcapsuleapp.com', extensions.crypt('CapsuleReview2026!', extensions.gen_salt('bf')), now(),
+   'appreview@getcapsuleapp.com', extensions.crypt(:'reviewer_password', extensions.gen_salt('bf')), now(),
    '{"provider":"email","providers":["email"]}'::jsonb, '{"display_name":"Alex"}'::jsonb, now(), now(),
    '','','','','','','','', false, false),
   -- Supporting members. Random unusable passwords: these exist for FK integrity and

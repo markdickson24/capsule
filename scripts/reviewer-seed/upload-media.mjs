@@ -21,9 +21,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-const REVIEWER_EMAIL = 'appreview@getcapsuleapp.com';
-const REVIEWER_PASSWORD = 'CapsuleReview2026!';
-
 // capsuleId -> { count, seedPrefix }. seedPrefix keeps picsum deterministic, so a
 // re-run of this script fetches the same images rather than a fresh random set.
 const PLAN = [
@@ -51,14 +48,27 @@ function loadEnv(envPath) {
   const url = env.EXPO_PUBLIC_SUPABASE_URL;
   const anonKey = env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anonKey) throw new Error(`missing Supabase url/anon key in ${envPath}`);
-  return { url, anonKey };
+
+  // Reviewer credentials are NOT read from the seed .env file — they must never be
+  // committed to source. Set them in your shell (or a local, gitignored env) before
+  // running this script:
+  //   REVIEWER_EMAIL=appreview@getcapsuleapp.com REVIEWER_PASSWORD=... node upload-media.mjs --env .env
+  const reviewerEmail = process.env.REVIEWER_EMAIL;
+  const reviewerPassword = process.env.REVIEWER_PASSWORD;
+  if (!reviewerEmail || !reviewerPassword) {
+    throw new Error(
+      'REVIEWER_EMAIL and REVIEWER_PASSWORD must be set in the environment (not in a committed file). ' +
+        'The credential lives in the password manager / App Store Connect review notes — see docs/REVIEWER_ACCOUNT.md.'
+    );
+  }
+  return { url, anonKey, reviewerEmail, reviewerPassword };
 }
 
-async function signIn({ url, anonKey }) {
+async function signIn({ url, anonKey, reviewerEmail, reviewerPassword }) {
   const res = await fetch(`${url}/auth/v1/token?grant_type=password`, {
     method: 'POST',
     headers: { apikey: anonKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: REVIEWER_EMAIL, password: REVIEWER_PASSWORD }),
+    body: JSON.stringify({ email: reviewerEmail, password: reviewerPassword }),
   });
   const body = await res.json();
   if (!res.ok || !body.access_token) {
@@ -100,7 +110,7 @@ async function main() {
 
   const cfg = loadEnv(envPath);
   const token = await signIn(cfg);
-  console.error(`signed in as ${REVIEWER_EMAIL}`);
+  console.error(`signed in as ${cfg.reviewerEmail}`);
 
   const manifest = [];
   for (const { capsuleId, count, seedPrefix } of PLAN) {

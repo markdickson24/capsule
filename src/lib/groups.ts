@@ -52,6 +52,39 @@ export function anchorFromGroup(group: GroupRow): RecurrenceAnchor {
   };
 }
 
+// Fills in any missing calendar sub-field of a raw anchor with today's date
+// (UTC — must match the UTC anchor_hour/anchor_minute already on the row and
+// the UTC-only math in recurrence.ts), exactly mirroring
+// ManageGroupScreen.load's defaulting. Needed because (a) a pre-existing
+// group only has the sub-field for its ORIGINAL recurrence_interval populated
+// (20260713010000_groups_recurrence_revamp.sql backfilled just that one per
+// group), and (b) the group creator can PATCH any anchor column to null
+// directly — RLS allows it (they own the row) and the CHECK constraint
+// accepts NULL — without ever touching recurrence_interval, so a row can
+// silently lose the very sub-field computeNextOccurrence requires for its
+// current interval. computeNextOccurrence throws when a required field is
+// missing; every call site below must default first (this function) and
+// still guard the call itself, since a direct-PATCH bypass can reintroduce a
+// missing field the caller has no way to have re-validated.
+function defaultAnchorFields(raw: {
+  anchor_weekday: number | null;
+  anchor_day_of_month: number | null;
+  anchor_month: number | null;
+  anchor_day: number | null;
+  anchor_hour: number | null;
+  anchor_minute: number | null;
+}): RecurrenceAnchor {
+  const now = new Date();
+  return {
+    weekday: raw.anchor_weekday ?? now.getUTCDay(),
+    dayOfMonth: raw.anchor_day_of_month ?? now.getUTCDate(),
+    month: raw.anchor_month ?? (now.getUTCMonth() + 1),
+    day: raw.anchor_day ?? now.getUTCDate(),
+    hour: raw.anchor_hour ?? 9,
+    minute: raw.anchor_minute ?? 0,
+  };
+}
+
 export async function listMyGroups(): Promise<GroupRow[]> {
   const me = myId();
   if (!me) return [];
@@ -209,14 +242,9 @@ export async function updateGroup(groupId: string, updates: {
           .eq('id', groupId)
           .single();
         if (fetchErr || !data) return { error: 'Could not update group.' };
-        anchor = {
-          weekday: data.anchor_weekday ?? undefined,
-          dayOfMonth: data.anchor_day_of_month ?? undefined,
-          month: data.anchor_month ?? undefined,
-          day: data.anchor_day ?? undefined,
-          hour: data.anchor_hour ?? 9,
-          minute: data.anchor_minute ?? 0,
-        };
+        // The stored row can be missing a required sub-field for this
+        // interval (see defaultAnchorFields above) — default before use.
+        anchor = defaultAnchorFields(data);
       }
       patch.anchor_weekday = anchor.weekday ?? null;
       patch.anchor_day_of_month = anchor.dayOfMonth ?? null;
@@ -224,7 +252,12 @@ export async function updateGroup(groupId: string, updates: {
       patch.anchor_day = anchor.day ?? null;
       patch.anchor_hour = anchor.hour;
       patch.anchor_minute = anchor.minute;
-      const nextAt = computeNextOccurrence(updates.recurrence, anchor, new Date());
+      let nextAt: Date | null;
+      try {
+        nextAt = computeNextOccurrence(updates.recurrence, anchor, new Date());
+      } catch {
+        return { error: 'Could not update group.' };
+      }
       patch.next_capsule_at = nextAt ? nextAt.toISOString() : null;
     }
     // next_capsule_at just changed (or was cleared) — a stale reminder stamp
@@ -263,17 +296,17 @@ export async function resumeGroupRecurrence(groupId: string): Promise<{ error?: 
     return error ? { error: 'Could not resume this group.' } : {};
   }
 
-  const anchor: RecurrenceAnchor = {
-    weekday: data.anchor_weekday ?? undefined,
-    dayOfMonth: data.anchor_day_of_month ?? undefined,
-    month: data.anchor_month ?? undefined,
-    day: data.anchor_day ?? undefined,
-    hour: data.anchor_hour ?? 9,
-    minute: data.anchor_minute ?? 0,
-  };
+  // The stored row can be missing a required sub-field for this interval
+  // (see defaultAnchorFields above) — default before use.
+  const anchor: RecurrenceAnchor = defaultAnchorFields(data);
   // Resume computes the next occurrence from NOW, not from wherever
   // next_capsule_at was frozen — so no backlog of missed cycles fires at once.
-  const nextAt = computeNextOccurrence(interval, anchor, new Date());
+  let nextAt: Date | null;
+  try {
+    nextAt = computeNextOccurrence(interval, anchor, new Date());
+  } catch {
+    return { error: 'Could not resume this group.' };
+  }
 
   const { error } = await supabase
     .from('groups')

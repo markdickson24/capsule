@@ -8,6 +8,8 @@ import { blockStore } from '../lib/blocks';
 import { pendingJoinStash } from '../lib/pendingJoinStash';
 import { shareIntentStash } from '../lib/shareIntentStash';
 import { setSentryUser } from '../lib/sentry';
+import { uploadQueue } from '../lib/uploadQueue';
+import { resetCachedFetchState } from './useCachedFetch';
 
 export function useAuth() {
   // On web, `sessionStore` has already done a synchronous localStorage read at
@@ -68,6 +70,18 @@ export function useAuth() {
         // this user's stashed capsule-join or shared-media intent.
         pendingJoinStash.clear();
         shareIntentStash.clear();
+        // Same shared-device concern as the stashes above, for two more
+        // pieces of module-level state that don't scope themselves to a
+        // session on their own — see the "real defense" identity checks in
+        // each module (uploadQueue.runTask's userId check, useCachedFetch's
+        // fetchOnce userId check) for why this clearing is defense-in-depth
+        // rather than the only thing standing between users' data. Clears
+        // this user's queued/failed upload tiles + dedup caches, and drops
+        // any in-flight useCachedFetch request so it can't write this
+        // user's data into the (not user-scoped) shared cache after the
+        // next user has already signed in.
+        uploadQueue.reset();
+        resetCachedFetchState();
         // If the user didn't trigger this (Sign Out button / account deletion),
         // mark the boot so WelcomeScreen can show a "session expired" banner.
         if (!sessionStore.consumeIntentionalSignOut()) {

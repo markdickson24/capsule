@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { requireCronSecret } from '../_shared/cronAuth.ts';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -115,16 +116,6 @@ function pickDefaultAwards(count = 4) {
   return pool.slice(0, count);
 }
 
-// Validates the Bearer token by calling a SECURITY DEFINER RPC that reads from
-// Vault — no CRON_SECRET env var required on the function itself.
-async function isAuthorized(req: Request): Promise<boolean> {
-  const auth = req.headers.get('Authorization') ?? '';
-  const token = auth.replace(/^Bearer /, '');
-  if (!token) return false;
-  const { data } = await supabase.rpc('check_cron_secret', { provided: token });
-  return data === true;
-}
-
 // GROUPS.md #4 — Expo rejects a request carrying >100 messages and drops the
 // WHOLE batch, so a 100+ member group would silently get zero pushes. Slice
 // into ≤100-message requests, posted sequentially (matches unlock-capsules /
@@ -169,6 +160,7 @@ async function releaseClaim(
 async function processGroup(group: any) {
   const now = new Date();
   const nowIso = now.toISOString();
+  const interval = group.recurrence_interval as GroupRecurrence;
   const anchor: RecurrenceAnchor = {
     weekday: group.anchor_weekday ?? undefined,
     dayOfMonth: group.anchor_day_of_month ?? undefined,
@@ -177,7 +169,31 @@ async function processGroup(group: any) {
     hour: group.anchor_hour ?? 9,
     minute: group.anchor_minute ?? 0,
   };
-  const nextOccurrence = computeNextOccurrence(group.recurrence_interval as GroupRecurrence, anchor, now);
+
+  // F7 — a group row can reach here with its anchor sub-field for the
+  // current recurrence_interval null (e.g. a direct PostgREST PATCH setting
+  // anchor_weekday to null on a weekly group — the CHECK constraint allows
+  // NULL, and guard_group_recurrence doesn't fire since recurrence_interval
+  // itself is unchanged). computeNextOccurrence throws in that case, and
+  // that throw used to happen BEFORE the claim below, so the poisoned row's
+  // next_capsule_at never advanced and it re-threw on every tick forever —
+  // starving every other due group ordered after it (an unhandled throw here
+  // aborts the whole request, and nothing catches it before Deno.serve).
+  // Validate first and skip (not due this tick) instead of letting it throw.
+  if (interval === 'weekly' && anchor.weekday === undefined) {
+    console.error(`skipping group ${group.id}: recurrence_interval=weekly but anchor_weekday is null`);
+    return;
+  }
+  if (interval === 'monthly' && anchor.dayOfMonth === undefined) {
+    console.error(`skipping group ${group.id}: recurrence_interval=monthly but anchor_day_of_month is null`);
+    return;
+  }
+  if (interval === 'yearly' && (anchor.month === undefined || anchor.day === undefined)) {
+    console.error(`skipping group ${group.id}: recurrence_interval=yearly but anchor_month/anchor_day is null`);
+    return;
+  }
+
+  const nextOccurrence = computeNextOccurrence(interval, anchor, now);
   const nextAt = (nextOccurrence ?? now).toISOString();
 
   // GROUPS.md #2 — CLAIM FIRST, atomically. Advancing next_capsule_at up front,
@@ -366,9 +382,8 @@ async function processReminders() {
 }
 
 Deno.serve(async (req: Request) => {
-  if (!await isAuthorized(req)) {
-    return new Response('Unauthorized', { status: 401 });
-  }
+  const denied = requireCronSecret(req);
+  if (denied) return denied;
 
   const now = new Date().toISOString();
 
@@ -401,7 +416,14 @@ Deno.serve(async (req: Request) => {
   console.log(`create-group-capsules: ${groups.length} group(s) due`);
 
   for (const group of groups) {
-    await processGroup(group);
+    // Isolated per-group — mirrors the processReminders try/catch above.
+    // One bad row (e.g. an unexpected throw) must only lose its own cycle,
+    // never abort the tick and starve every other due group ordered after it.
+    try {
+      await processGroup(group);
+    } catch (e) {
+      console.error(`processGroup threw for group ${group.id}:`, e instanceof Error ? e.message : e);
+    }
   }
 
   return new Response(JSON.stringify({ processed: groups.length }), {
