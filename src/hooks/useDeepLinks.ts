@@ -4,11 +4,11 @@ import { Session } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { sessionStore } from '../lib/sessionStore';
 import { navigationRef } from '../lib/navigationRef';
-import { cache } from '../lib/cache';
 import { toast } from '../lib/toast';
 import { pendingJoinStash } from '../lib/pendingJoinStash';
 import { pendingOpenStash } from '../lib/pendingOpenStash';
 import { parseDeepLink } from '../lib/deepLinkRoute';
+import { joinCapsuleConfirm } from '../components/JoinCapsuleConfirm';
 
 function navigateWhenReady(fn: () => void) {
   if (navigationRef.isReady()) {
@@ -48,56 +48,7 @@ function navigateUntilRouteActive(
   setTimeout(() => navigateUntilRouteActive(routeName, navigate, attempts - 1, intervalMs), intervalMs);
 }
 
-// Shared by both the signed-in-tap path and the drain-after-sign-in path
-// (stashed while signed out — see pendingJoinStash). Opening the link IS the
-// consent act — join immediately (joined_at set) rather than leaving a
-// pending invite the user has to accept a second time from Alerts.
-async function joinAndNavigate(capsuleId: string, userId: string) {
-  const { data: existing } = await supabase
-    .from('capsule_members')
-    .select('id, joined_at')
-    .eq('capsule_id', capsuleId)
-    .eq('user_id', userId)
-    .maybeSingle();
-
-  if (existing && !existing.joined_at) {
-    // A pending invite already exists. Previously this fell through to the
-    // navigate below and left joined_at null — the user landed inside a
-    // capsule they had never actually accepted, invisible in member counts.
-    // UNIQUE (capsule_id, user_id) means accepting is an UPDATE, not an INSERT.
-    const { error } = await supabase
-      .from('capsule_members')
-      .update({ joined_at: new Date().toISOString() })
-      .eq('capsule_id', capsuleId)
-      .eq('user_id', userId);
-    if (error) {
-      toast.show("Couldn't join this capsule — try the link again.");
-      return;
-    }
-  } else if (!existing) {
-    // No client-side notifications insert (no INSERT policy — always errors
-    // silently); the notify_on_invite trigger already covers this.
-    const { error } = await supabase.from('capsule_members').insert({
-      capsule_id: capsuleId,
-      user_id: userId,
-      role: 'contributor',
-      joined_at: new Date().toISOString(),
-    });
-    if (error) {
-      // Navigating anyway would land on "Failed to load capsule" (the
-      // membership-gated SELECT hides the row) with no hint the JOIN failed.
-      toast.show("Couldn't join this capsule — try the link again.");
-      return;
-    }
-    cache.invalidate('capsules', 'profile');
-  }
-
-  navigateWhenReady(() => {
-    (navigationRef as any).navigate('CapsuleDetail', { capsuleId });
-  });
-}
-
-// Open an existing capsule from a Live Activity tap. Unlike joinAndNavigate
+// Open an existing capsule from a Live Activity tap. Unlike a join link,
 // there's no membership write — the user is already a member (the activity
 // only exists on a member's device).
 function openCapsule(capsuleId: string, camera: boolean) {
@@ -166,14 +117,23 @@ async function handleUrl(url: string | null) {
     }
 
     case 'join': {
+      // capsule://join/<id> is an unauthenticated custom scheme — any web
+      // page or app can fire it (Linking.addEventListener/getInitialURL
+      // above have no way to distinguish a user-intended tap from an
+      // attacker-crafted one). Opening the link is therefore navigation to
+      // a PREVIEW, not consent: no capsule_members write happens here.
+      // joinCapsuleConfirm fetches capsule_join_preview(...) and shows a
+      // confirm sheet; the actual INSERT/UPDATE only runs if the user taps
+      // "Accept Invite" (see src/components/JoinCapsuleConfirm.tsx). F6 (CSRF).
       const session = sessionStore.get();
       if (!session) {
         // Signed out: stash the id instead of dropping the link. useDeepLinks
-        // drains this the moment a session shows up (sign-in / sign-up).
+        // drains this the moment a session shows up (sign-in / sign-up) —
+        // draining still only opens the confirm sheet, never auto-joins.
         pendingJoinStash.set(route.capsuleId);
         return;
       }
-      await joinAndNavigate(route.capsuleId, session.user.id);
+      joinCapsuleConfirm.request(route.capsuleId);
       return;
     }
   }
@@ -194,19 +154,22 @@ export function useDeepLinks(session?: Session | null) {
 
     // Both stashes are drained in the same pass. If both are set (the user
     // tapped a join link AND a Live Activity card while signed out), join
-    // wins — it's a membership-changing server write, not just a
-    // navigation, so it must not be pre-empted by openCapsule. The losing
-    // stash is deliberately DISCARDED here, not left for a later drain: if
-    // it survived, a future unrelated sign-in (sign out, then back in) would
-    // replay it as a stale, out-of-context navigation. So pendingOpenStash
-    // is unconditionally cleared below, whether or not it ends up acted on
-    // — don't remove this clear() just because the join branch already
-    // returns; that's exactly the bug this guards against.
+    // wins — it opens the confirm sheet (see the 'join' case in handleUrl),
+    // which the user can still act on, so it must not be pre-empted by
+    // openCapsule's plain navigation. The losing stash is deliberately
+    // DISCARDED here, not left for a later drain: if it survived, a future
+    // unrelated sign-in (sign out, then back in) would replay it as a stale,
+    // out-of-context navigation. So pendingOpenStash is unconditionally
+    // cleared below, whether or not it ends up acted on — don't remove this
+    // clear() just because the join branch already returns; that's exactly
+    // the bug this guards against.
     pendingOpenStash.clear();
 
     if (stashedCapsuleId) {
       pendingJoinStash.clear();
-      joinAndNavigate(stashedCapsuleId, session.user.id);
+      // Draining after sign-in still only opens the confirm sheet — the
+      // user must explicitly accept, same as the live-tap path above.
+      joinCapsuleConfirm.request(stashedCapsuleId);
       return;
     }
 

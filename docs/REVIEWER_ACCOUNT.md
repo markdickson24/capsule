@@ -13,7 +13,7 @@ core loop visible in the first thirty seconds.
 | | |
 |---|---|
 | **Email** | `appreview@getcapsuleapp.com` |
-| **Password** | `CapsuleReview2026!` |
+| **Password** | Not written here. Lives in the password manager and in the App Store Connect review notes for this app. If you need it to run the seed scripts, see "Reproducing / cleaning up" below for how to supply it via environment variables. |
 | Display name | Alex |
 | Tier | **Pro** (granted server-side — see caveat below) |
 | Onboarding | Already completed, so sign-in lands directly on Home |
@@ -60,13 +60,25 @@ update capsules
 Clearing the three `unlock_reminder_*` stamps matters: each tier is claim-and-stamp
 once per capsule, so without clearing them the reviewer gets no countdown push.
 
+### ⚠️ Pre-submission checklist
+
+Before each submission:
+
+- [ ] Re-arm "Summer Rooftop Party" (above).
+- [ ] **Rotate the reviewer account's password**, and re-verify `subscription_tier`
+      is still `'pro'` for `facade01-0000-4000-8000-000000000001`. Update the stored
+      credential in the password manager and the App Store Connect review notes to
+      match. (See "App Store reviewer account" in the project memory index — this
+      account has drifted out of sync with App Review before.)
+
 ## App Review notes (paste into App Store Connect)
 
 > **What Capsule is:** a shared photo album that stays locked until a date the group
 > picks. Everyone contributes photos, nobody sees them, and at the unlock moment the
 > whole album opens for all members at once.
 >
-> **Demo account:** `appreview@getcapsuleapp.com` / `CapsuleReview2026!`
+> **Demo account:** `appreview@getcapsuleapp.com` — password is in the App Store
+> Connect review notes for this submission (and the password manager).
 >
 > This account is pre-seeded so the time-locked features are reviewable immediately:
 >
@@ -102,6 +114,25 @@ Seed sources live in `scripts/reviewer-seed/`:
 2. `upload-media.mjs` — fetches photos and uploads them as the reviewer
 3. `insert-media-rows.mjs` — inserts the matching `media` rows
 4. `seed.sql` sections 4–7 — attribution, awards, reactions, verification
+
+**None of these read the reviewer password from a committed file.** Supply it out
+of band, pulled from the password manager / App Store Connect review notes:
+
+- `seed.sql` (step 1) takes it as a psql variable — never paste it into the file:
+  ```bash
+  psql "$DATABASE_URL" -v reviewer_password='<the real password>' -f scripts/reviewer-seed/seed.sql
+  ```
+- `upload-media.mjs` and `insert-media-rows.mjs` (steps 2–3) read `REVIEWER_EMAIL`
+  and `REVIEWER_PASSWORD` from the process environment, not from the `--env` file
+  (that file only supplies the Supabase URL/anon key):
+  ```bash
+  REVIEWER_EMAIL=appreview@getcapsuleapp.com REVIEWER_PASSWORD='<the real password>' \
+    node scripts/reviewer-seed/upload-media.mjs --env .env --out manifest.json
+  REVIEWER_EMAIL=appreview@getcapsuleapp.com REVIEWER_PASSWORD='<the real password>' \
+    node scripts/reviewer-seed/insert-media-rows.mjs --env .env --manifest manifest.json
+  ```
+  Both scripts fail fast with a clear error if either variable is unset — they will
+  not fall back to any default.
 
 Photos come from [Lorem Picsum](https://picsum.photos), which serves Unsplash
 images under the Unsplash license, requested at 1440×1920 so they arrive already

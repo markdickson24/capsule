@@ -19,6 +19,13 @@ import { reportError } from './sentry';
 
 export type UploadTask = {
   id: string;
+  // The signed-in user's id at the moment this task was enqueued. On a
+  // shared device, `tasks` is module-level state that is not itself scoped
+  // to a session — this is what lets runTask refuse to execute a task under
+  // a DIFFERENT session than the one that queued it (e.g. user A enqueues,
+  // signs out, user B signs in and taps Retry on A's leftover tile). See the
+  // ownership check in runTask.
+  userId: string;
   capsuleId: string;
   uri: string;
   mediaType: 'photo' | 'video';
@@ -54,12 +61,13 @@ type CachedUpload = { key: string; size: number; ext: string };
 const mainUploadCache = new Map<string, CachedUpload>();
 const altUploadCache = new Map<string, CachedUpload>();
 const thumbUploadCache = new Map<string, CachedUpload>();
-// Bumped every time the three caches above are cleared (currently only the
-// drain point at the end of work()). copyOrUpload() snapshots this before
-// starting an upload and only writes its result into the cache if the
-// generation hasn't moved on — so a late-resolving upload that straddles a
-// drain-clear (see the TASK_TIMEOUT_MS note in work()) can't repopulate a
-// cache that's since been reset for an unrelated later batch.
+// Bumped every time the three caches above are cleared — the drain point at
+// the end of work(), and uploadQueue.reset() (called on sign-out). copyOrUpload()
+// snapshots this before starting an upload and only writes its result into
+// the cache if the generation hasn't moved on — so a late-resolving upload
+// that straddles a drain-clear (see the TASK_TIMEOUT_MS note in work()) or a
+// sign-out can't repopulate a cache that's since been reset for an unrelated
+// later batch (or a different user).
 let cacheGeneration = 0;
 // Per-capsule done/total since that capsule's queue was last empty — drives
 // the aggregate progress bar on CapsuleDetail. Cleared when the capsule's
@@ -77,6 +85,12 @@ const listeners = new Set<() => void>();
 function notify() {
   for (const fn of listeners) fn();
 }
+
+// Distinguishes runTask's ownership-mismatch abort (see below) from a real
+// upload failure, so work()'s catch block can drop the task silently instead
+// of surfacing it as a retryable "failed" tile that would still be a
+// departed user's local file rendered to whoever is now signed in.
+const UPLOAD_TASK_OWNER_MISMATCH = 'UPLOAD_TASK_OWNER_MISMATCH';
 
 async function uploadFile(storageKey: string, uri: string, mimeType: string): Promise<number> {
   if (Platform.OS === 'web') {
@@ -187,6 +201,22 @@ async function copyOrUpload(
 async function runTask(task: UploadTask): Promise<void> {
   const session = sessionStore.get();
   if (!session) throw new Error('Not signed in');
+
+  // The real defense for the shared-device case (holds even if the queue is
+  // never cleared on sign-out — see resetUploadQueue): a task only ever runs
+  // under the identity that enqueued it. Without this, a stale/failed tile
+  // left behind by a departed user could be retried — or a still-queued task
+  // could simply execute later — under a DIFFERENT, currently-signed-in
+  // user's bearer token, uploading that departed user's private local file
+  // and attributing it (`uploader_id`) to whoever is signed in now. Checked
+  // BEFORE any network call (upload/copy) or `getFreshAccessToken()`, and
+  // `session` is snapshotted once here and reused below for `uploader_id` —
+  // so even if the active session changes again while this upload is still
+  // in flight, the row is never attributed to anyone but the user who was
+  // verified to own this task at the start of the attempt.
+  if (session.user.id !== task.userId) {
+    throw new Error(UPLOAD_TASK_OWNER_MISMATCH);
+  }
 
   const wantsAlt = !!task.altUri && task.mediaType === 'photo';
 
@@ -352,6 +382,20 @@ async function work() {
         `signedUrls:${task.capsuleId}`,
       );
     } catch (e) {
+      if (e instanceof Error && e.message === UPLOAD_TASK_OWNER_MISMATCH) {
+        // Belongs to a session that's no longer the active one (signed out,
+        // possibly mid-queue on a shared device). Drop it outright rather
+        // than marking it 'failed' — a failed tile is still rendered and
+        // retryable, and this local file/thumbnail is someone else's.
+        reportError(e, {
+          where: 'uploadQueue.runTask.ownerMismatch',
+          extra: { capsuleId: task.capsuleId },
+        });
+        tasks = tasks.filter(t => t.id !== task.id);
+        clearProgressIfDrained(task.capsuleId);
+        notify();
+        continue;
+      }
       // Surface the failure — a media upload silently dying is a real
       // data-loss report. The tile stays visible/retryable regardless.
       reportError(e, {
@@ -394,8 +438,14 @@ export const uploadQueue = {
   /** Add uploads and start the worker. Returns immediately — this is the point. */
   enqueue(entries: UploadEntry[]) {
     if (entries.length === 0) return;
+    // Every task is bound to whoever is signed in right now — see the
+    // ownership check in runTask. If nobody is signed in there's no identity
+    // to attribute the upload to, so there's nothing safe to enqueue.
+    const userId = sessionStore.get()?.user?.id;
+    if (!userId) return;
     const next: UploadTask[] = entries.map(e => ({
       id: randomUUID(),
+      userId,
       capsuleId: e.capsuleId,
       uri: e.uri,
       mediaType: e.mediaType,
@@ -411,6 +461,38 @@ export const uploadQueue = {
     }
     notify();
     work();
+  },
+
+  /**
+   * Clear-on-sign-out half of the shared-device fix (the other half is
+   * runTask's per-task ownership check, which is the real defense and holds
+   * even if this is ever skipped/forgotten). Called from useAuth's
+   * SIGNED_OUT branch alongside cache.clear()/blockStore.clear() etc.
+   *
+   * Drops every queued/failed tile (so a departed user's local-file
+   * thumbnails can never render to the next signed-in user) and the
+   * multi-capsule dedup caches (so a later, unrelated upload can't
+   * bucket-copy from a key uploaded under the departed user's storage
+   * grants). `cacheGeneration` is bumped FIRST, before clearing the maps —
+   * same ordering as the drain-clear in work() — so an upload that's still
+   * in flight for the departed user can't repopulate a cache entry after
+   * it's cleared here.
+   *
+   * Deliberately leaves `working`/`batchAdded`/`batchFailed` alone: a task
+   * already mid-network-call isn't cancellable (no AbortController wired
+   * through), so forcing `working` false here would let a second concurrent
+   * work() loop start (e.g. triggered by the next user's own enqueue) and
+   * race the first over the same `tasks` array. That in-flight task's own
+   * ownership check is what keeps it from doing anything unsafe.
+   */
+  reset() {
+    tasks = [];
+    for (const key of Object.keys(progressByCapsule)) delete progressByCapsule[key];
+    cacheGeneration += 1;
+    mainUploadCache.clear();
+    altUploadCache.clear();
+    thumbUploadCache.clear();
+    notify();
   },
 
   retry(taskId: string) {

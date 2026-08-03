@@ -20,7 +20,7 @@ import {
  * (see src/lib/purchases.native.ts → identifyUser), so app_user_id is the
  * Supabase users.id UUID. Purchases made while still anonymous
  * ($RCAnonymousID:...) are merged into that id by logIn, and RevenueCat then
- * emits a TRANSFER we handle below — so we never need to resolve anon ids.
+ * emits a TRANSFER we handle below.
  *
  * Design: grant events are interpreted from the event type alone, so the
  * money-in path stays fully self-contained (no RC API call). Most
@@ -32,6 +32,15 @@ import {
  * deliberately does NOT revoke — a grace period still means the user is
  * entitled. SUBSCRIPTION_PAUSED is the one event still blind-revoked with no
  * API round-trip (see the REVOKE set below).
+ *
+ * TRANSFER is ALSO verified, not inferred, and deliberately handled
+ * separately from the VERIFY set above (it targets N ids across two arrays,
+ * not one `app_user_id`): app_user_id is entirely client-asserted (see
+ * identifyUser above — it's Purchases.logIn(<arbitrary string>) with the
+ * public SDK key), so a TRANSFER event naming a real customer's uuid in
+ * `transferred_from` is not proof that customer lost the entitlement. Every
+ * id on either side gets its own RevenueCat active-entitlements check before
+ * any write.
  */
 
 const corsHeaders = {
@@ -190,25 +199,60 @@ Deno.serve(async (req) => {
   const ids: string[] | null = event.entitlement_ids ?? null;
   const touchesPro = ids === null || ids.includes(PRO_ENTITLEMENT_ID);
 
+  if (type === 'TEST') return json({ ok: true, handled: 'TEST' });
+
+  if (!touchesPro) return json({ ok: true, handled: 'ignored (other entitlement)' });
+
   if (type === 'TRANSFER') {
-    // Entitlement moved between app_user_ids (e.g. anon → identified on logIn,
-    // or across two real accounts). Grant the destination, revoke the origin.
+    // Entitlement moved between app_user_ids (e.g. anon → identified on
+    // logIn, or across two real accounts). app_user_id is entirely
+    // client-asserted (Purchases.logIn(<arbitrary string>) with the public
+    // SDK key — see src/lib/purchases.native.ts), so the event alone does
+    // NOT prove the destination now holds Pro or that the origin lost it:
+    // blind-writing from transferred_to/transferred_from let anyone name a
+    // paying customer in transferred_from and strip their server-side Pro
+    // with no purchase activity of their own. Same discipline as
+    // CANCELLATION/EXPIRATION/REFUND_REVERSED above — ask RevenueCat what
+    // each side currently holds and mirror that, never infer from the event
+    // shape.
     const to: string[] = event.transferred_to ?? [];
     const from: string[] = event.transferred_from ?? [];
-    const results = await Promise.all([
-      ...to.map((id) => setTier(id, 'pro')),
-      ...from.map((id) => setTier(id, 'free')),
-    ]);
+    // Anonymous / alias ids are never rows in public.users — skip them
+    // without burning an API call. Dedup in case the same id appears on
+    // both sides (shouldn't happen, but a single verify+write is correct
+    // either way).
+    const ids2 = [...new Set([...to, ...from])].filter((id) => UUID_RE.test(id));
+
+    if (ids2.length === 0) {
+      return json({ ok: true, handled: 'TRANSFER (no uuid app_user_id)' });
+    }
+
+    let activeById: Map<string, boolean>;
+    try {
+      const pairs = await Promise.all(
+        ids2.map(async (id): Promise<[string, boolean]> => [id, await proActiveForCustomer(id)])
+      );
+      activeById = new Map(pairs);
+    } catch (e) {
+      // Do NOT touch any tier. 500 makes RevenueCat retry (5 attempts over
+      // ~2.5h) — a wrong guess in either direction (revoking a payer,
+      // granting a non-payer) is worse than a delay.
+      console.error(
+        `[rc-webhook] TRANSFER verification failed:`,
+        e instanceof Error ? e.message : e
+      );
+      return json({ error: 'verification failed' }, 500);
+    }
+
+    const results = await Promise.all(
+      ids2.map((id) => setTier(id, activeById.get(id) ? 'pro' : 'free'))
+    );
     if (results.some((ok) => !ok)) {
       console.error(`[rc-webhook] TRANSFER: one or more setTier writes failed`);
       return json({ error: 'write failed' }, 500);
     }
-    return json({ ok: true, handled: 'TRANSFER', to: to.length, from: from.length });
+    return json({ ok: true, handled: 'TRANSFER', verified: true, to: to.length, from: from.length });
   }
-
-  if (type === 'TEST') return json({ ok: true, handled: 'TEST' });
-
-  if (!touchesPro) return json({ ok: true, handled: 'ignored (other entitlement)' });
 
   if (VERIFY.has(type)) {
     const userId: string | undefined = event.app_user_id;

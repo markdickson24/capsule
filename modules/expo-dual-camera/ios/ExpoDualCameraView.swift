@@ -605,7 +605,7 @@ class ExpoDualCameraView: ExpoView {
 
   private func writeVideoFrame(back: CMSampleBuffer, front: CMSampleBuffer, pts: CMTime) {
     recordingLock.lock()
-    guard let adaptor = pixelBufferAdaptor,
+    guard isRecording, let adaptor = pixelBufferAdaptor,
           let videoIn = videoWriterInput,
           !needsRecordingStartTime else { recordingLock.unlock(); return }
     recordingLock.unlock()
@@ -614,6 +614,9 @@ class ExpoDualCameraView: ExpoView {
     guard let backImage = imageFromSampleBuffer(back),
           let frontImage = imageFromSampleBuffer(front) else { return }
 
+    // Compositing runs UNLOCKED — it's tens of milliseconds of CPU work, and
+    // holding `recordingLock` across it would serialize the frame pipeline
+    // against `sessionQueue` (stop/finalize) for that whole span.
     let composite: UIImage?
     switch layout {
     case .sideBySide: composite = ExpoDualCameraView.composeSideBySide(left: backImage, right: frontImage)
@@ -622,7 +625,27 @@ class ExpoDualCameraView: ExpoView {
     guard let img = composite, let pb = pixelBufferFromImage(img) else { return }
 
     let relPTS = CMTimeSubtract(pts, recordingStartTime)
-    adaptor.append(pb, withPresentationTime: relPTS)
+
+    // Re-validate and append ATOMICALLY under the lock. `finalizeRecording` (on
+    // sessionQueue) can flip `isRecording` false, nil these ivars, and call
+    // `markAsFinished()` at any point during the unlocked compositing work
+    // above — appending to an already-finished `AVAssetWriterInput` raises an
+    // NSInternalInconsistencyException, an Obj-C exception Swift cannot catch,
+    // which aborts the process. `finalizeRecording` takes this same lock around
+    // its `isRecording = false` transition and its `markAsFinished()` calls (see
+    // below), so this check-then-append is atomic with respect to it: if we
+    // observe `isRecording == true` here, finalize's critical section has
+    // provably not run yet, so the input is guaranteed still open for the
+    // duration of this locked block; if it already ran, `isRecording` reads
+    // false and we skip the append instead of racing it.
+    recordingLock.lock()
+    guard isRecording, let liveAdaptor = pixelBufferAdaptor, let liveVideoIn = videoWriterInput,
+          liveVideoIn.isReadyForMoreMediaData else {
+      recordingLock.unlock()
+      return
+    }
+    liveAdaptor.append(pb, withPresentationTime: relPTS)
+    recordingLock.unlock()
   }
 
   private func pixelBufferFromImage(_ image: UIImage) -> CVPixelBuffer? {
@@ -658,14 +681,19 @@ class ExpoDualCameraView: ExpoView {
   }
 
   private func onAudioFrame(_ sampleBuffer: CMSampleBuffer) {
+    // No expensive work on this path (unlike writeVideoFrame's compositing), so
+    // the check and the append are done inside a single locked block — same
+    // atomicity argument as writeVideoFrame's re-validated append, just with
+    // nothing that needs to run unlocked in between. `finalizeRecording` cannot
+    // mark this input finished while we're inside this block.
     recordingLock.lock()
-    let recording = isRecording
-    let needsStart = needsRecordingStartTime
-    let audioIn = audioWriterInput
-    recordingLock.unlock()
-    guard recording, !needsStart, let audioIn = audioIn,
-          audioIn.isReadyForMoreMediaData else { return }
+    guard isRecording, !needsRecordingStartTime, let audioIn = audioWriterInput,
+          audioIn.isReadyForMoreMediaData else {
+      recordingLock.unlock()
+      return
+    }
     audioIn.append(sampleBuffer)
+    recordingLock.unlock()
   }
 
   func startRecordingWithPromise(options: [String: Any]?, promise: Promise) {
@@ -770,10 +798,23 @@ class ExpoDualCameraView: ExpoView {
     recordingPromise = nil
     latestBackBuffer = nil
     latestFrontBuffer = nil
-    recordingLock.unlock()
 
+    // `isRecording = false` (above) and `markAsFinished()` (here) MUST happen in
+    // the same locked critical section — this is what makes writeVideoFrame's
+    // and onAudioFrame's re-check-then-append atomic with respect to finishing
+    // the inputs. Whichever side (this, or a concurrent append) acquires
+    // `recordingLock` first "wins": an append that observes `isRecording ==
+    // true` is guaranteed to complete before `markAsFinished()` can run (it
+    // still holds the lock this function is waiting on), and this function
+    // never observes an in-progress append once it has the lock. `markAsFinished()`
+    // itself is a cheap synchronous state flip (no I/O, no queue hop), so this
+    // adds negligible lock hold time — the expensive/async part, `finishWriting`,
+    // stays outside the lock below so we never hold `recordingLock` across an
+    // async completion handler (that would risk a cross-queue deadlock if the
+    // handler, or anything waiting on it, ever needed the lock back).
     videoIn?.markAsFinished()
     audioIn?.markAsFinished()
+    recordingLock.unlock()
 
     guard let writer = writer else {
       promise?.reject("ERR_RECORDING", "Recording failed: no active writer")

@@ -1,0 +1,26 @@
+-- F8 (improper authorization, MEDIUM) fix: send-invite-push had no dedupe and
+-- treated "a capsule_members row exists" as proof of a legitimate invite —
+-- but a capsule owner can manufacture that row for ANY user id via
+-- can_insert_capsule_member (p_user_id = auth.uid() OR caller owns the
+-- capsule), then invoke the function repeatedly to push unlimited
+-- OS-notification-channel messages to a victim whose UUID they merely know
+-- (the `users` SELECT policy is `USING (true)`).
+--
+-- invite_pushed_at is a nullable dedupe stamp, claimed atomically by the edge
+-- function via `UPDATE ... WHERE invite_pushed_at IS NULL ... RETURNING`
+-- (same idiom as unlock-capsules' dispatchReminders / dispatch-capsule-start),
+-- so each invite can push at most once no matter how many times the caller
+-- invokes the function or how many concurrent calls race.
+--
+-- No `grant update (invite_pushed_at)` for `authenticated` here, deliberately.
+-- The table-wide UPDATE grant on capsule_members was revoked in
+-- 20260722120000_audit_rls_hardening.sql, leaving only
+-- `grant update (joined_at) to authenticated` for the client accept-invite
+-- flow. This column is written exclusively by send-invite-push's `admin`
+-- client, which is constructed with SUPABASE_SERVICE_ROLE_KEY — the service
+-- role bypasses RLS *and* column-level grants entirely (grants only ever
+-- constrain the `authenticated`/`anon` roles), so no client grant is needed
+-- or wanted. Adding one would just hand `authenticated` a second column it
+-- has no legitimate reason to write directly.
+alter table public.capsule_members
+  add column if not exists invite_pushed_at timestamptz;

@@ -19,6 +19,7 @@ import { ShareIntentProvider } from './src/lib/ShareIntentProvider';
 import { LoadingBrandScreen } from './src/components/LoadingBrand';
 import ToastHost from './src/components/ToastHost';
 import { LimitSheetHost } from './src/components/LimitSheet';
+import { JoinCapsuleConfirmHost } from './src/components/JoinCapsuleConfirm';
 
 // Init Sentry once at module load. No-op when EXPO_PUBLIC_SENTRY_DSN is unset,
 // and initialized-but-disabled in dev builds. All config lives in src/lib/sentry.
@@ -70,6 +71,7 @@ function App() {
               <RootNavigator />
               <ToastHost />
               <LimitSheetHost />
+              <JoinCapsuleConfirmHost />
             </NavigationContainer>
           </TourProvider>
         </SafeAreaProvider>
