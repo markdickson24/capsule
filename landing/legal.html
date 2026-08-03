@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Privacy &amp; Legal — Capsule</title>
+<title>Privacy &amp; Legal | Capsule</title>
 <link rel="icon" href="/favicon.ico" sizes="any" />
 <link rel="icon" type="image/png" href="/favicon.png" />
 <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -12,12 +12,12 @@
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Capsule" />
 <meta property="og:url" content="https://getcapsuleapp.com/legal" />
-<meta property="og:title" content="Privacy &amp; Legal — Capsule" />
+<meta property="og:title" content="Privacy &amp; Legal | Capsule" />
 <meta property="og:description" content="Capsule's privacy policy, terms of service, and community guidelines." />
 <meta property="og:image" content="https://getcapsuleapp.com/og-image.jpg" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
-<meta property="og:image:alt" content="Capsule — a shared photo album that stays sealed until everyone opens it together." />
+<meta property="og:image:alt" content="Capsule: a shared photo album that stays sealed until everyone opens it together." />
 <meta name="twitter:card" content="summary_large_image" />
 <link rel="stylesheet" href="styles.css" />
 <script type="application/ld+json">
@@ -28,7 +28,7 @@
       "@type": "WebPage",
       "@id": "https://getcapsuleapp.com/legal#webpage",
       "url": "https://getcapsuleapp.com/legal",
-      "name": "Privacy & Legal — Capsule",
+      "name": "Privacy & Legal | Capsule",
       "description": "Capsule's privacy policy, terms of service, and community guidelines.",
       "isPartOf": {
         "@id": "https://getcapsuleapp.com/#website"
@@ -75,7 +75,7 @@
     <div class="sec-eyebrow">Privacy &amp; Legal</div>
     <h1 class="sec-title" style="max-width:none;">Privacy &amp; Legal</h1>
     <p class="sec-lead">Everything covering how Capsule handles your data, the terms of using the app, and the rules that keep the community safe lives here.</p>
-    <p class="updated">Last updated — June 10, 2026</p>
+    <p class="updated">Last updated: August 3, 2026</p>
     <div class="doc-jump">
       <a href="#privacy">Privacy Policy</a>
       <a href="#terms">Terms of Service</a>
@@ -91,36 +91,50 @@
 
     <section id="privacy" class="doc-block">
       <h2>Privacy Policy</h2>
-      <p class="meta">Effective June 10, 2026</p>
+      <p class="meta">Effective August 3, 2026</p>
 
-      <p>This Privacy Policy explains how Capsule ("we," "us," or "our") handles information collected through this website — specifically, the beta waitlist sign-up form. Capsule is a time-locked photo-sharing app currently in pre-release.</p>
+      <p>This Privacy Policy explains what information Capsule ("we," "us," or "our") collects when you use the Capsule app, and how we use, share, and protect it. Capsule is a time-locked, shared photo and video album app for iOS and Android.</p>
 
       <h3>Information we collect</h3>
-      <p>When you join the waitlist, we collect the <strong>email address</strong> you enter and the fact that you consented to be contacted. When you submit the form, our form processor also receives standard technical information your browser sends with the request (such as your IP address and a timestamp), which is used for spam prevention.</p>
-      <p>This website does <strong>not</strong> use cookies, advertising trackers, or third-party analytics.</p>
+      <p>We collect the following, tied to your account:</p>
+      <ul>
+        <li><strong>Account information</strong>: your email address, and a display name and optional bio/avatar photo you set. If you sign in with Apple or Google, we receive the name and email they share with us for that purpose.</li>
+        <li><strong>Photos and videos</strong>: the content you and other members add to a capsule, stored so it can be shown to that capsule's members once it unlocks.</li>
+        <li><strong>Precise location</strong>: only when you tap "check in" on a capsule that unlocks by proximity, we collect your device's GPS location at that moment to determine whether everyone is physically together, and store it on your membership record for that capsule. We don't collect your location at any other time.</li>
+        <li><strong>Push notification token</strong>: a device identifier used to deliver notifications (invites, unlocks, reactions, reminders) through Apple's and Google's push services.</li>
+        <li><strong>Usage and device data</strong>: basic app diagnostics (crash reports, performance data) collected through Sentry, tied to your account ID only, never your email, name, or IP address.</li>
+        <li><strong>Subscription status</strong>: whether you have Capsule Pro, managed through RevenueCat. We don't receive or store your payment card details; Apple and Google handle billing directly.</li>
+      </ul>
 
       <h3>How we use your information</h3>
-      <p>We use your email address for a single purpose: to send you occasional updates about the Capsule beta and launch. We do not use it for unrelated marketing.</p>
+      <p>We use this information to operate the Service: to store and deliver your capsules' content to their members, to send you notifications about invites, unlocks, reactions, awards, and contribution reminders, to detect and fix crashes, to enforce the free/Pro plan limits described in the Terms of Service, and to respond to support requests.</p>
+      <p>We do not use your photos, videos, or location for advertising, and we do not sell your information to anyone.</p>
 
       <h3>How your information is shared</h3>
-      <p>We share your email only with the service providers that help us operate the waitlist:</p>
+      <p>We share information only with the service providers that run Capsule on our behalf, and only as needed to do so:</p>
       <ul>
-        <li><strong>Formspree</strong> — processes and stores your form submission on our behalf. See the <a href="https://formspree.io/legal/privacy-policy/" target="_blank" rel="noopener">Formspree Privacy Policy</a>.</li>
-        <li>Our email provider, used to contact you about the beta.</li>
+        <li><strong>Supabase</strong>: hosts our database, file storage, and authentication, and is where your account data, capsule content, and location check-ins are stored.</li>
+        <li><strong>RevenueCat</strong>: manages Capsule Pro subscriptions; receives your subscription status, not your payment details.</li>
+        <li><strong>Apple and Google</strong>: process sign-in (if you use it) and app store billing directly; we never see your password or card number.</li>
+        <li><strong>Sentry</strong>: receives crash and performance diagnostics, scrubbed of email, IP address, and username before it's sent.</li>
+        <li><strong>Expo's push notification service</strong>: delivers push notifications to your device using your push token.</li>
       </ul>
-      <p>We do <strong>not</strong> sell, rent, or trade your email address.</p>
+      <p>We also share content within the app as its design requires: photos and videos in a capsule are visible to that capsule's members once it unlocks (or earlier, for the owner and contributors, unless surprise mode is on). We do <strong>not</strong> share your content, email, or location with anyone outside of running the Service, including other users outside a capsule you're part of.</p>
 
       <h3>Data retention</h3>
-      <p>We keep your email until the beta concludes, until you ask us to delete it, or until you unsubscribe — whichever comes first.</p>
+      <p>We keep your content for as long as your account and the capsules it belongs to exist. If you delete your account, capsules you own are handed off to another member if one exists (so their photos aren't lost), or deleted along with their content if you were the only member; content you contributed to capsules you don't own is deleted only if you choose that option at deletion time. Deleted photos and videos are removed from storage as part of that process.</p>
 
       <h3>Your choices and rights</h3>
-      <p>You can unsubscribe at any time using the link in any email we send. You may also ask us to access, correct, or delete the information we hold about you by emailing us at the address below. Depending on where you live (for example, the EEA/UK under the GDPR, or California under the CCPA/CPRA), you may have additional rights, including the right to withdraw consent and to lodge a complaint with a data protection authority.</p>
+      <p>You can review and update your profile information, manage notification permissions, block and unblock other users, and delete your account entirely. All of this is available from within the app, under Settings. You can also report content or a user you believe violates our <a href="#guidelines">Community Guidelines</a>. Depending on where you live (for example, the EEA/UK under the GDPR, or California under the CCPA/CPRA), you may have additional rights, including the right to access, correct, or export your data, and to lodge a complaint with a data protection authority. Email us at the address below for any request the app itself doesn't cover.</p>
 
       <h3>Children</h3>
-      <p>Capsule and this waitlist are intended for people <strong>13 years and older</strong>. We do not knowingly collect information from children under 13. If you believe a child has submitted their email, contact us and we will delete it.</p>
+      <p>Capsule is intended for people <strong>13 years and older</strong>. We do not knowingly collect information from children under 13. If you believe a child has created an account, contact us and we will delete it.</p>
 
       <h3>Data security &amp; international transfers</h3>
-      <p>We use reasonable measures to protect your information, but no method of transmission or storage is completely secure. Our service providers may process and store data in the United States and other countries.</p>
+      <p>Access to capsule content is restricted at the database level to a capsule's own members, and media is served through short-lived signed links rather than public URLs. No method of transmission or storage is completely secure, but we take reasonable measures to protect your information. Our service providers process and store data in the United States and other countries.</p>
+
+      <h3>Tracking</h3>
+      <p>Capsule does not use advertising trackers, and we do not track you across other companies' apps or websites. Nothing here requires Apple's App Tracking Transparency prompt.</p>
 
       <h3>Changes to this policy</h3>
       <p>We may update this policy as the product develops. Material changes will be reflected by updating the "Effective" date above.</p>
@@ -131,36 +145,66 @@
 
     <section id="terms" class="doc-block">
       <h2>Terms of Service</h2>
-      <p class="meta">Effective June 10, 2026</p>
+      <p class="meta">Effective August 3, 2026</p>
 
-      <p>These Terms of Service ("Terms") govern your use of this website and the Capsule beta waitlist (the "Service"). By using the Service or submitting your email, you agree to these Terms. If you do not agree, please don't use the Service.</p>
+      <p>These Terms of Service ("Terms") are a binding agreement between you and Capsule ("we," "us," or "our") governing your use of the Capsule mobile app and any related services (together, the "Service"). By creating an account or otherwise using the Service, you agree to these Terms. If you do not agree, do not use the Service.</p>
+
+      <h3>What Capsule is</h3>
+      <p>Capsule is a time-locked, shared photo and video album. You and the people you invite (a capsule's "members") add photos and videos to a shared "capsule," which stays sealed (invisible to every member, including whoever created it, when surprise mode is on) until it unlocks. A capsule unlocks on a date you choose, once every member checks in together in person, or both, depending on how it's set up. When it unlocks, the album opens for every member at the same time.</p>
 
       <h3>Eligibility</h3>
-      <p>You must be <strong>13 years or older</strong> to use the Service. By joining the waitlist you confirm that you meet this requirement.</p>
+      <p>You must be <strong>13 years or older</strong> to create an account or use the Service, and you must be legally able to enter into these Terms. If you're between 13 and the age of majority where you live, you confirm that a parent or guardian has reviewed and agreed to these Terms on your behalf. Capsule is not directed at children under 13, and we do not knowingly allow anyone under 13 to use it.</p>
 
-      <h3>The waitlist</h3>
-      <p>This website lets you join a waitlist for Capsule, an app that is still in development. Joining the waitlist does not guarantee access to the beta, a specific timeline, or that the app will be released at all. We may invite waitlist members to test the app at our discretion.</p>
+      <h3>Your account</h3>
+      <p>You need an account to use Capsule, created with an email and password or through Sign in with Apple or Google. You're responsible for keeping your login credentials secure and for everything that happens under your account. Tell us right away if you think someone else has access to it. You may delete your account at any time from Settings. See "Ending your use of Capsule" below for what happens to your capsules and content when you do.</p>
 
-      <h3>Pre-release &amp; "as is"</h3>
-      <p>Capsule is pre-release software. Features, availability, and these Terms may change at any time. The Service and any beta access are provided <strong>"as is" and "as available,"</strong> without warranties of any kind, to the fullest extent permitted by law.</p>
+      <h3>Capsules, membership, and invitations</h3>
+      <p>Anyone you invite to a capsule (by name, by sharing a link, or by QR code) becomes a member once they accept or open the invite. As a capsule's owner, you control who's invited, its unlock conditions, and (subject to the plan limits below) how many people and how much media it can hold. Removing a member or deleting a capsule removes their access to it going forward; it does not retroactively un-share content they already saw or downloaded before that point.</p>
+      <p>If you check in for a location-based unlock, we collect your device's precise location at the moment you check in, solely to determine whether members are physically together. See our <a href="#privacy">Privacy Policy</a> for how that's stored and used.</p>
+
+      <h3>Your content</h3>
+      <p>You own the photos, videos, and other content you upload to Capsule ("User Content"). By uploading User Content, you grant us a worldwide, non-exclusive, royalty-free license to host, store, reproduce, and transmit it solely to operate the Service: in practice, to deliver it to the members of the capsule you added it to, and to generate things like thumbnails. We don't use your User Content for advertising, we don't sell it, and we don't share it outside the capsule it belongs to. This license ends when you delete the content or your account, except for residual copies kept briefly in backups or as required by law.</p>
+      <p>You're solely responsible for your User Content and for having the right to share it, including the consent of anyone recognizable in it. Don't upload anything you don't have the right to share, and don't upload content that violates our <a href="#guidelines">Community Guidelines</a>, which are part of these Terms.</p>
 
       <h3>Acceptable use</h3>
-      <p>You agree not to misuse the Service — including attempting to disrupt it, accessing it through automated scraping or attacks, submitting other people's information without permission, or using it for any unlawful purpose.</p>
+      <p>Beyond the Community Guidelines, you agree not to: use the Service for anything illegal; attempt to access another user's account or a capsule you're not a member of; reverse-engineer, scrape, or interfere with the Service; upload malware; or use the Service in any way that could disable, overburden, or impair it. We have zero tolerance for child sexual abuse material and will remove it and report it to the relevant authorities, including the National Center for Missing &amp; Exploited Children where applicable.</p>
 
-      <h3>Intellectual property</h3>
-      <p>The Capsule name, logo, and the content on this website are owned by us and protected by applicable laws. You may not copy, modify, or distribute them without our permission.</p>
+      <h3>Reporting, blocking, and enforcement</h3>
+      <p>You can report content or a user, and block a user, from within the app. We review reports and may remove content, remove someone from a capsule, restrict their account's features, or suspend or terminate an account (with or without notice) for violating these Terms or the Community Guidelines. Blocking is private; the person you block isn't told.</p>
+
+      <h3>Capsule Pro (subscriptions and purchases)</h3>
+      <p>The free tier of Capsule has limits on things like how many active capsules you can have, how many people can join one, how many photos it can hold, and how long a video can be. <strong>Capsule Pro</strong> is an optional paid upgrade (offered as an auto-renewing monthly or annual subscription, or as a one-time lifetime purchase) that raises or removes those limits and unlocks other Pro-only features. Pro benefits are tied to whoever owns a capsule: a Pro member's own capsules get the higher limits, and everyone they invite benefits too, regardless of that member's own plan.</p>
+      <p>All purchases are billed through the Apple App Store or Google Play, at the price shown in the app at checkout, and are subject to that platform's payment terms. Subscriptions renew automatically unless canceled at least 24 hours before the end of the current period; manage or cancel a subscription in your Apple ID or Google Play account settings, not in Capsule itself. A lifetime purchase is a one-time, non-renewing payment. Refunds are handled by Apple or Google under their own refund policies. We don't have the ability to issue refunds for purchases made through their billing systems. Canceling a subscription stops future renewals but does not retroactively delete capsules or content created while it was active; if your capsules or membership later exceed the free tier's limits, some features may be restricted until they fit within those limits again.</p>
 
       <h3>Third-party services</h3>
-      <p>The waitlist form is processed by <strong>Formspree</strong>; your use of it is also subject to their terms and privacy policy. We are not responsible for third-party services.</p>
+      <p>Capsule is built on top of services we don't control, including Supabase (accounts, database, and file storage), RevenueCat (subscription management), Apple and Google (sign-in and app store billing), Sentry (crash reporting), and Expo's push notification service. Your use of Sign in with Apple or Google is also subject to their own terms. We're not responsible for outages or issues originating in these third-party services, though we'll do what we reasonably can to keep the Service working around them.</p>
+
+      <h3>Intellectual property</h3>
+      <p>Aside from your User Content, the Capsule name, logo, app, and everything in it are owned by us or our licensors and protected by applicable intellectual property laws. These Terms don't grant you any right to use our branding except as necessary to use the Service normally.</p>
+
+      <h3>Copyright complaints</h3>
+      <p>If you believe content on Capsule infringes your copyright, email us at the address below with a description of the work, the content you believe infringes it, and your contact information, and we'll investigate and remove infringing content where appropriate.</p>
+
+      <h3>Ending your use of Capsule</h3>
+      <p>You can delete your account at any time from Settings. When you do: capsules you own are handed off to another member so their content isn't lost, unless you're the only member, in which case that capsule and its content are deleted; content you contributed to capsules you don't own can optionally be deleted as part of the same request. We may suspend or terminate your account for violating these Terms, discontinuing the Service, or as required by law. Sections of these Terms that by their nature should survive termination (including ownership, disclaimers, limitation of liability, and dispute resolution) will survive.</p>
+
+      <h3>"As is" and disclaimer of warranties</h3>
+      <p>The Service is provided <strong>"as is" and "as available,"</strong> without warranties of any kind, express or implied, including implied warranties of merchantability, fitness for a particular purpose, and non-infringement, to the fullest extent permitted by law. We don't guarantee that capsules will unlock at an exact moment, that the Service will be uninterrupted or error-free, or that content will never be lost. Back up anything irreplaceable.</p>
 
       <h3>Limitation of liability</h3>
-      <p>To the fullest extent permitted by law, we will not be liable for any indirect, incidental, or consequential damages arising from your use of the Service.</p>
+      <p>To the fullest extent permitted by law, we won't be liable for any indirect, incidental, special, consequential, or punitive damages, or any loss of data, photos, or videos, arising from your use of the Service, even if we've been advised of the possibility. Our total liability for any claim relating to the Service is limited to the greater of $100 or the amount you paid us in the 12 months before the claim arose.</p>
+
+      <h3>Indemnification</h3>
+      <p>You agree to indemnify and hold us harmless from any claims, damages, or expenses (including reasonable legal fees) arising from your use of the Service, your User Content, or your violation of these Terms.</p>
 
       <h3>Changes to these Terms</h3>
-      <p>We may update these Terms as the product develops. Material changes will be reflected by updating the "Effective" date above. Continued use of the Service after changes means you accept the updated Terms.</p>
+      <p>We may update these Terms as the product develops. We'll update the "Effective" date above when we do, and for material changes we'll make a reasonable effort to notify you in the app. Continuing to use the Service after changes take effect means you accept the updated Terms.</p>
 
-      <h3>Governing law</h3>
-      <p>These Terms are governed by the laws of the United States and the state in which the operator resides, without regard to conflict-of-laws principles.</p>
+      <h3>Governing law &amp; disputes</h3>
+      <p>These Terms are governed by the laws of the United States and the state in which the operator resides, without regard to conflict-of-laws principles. Any dispute arising from these Terms or the Service will be resolved in the courts located there, and you consent to their jurisdiction, except where applicable law requires otherwise.</p>
+
+      <h3>General</h3>
+      <p>If any part of these Terms is found unenforceable, the rest remains in effect. These Terms, together with the Privacy Policy and Community Guidelines, are the entire agreement between you and us regarding the Service. We may assign these Terms in connection with a merger, acquisition, or sale of assets; you may not assign them without our consent.</p>
 
       <h3>Contact</h3>
       <p>Questions about these Terms? Email us at <a href="mailto:mark.dickson0824@gmail.com">mark.dickson0824@gmail.com</a>.</p>
@@ -168,9 +212,9 @@
 
     <section id="guidelines" class="doc-block">
       <h2>Community Guidelines</h2>
-      <p class="meta">Effective June 10, 2026</p>
+      <p class="meta">Effective August 3, 2026</p>
 
-      <p>Capsule is a place to share memories with people you trust. These Community Guidelines apply to everything you create, upload, or share in the app once it's available. They exist to keep Capsule safe and welcoming. Breaking them can lead to content removal, loss of access to a capsule, or account suspension.</p>
+      <p>Capsule is a place to share memories with people you trust. These Community Guidelines apply to everything you create, upload, or share in the app. They exist to keep Capsule safe and welcoming. Breaking them can lead to content removal, loss of access to a capsule, or account suspension.</p>
 
       <h3>The basics</h3>
       <ul>
@@ -191,13 +235,13 @@
       </ul>
 
       <h3>Consent &amp; privacy</h3>
-      <p>Capsules are private and invite-only. Only add people who want to be part of a capsule, and think before sharing content that includes others — make sure they're okay with it.</p>
+      <p>Capsules are private and invite-only. Only add people who want to be part of a capsule, and think before sharing content that includes others. Make sure they're okay with it.</p>
 
       <h3>Reporting &amp; blocking</h3>
-      <p>If you see content or behavior that breaks these guidelines, you can <strong>report</strong> it or <strong>block</strong> the user from within the app. Reports are reviewed, and we may remove content or take action on accounts as needed. Blocking is private — the blocked person isn't notified.</p>
+      <p>If you see content or behavior that breaks these guidelines, tap the flag icon on any photo or video, or the ⋯ menu on someone's profile, to report it, or block the user directly from their profile. Reports go into a queue we check daily, and we may remove content or take action on accounts as needed. Blocking is private. The blocked person isn't notified, and their content and reactions are filtered out of anything you see going forward.</p>
 
       <h3>Enforcement</h3>
-      <p>Depending on the severity, we may remove content, remove someone from a capsule, restrict features, or suspend or terminate accounts. Serious violations may be reported to law enforcement.</p>
+      <p>Depending on the severity, we may remove content, remove someone from a capsule, restrict features, or suspend or terminate accounts. Serious violations, including CSAM, are reported to law enforcement and the National Center for Missing &amp; Exploited Children where applicable.</p>
 
       <h3>Age</h3>
       <p>Capsule is for people <strong>13 years and older</strong>.</p>
