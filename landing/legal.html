@@ -91,36 +91,50 @@
 
     <section id="privacy" class="doc-block">
       <h2>Privacy Policy</h2>
-      <p class="meta">Effective June 10, 2026</p>
+      <p class="meta">Effective August 3, 2026</p>
 
-      <p>This Privacy Policy explains how Capsule ("we," "us," or "our") handles information collected through this website — specifically, the beta waitlist sign-up form. Capsule is a time-locked photo-sharing app currently in pre-release.</p>
+      <p>This Privacy Policy explains what information Capsule ("we," "us," or "our") collects when you use the Capsule app, and how we use, share, and protect it. Capsule is a time-locked, shared photo and video album app for iOS and Android.</p>
 
       <h3>Information we collect</h3>
-      <p>When you join the waitlist, we collect the <strong>email address</strong> you enter and the fact that you consented to be contacted. When you submit the form, our form processor also receives standard technical information your browser sends with the request (such as your IP address and a timestamp), which is used for spam prevention.</p>
-      <p>This website does <strong>not</strong> use cookies, advertising trackers, or third-party analytics.</p>
+      <p>We collect the following, tied to your account:</p>
+      <ul>
+        <li><strong>Account information</strong> — your email address, and a display name and optional bio/avatar photo you set. If you sign in with Apple or Google, we receive the name and email they share with us for that purpose.</li>
+        <li><strong>Photos and videos</strong> — the content you and other members add to a capsule, stored so it can be shown to that capsule's members once it unlocks.</li>
+        <li><strong>Precise location</strong> — only when you tap "check in" on a capsule that unlocks by proximity, we collect your device's GPS location at that moment to determine whether everyone is physically together, and store it on your membership record for that capsule. We don't collect your location at any other time.</li>
+        <li><strong>Push notification token</strong> — a device identifier used to deliver notifications (invites, unlocks, reactions, reminders) through Apple's and Google's push services.</li>
+        <li><strong>Usage and device data</strong> — basic app diagnostics (crash reports, performance data) collected through Sentry, tied to your account ID only — never your email, name, or IP address.</li>
+        <li><strong>Subscription status</strong> — whether you have Capsule Pro, managed through RevenueCat. We don't receive or store your payment card details; Apple and Google handle billing directly.</li>
+      </ul>
 
       <h3>How we use your information</h3>
-      <p>We use your email address for a single purpose: to send you occasional updates about the Capsule beta and launch. We do not use it for unrelated marketing.</p>
+      <p>We use this information to operate the Service: to store and deliver your capsules' content to their members, to send you notifications about invites, unlocks, reactions, awards, and contribution reminders, to detect and fix crashes, to enforce the free/Pro plan limits described in the Terms of Service, and to respond to support requests.</p>
+      <p>We do not use your photos, videos, or location for advertising, and we do not sell your information to anyone.</p>
 
       <h3>How your information is shared</h3>
-      <p>We share your email only with the service providers that help us operate the waitlist:</p>
+      <p>We share information only with the service providers that run Capsule on our behalf, and only as needed to do so:</p>
       <ul>
-        <li><strong>Formspree</strong> — processes and stores your form submission on our behalf. See the <a href="https://formspree.io/legal/privacy-policy/" target="_blank" rel="noopener">Formspree Privacy Policy</a>.</li>
-        <li>Our email provider, used to contact you about the beta.</li>
+        <li><strong>Supabase</strong> — hosts our database, file storage, and authentication, and is where your account data, capsule content, and location check-ins are stored.</li>
+        <li><strong>RevenueCat</strong> — manages Capsule Pro subscriptions; receives your subscription status, not your payment details.</li>
+        <li><strong>Apple and Google</strong> — process sign-in (if you use it) and app store billing directly; we never see your password or card number.</li>
+        <li><strong>Sentry</strong> — receives crash and performance diagnostics, scrubbed of email, IP address, and username before it's sent.</li>
+        <li><strong>Expo's push notification service</strong> — delivers push notifications to your device using your push token.</li>
       </ul>
-      <p>We do <strong>not</strong> sell, rent, or trade your email address.</p>
+      <p>We also share content within the app as its design requires: photos and videos in a capsule are visible to that capsule's members once it unlocks (or earlier, for the owner and contributors, unless surprise mode is on). We do <strong>not</strong> share your content, email, or location with anyone outside of running the Service — including other users outside a capsule you're part of.</p>
 
       <h3>Data retention</h3>
-      <p>We keep your email until the beta concludes, until you ask us to delete it, or until you unsubscribe — whichever comes first.</p>
+      <p>We keep your content for as long as your account and the capsules it belongs to exist. If you delete your account, capsules you own are handed off to another member if one exists (so their photos aren't lost), or deleted along with their content if you were the only member; content you contributed to capsules you don't own is deleted only if you choose that option at deletion time. Deleted photos and videos are removed from storage as part of that process.</p>
 
       <h3>Your choices and rights</h3>
-      <p>You can unsubscribe at any time using the link in any email we send. You may also ask us to access, correct, or delete the information we hold about you by emailing us at the address below. Depending on where you live (for example, the EEA/UK under the GDPR, or California under the CCPA/CPRA), you may have additional rights, including the right to withdraw consent and to lodge a complaint with a data protection authority.</p>
+      <p>You can review and update your profile information, manage notification permissions, block and unblock other users, and delete your account entirely — all from within the app, under Settings. You can also report content or a user you believe violates our <a href="#guidelines">Community Guidelines</a>. Depending on where you live (for example, the EEA/UK under the GDPR, or California under the CCPA/CPRA), you may have additional rights, including the right to access, correct, or export your data, and to lodge a complaint with a data protection authority. Email us at the address below for any request the app itself doesn't cover.</p>
 
       <h3>Children</h3>
-      <p>Capsule and this waitlist are intended for people <strong>13 years and older</strong>. We do not knowingly collect information from children under 13. If you believe a child has submitted their email, contact us and we will delete it.</p>
+      <p>Capsule is intended for people <strong>13 years and older</strong>. We do not knowingly collect information from children under 13. If you believe a child has created an account, contact us and we will delete it.</p>
 
       <h3>Data security &amp; international transfers</h3>
-      <p>We use reasonable measures to protect your information, but no method of transmission or storage is completely secure. Our service providers may process and store data in the United States and other countries.</p>
+      <p>Access to capsule content is restricted at the database level to a capsule's own members, and media is served through short-lived signed links rather than public URLs. No method of transmission or storage is completely secure, but we take reasonable measures to protect your information. Our service providers process and store data in the United States and other countries.</p>
+
+      <h3>Tracking</h3>
+      <p>Capsule does not use advertising trackers, and we do not track you across other companies' apps or websites — nothing here requires Apple's App Tracking Transparency prompt.</p>
 
       <h3>Changes to this policy</h3>
       <p>We may update this policy as the product develops. Material changes will be reflected by updating the "Effective" date above.</p>
@@ -198,9 +212,9 @@
 
     <section id="guidelines" class="doc-block">
       <h2>Community Guidelines</h2>
-      <p class="meta">Effective June 10, 2026</p>
+      <p class="meta">Effective August 3, 2026</p>
 
-      <p>Capsule is a place to share memories with people you trust. These Community Guidelines apply to everything you create, upload, or share in the app once it's available. They exist to keep Capsule safe and welcoming. Breaking them can lead to content removal, loss of access to a capsule, or account suspension.</p>
+      <p>Capsule is a place to share memories with people you trust. These Community Guidelines apply to everything you create, upload, or share in the app. They exist to keep Capsule safe and welcoming. Breaking them can lead to content removal, loss of access to a capsule, or account suspension.</p>
 
       <h3>The basics</h3>
       <ul>
@@ -224,10 +238,10 @@
       <p>Capsules are private and invite-only. Only add people who want to be part of a capsule, and think before sharing content that includes others — make sure they're okay with it.</p>
 
       <h3>Reporting &amp; blocking</h3>
-      <p>If you see content or behavior that breaks these guidelines, you can <strong>report</strong> it or <strong>block</strong> the user from within the app. Reports are reviewed, and we may remove content or take action on accounts as needed. Blocking is private — the blocked person isn't notified.</p>
+      <p>If you see content or behavior that breaks these guidelines, tap the flag icon on any photo or video, or the ⋯ menu on someone's profile, to report it — or block the user directly from their profile. Reports go into a queue we check daily, and we may remove content or take action on accounts as needed. Blocking is private — the blocked person isn't notified, and their content and reactions are filtered out of anything you see going forward.</p>
 
       <h3>Enforcement</h3>
-      <p>Depending on the severity, we may remove content, remove someone from a capsule, restrict features, or suspend or terminate accounts. Serious violations may be reported to law enforcement.</p>
+      <p>Depending on the severity, we may remove content, remove someone from a capsule, restrict features, or suspend or terminate accounts. Serious violations, including CSAM, are reported to law enforcement and the National Center for Missing &amp; Exploited Children where applicable.</p>
 
       <h3>Age</h3>
       <p>Capsule is for people <strong>13 years and older</strong>.</p>
