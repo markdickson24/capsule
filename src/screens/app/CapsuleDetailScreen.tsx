@@ -1143,6 +1143,18 @@ function MediaViewerModal({
                             ? `${item.altStorageKey}:full`
                             : `${item.storage_key}:full`,
                         }}
+                        // While the full-res download is in flight, paint the grid's
+                        // thumbnail from cache instead of a black frame — same URL and
+                        // `:thumb` cacheKey as the grid cell that was just tapped, so
+                        // this is a disk/memory hit, never a second network request.
+                        // Main view only: a swapped dual photo has no alt thumbnail,
+                        // and the main thumb would flash the wrong lens under it.
+                        placeholder={
+                          !swapped[item.id] && item.thumbSignedUrl
+                            ? { uri: item.thumbSignedUrl, cacheKey: `${item.storage_key}:thumb` }
+                            : undefined
+                        }
+                        placeholderContentFit="contain"
                         style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
                         contentFit="contain"
                         transition={150}
