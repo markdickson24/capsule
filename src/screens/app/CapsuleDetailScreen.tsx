@@ -1092,8 +1092,15 @@ function MediaViewerModal({
     })
   ).current;
 
+  // `transparent` on the Modal below is load-bearing, not cosmetic: without it
+  // RN gives the Modal an opaque WHITE root container. The swipe-down dismiss
+  // fades the black layer (bgOpacity 1→0 as the drag progresses, then slides it
+  // fully off screen while still partly transparent), so that white root shows
+  // through as a bright flash behind the photo. Transparent puts the dark
+  // capsule screen (#0A0A0A) back there instead, which is what the drag should
+  // be revealing.
   return (
-    <Modal visible animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <Animated.View style={{ flex: 1, backgroundColor: '#000', opacity: bgOpacity }}>
         <Animated.View
           style={{ flex: 1, transform: [{ translateY }] }}
