@@ -15,6 +15,7 @@ import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { haptics } from '../../lib/haptics';
 import { blockStore } from '../../lib/blocks';
+import { isDemoAccountId } from '../../lib/demoAccounts';
 import { useTheme } from '../../context/ThemeContext';
 import ConfirmModal from '../../components/ConfirmModal';
 import { Avatar } from './ProfileScreen';
@@ -245,7 +246,7 @@ export default function ManageGroupScreen() {
         .neq('id', myId ?? '')
         .limit(15);
       // Exclude current members and blocked users (block-enforcement parity).
-      setResults((data ?? []).filter((u: UserResult) => !existingIds.has(u.id) && !blockStore.has(u.id)));
+      setResults((data ?? []).filter((u: UserResult) => !existingIds.has(u.id) && !blockStore.has(u.id) && !isDemoAccountId(u.id)));
       setSearching(false);
     }, 300);
   }

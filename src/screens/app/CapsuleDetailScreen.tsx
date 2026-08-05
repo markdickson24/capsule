@@ -38,6 +38,7 @@ import AwardsSection from '../../components/AwardsSection';
 import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import InfoTooltip from '../../components/InfoTooltip';
 import { blockStore } from '../../lib/blocks';
+import { isDemoAccountId } from '../../lib/demoAccounts';
 import { limitsForTier } from '../../lib/tierLimits';
 import { assetDurationMs } from '../../lib/mediaDuration';
 import { proGateHit } from '../../lib/proGate';
@@ -310,6 +311,7 @@ function InviteModal({
         setResults(
           (data as UserResult[]).filter(
             u => !existingMemberIds.includes(u.id) && !invitedIds.includes(u.id) && !blockStore.has(u.id)
+              && !isDemoAccountId(u.id)
           )
         );
       }
