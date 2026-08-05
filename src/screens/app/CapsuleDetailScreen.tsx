@@ -38,6 +38,7 @@ import AwardsSection from '../../components/AwardsSection';
 import DefaultAwardsCard from '../../components/DefaultAwardsCard';
 import InfoTooltip from '../../components/InfoTooltip';
 import { blockStore } from '../../lib/blocks';
+import { isDemoAccountId } from '../../lib/demoAccounts';
 import { limitsForTier } from '../../lib/tierLimits';
 import { assetDurationMs } from '../../lib/mediaDuration';
 import { proGateHit } from '../../lib/proGate';
@@ -310,6 +311,7 @@ function InviteModal({
         setResults(
           (data as UserResult[]).filter(
             u => !existingMemberIds.includes(u.id) && !invitedIds.includes(u.id) && !blockStore.has(u.id)
+              && !isDemoAccountId(u.id)
           )
         );
       }
@@ -1151,13 +1153,41 @@ function MediaViewerModal({
                             : `${item.storage_key}:full`,
                         }}
                         // While the full-res download is in flight, paint the grid's
-                        // thumbnail from cache instead of a black frame — same URL and
-                        // `:thumb` cacheKey as the grid cell that was just tapped, so
-                        // this is a disk/memory hit, never a second network request.
-                        // Main view only: a swapped dual photo has no alt thumbnail,
-                        // and the main thumb would flash the wrong lens under it.
+                        // thumbnail instead of a black frame, crossfading to the full
+                        // bytes when they land. Same URL and `:thumb` cacheKey as the
+                        // grid cell that was just tapped, and the viewer can only be
+                        // opened by tapping a cell that already rendered (the gallery
+                        // grid or the 3-up preview), so for the item being viewed this
+                        // resolves out of expo-image's memory/disk cache.
+                        //
+                        // It is NOT free in general, which is why it is windowed to the
+                        // current index ±1 rather than set on every cell. A remote
+                        // placeholder is fetched over the network like any other source
+                        // (ImageView.swift's `placeholderSources` didSet ->
+                        // loadPlaceholderIfNecessary -> imageManager.loadImage), and
+                        // fetchPhotos' `Image.prefetch` warm-up does NOT cover it —
+                        // prefetch takes no cacheKey, so it fills the URL-keyed slot,
+                        // never the `:thumb` slot this reads. Set on all N cells, opening
+                        // a capsule fired one thumbnail request per photo, queued ahead
+                        // of the full-res bytes for the photo actually on screen in
+                        // SDWebImage's 6-slot downloader (making the tapped photo
+                        // slower), and every uncached one spends a Supabase render-API
+                        // request against the hard 100-origin-images/month quota — see
+                        // CLAUDE.md "Image Transforms".
+                        //
+                        // Moving the window while paging causes no churn: expo-image
+                        // only loads/shows a placeholder while the view is still empty
+                        // (`canDisplayPlaceholder`), so setting one on a cell whose
+                        // full-res already landed is a no-op, and clearing one on a cell
+                        // still mid-load leaves the thumb already on screen alone.
+                        //
+                        // Main view only: a swapped dual photo has no alt thumbnail, and
+                        // the main thumb would flash the wrong lens under it. Note the
+                        // thumb is a 260px `resize=cover` square (transformMediaUrl), so
+                        // the framing shifts slightly when the contain-fit full-res
+                        // arrives — accepted over a black frame.
                         placeholder={
-                          !swapped[item.id] && item.thumbSignedUrl
+                          !swapped[item.id] && item.thumbSignedUrl && Math.abs(index - currentIndex) <= 1
                             ? { uri: item.thumbSignedUrl, cacheKey: `${item.storage_key}:thumb` }
                             : undefined
                         }

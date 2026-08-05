@@ -15,6 +15,7 @@ import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { haptics } from '../../lib/haptics';
 import { blockStore } from '../../lib/blocks';
+import { isDemoAccountId } from '../../lib/demoAccounts';
 import { createGroup, GroupRecurrence, recurrenceLabel, unlockDurationLabel } from '../../lib/groups';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { proGateHit } from '../../lib/proGate';
@@ -142,7 +143,7 @@ export default function CreateGroupScreen() {
         .limit(10);
       // Exclude already-selected and blocked users (block-enforcement parity
       // with InviteModal's search).
-      setSearchResults((data ?? []).filter((u: UserResult) => !selectedIds.has(u.id) && !blockStore.has(u.id)));
+      setSearchResults((data ?? []).filter((u: UserResult) => !selectedIds.has(u.id) && !blockStore.has(u.id) && !isDemoAccountId(u.id)));
       setSearching(false);
     }, 300);
   }, [myId, selectedIds]);
