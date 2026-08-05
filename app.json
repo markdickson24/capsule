@@ -49,7 +49,12 @@
           }
         }
       ],
-      "expo-secure-store",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ],
       "@react-native-community/datetimepicker",
       [
         "expo-image-picker",
@@ -75,7 +80,9 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Capsule uses your location to unlock capsules when all members are together."
+          "locationWhenInUsePermission": "Capsule uses your location to unlock capsules when all members are together.",
+          "locationAlwaysPermission": false,
+          "locationAlwaysAndWhenInUsePermission": false
         }
       ],
       [
