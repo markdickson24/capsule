@@ -15,7 +15,7 @@ core loop visible in the first thirty seconds.
 | **Email** | `appreview@getcapsuleapp.com` |
 | **Password** | `CapsuleReview2026!` |
 | Display name | Alex |
-| Tier | **Pro** (granted server-side — see caveat below) |
+| Tier | **Free** — must stay free, see "Never comp this account to Pro" below |
 | Onboarding | Already completed, so sign-in lands directly on Home |
 
 Sign-in is email + password. The account is pre-confirmed, so it never hits the
@@ -36,29 +36,64 @@ unlock, so nothing here depends on one.
 The Alerts tab is populated: an actionable invite, reaction notifications, an
 unlock reminder and a contribution nudge.
 
-### ⚠️ Re-arm the countdown before each submission
+### ⚠️ Re-arm the demo before each submission
 
-"Summer Rooftop Party" was seeded to unlock **two hours after the seed ran**. That
-moment has almost certainly passed by the time review actually begins, which turns
-the live-countdown demo into a third unlocked capsule.
+**Run [`scripts/reviewer-seed/pre-submission-rearm.sql`](../scripts/reviewer-seed/pre-submission-rearm.sql)
+immediately before submitting, and again if review drags on.** It is idempotent
+and ends with a verification query.
 
-Re-arm it immediately before submitting, and again if review drags on:
+Every state in the table above decays on its own as real time passes, because
+three of the four capsules are defined by a *future* unlock date. By the first
+submission all four had drifted to `unlocked` — the live-countdown demo and the
+surprise-mode demo were both silently demonstrating nothing, and the pending
+invite had been consumed. The script resets:
+
+- **the tier back to `free`** (see below — this is the important one),
+- Summer Rooftop Party to ~3h out, Emma & Noah's Wedding to ~21d out with
+  surprise mode on, Diego's Birthday to ~9d out,
+- the reviewer's Diego's Birthday membership back to a pending invite,
+- award winners/votes on the three re-armed capsules (a re-locked capsule must
+  not still show decided awards). Lake Tahoe Trip is deliberately left alone —
+  its finalized awards are the whole point of that capsule.
+
+Clearing the `unlock_reminder_*` stamps matters: each tier is claim-and-stamp
+once per capsule, so without clearing them the reviewer gets no countdown push.
+`unlock_notified_at` is the same story for the unlock push itself.
+
+### ⚠️ Never comp this account to Pro
+
+**`subscription_tier` must be `'free'` on this account, and must be re-checked
+before every submission.** This is the opposite of what this doc said before the
+first submission, and getting it wrong cost a full review cycle.
+
+On the first submission the account was comped to `'pro'`. Apple **approved the
+binary and rejected all three in-app purchases** — because a Pro account has no
+reachable purchase path anywhere in the app:
+
+| Paywall entry point | Gate | What a Pro account sees |
+|---|---|---|
+| Settings → "Upgrade to Capsule Pro" | `isPro ? … : …` | "Manage Subscription" instead |
+| Settings → "Custom color & gradient themes" locked row | `!isPro` | the unlocked picker instead |
+| CapsuleDetail post-unlock upsell nudge | `!isPro` | hidden |
+| The five tier gates (capsules, groups, members, photos, video) | free-tier caps | never fire |
+
+`useEntitlements()` resolves Pro from **either** RevenueCat **or**
+`users.subscription_tier` (`resolveIsPro()` in `src/lib/tierLimits.ts`), so the
+comped column alone was enough to hide the entire paywall from App Review. The
+"Manage Subscription" row it left behind opens the RevenueCat Customer Center,
+which on an account with no real purchase behind it is empty — so the one Pro
+surface the reviewer *could* reach also looked broken.
+
+Verify before each submission:
 
 ```sql
-update capsules
-   set unlock_at = now() + interval '3 hours',
-       status = 'active',
-       unlocked_at = null,
-       superlative_voting_closes_at = null,
-       superlative_voting_finalized_at = null,
-       unlock_reminder_1d_sent_at = null,
-       unlock_reminder_1h_sent_at = null,
-       unlock_reminder_10m_sent_at = null
- where id = 'facade01-c000-4000-8000-000000000002';
+select id, subscription_tier from public.users
+ where id = 'facade01-0000-4000-8000-000000000001';  -- expect 'free'
 ```
 
-Clearing the three `unlock_reminder_*` stamps matters: each tier is claim-and-stamp
-once per capsule, so without clearing them the reviewer gets no countdown push.
+Nothing in the seeded content depends on the tier: the caps are enforced on
+INSERT and the seed runs as `service_role`, so the pre-seeded capsules, members
+and media all render identically on the free tier.
 
 ## App Review notes (paste into App Store Connect)
 
@@ -85,9 +120,25 @@ once per capsule, so without clearing them the reviewer gets no countdown push.
 > reviewer on one device, so all demo albums use date-based unlocking instead. A
 > screen recording of this flow is available on request.
 >
-> **Capsule Pro** (in-app purchase) is pre-granted on this account so its features
-> are reviewable without a purchase. The purchase and restore flows themselves are
-> unmodified and reachable from Settings → Capsule Pro.
+> **In-app purchases.** This account is on the free tier, so every purchase entry
+> point is live. To reach the Capsule Pro paywall:
+>
+> 1. Tap the **Profile** tab (bottom right) → **Appearance** → the **Capsule Pro**
+>    section → **"Upgrade to Capsule Pro"**. Monthly, Yearly and Lifetime are all
+>    presented there, with price, billing period, Restore Purchases, and links to
+>    the Terms of Service and Privacy Policy.
+>
+> The same paywall is also reachable from several in-context prompts, any of which
+> can be used instead:
+>
+> - **Profile → Appearance → "Custom color & gradient themes"** (the locked row).
+> - **Open "Lake Tahoe Trip" → Media header → Export** — bulk capsule download is a
+>   Pro feature.
+> - Creating a 4th active album, inviting an 11th member, adding a 21st photo to one
+>   album, posting a video longer than 30 seconds, or setting a repeating schedule on
+>   a group each surface the same upgrade prompt.
+>
+> **Restore Purchases** is at Profile → Appearance → Capsule Pro → Restore Purchases.
 >
 > **User-generated content:** every photo can be reported via the flag icon in the
 > full-screen viewer, and any user can be blocked from their profile's ⋯ menu.

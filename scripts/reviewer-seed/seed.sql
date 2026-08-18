@@ -56,10 +56,29 @@ values
 on conflict (id) do nothing;
 
 -- handle_new_user() has created the public.users rows by now.
--- Pro is granted server-side; guard_subscription_tier makes this impossible from a
--- client, which is what keeps the paywall un-forgeable.
+--
+-- ⚠️ The reviewer account MUST stay on the FREE tier. Do not comp it to 'pro'.
+--
+-- This account was seeded as 'pro' for the first submission and Apple approved
+-- the binary but REJECTED all three in-app purchases, because a Pro account has
+-- no reachable purchase path anywhere in the app:
+--
+--   * Settings → Capsule Pro renders "Manage Subscription" instead of the
+--     "Upgrade to Capsule Pro" button (SettingsScreen, `isPro ? ... : ...`).
+--   * The post-unlock upsell nudge in CapsuleDetailScreen is gated on `!isPro`.
+--   * The Settings custom-color locked row is gated on `!isPro`.
+--   * All five tier gates (capsules, groups, members, photos, video length)
+--     only fire when a free-tier cap is hit, so none of them ever trip.
+--
+-- `useEntitlements()` resolves Pro from EITHER RevenueCat OR this column
+-- (`resolveIsPro()` in src/lib/tierLimits.ts), so a comped column alone is
+-- enough to hide the entire paywall from App Review.
+--
+-- On the free tier every one of those entry points is reachable, and the
+-- seeded content below still renders in full — the caps are enforced on INSERT,
+-- so pre-seeded capsules, members and media are unaffected by the tier.
 update public.users
-   set subscription_tier = 'pro',
+   set subscription_tier = 'free',
        onboarded_at = now() - interval '35 days',
        bio = 'Collecting moments, one capsule at a time.'
  where id = 'facade01-0000-4000-8000-000000000001';
