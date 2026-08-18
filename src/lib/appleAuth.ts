@@ -3,6 +3,16 @@ import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
 import { reportError } from './sentry';
 
+// Below this, a "canceled" result cannot be a human dismissing Apple's sheet —
+// the sheet takes longer than this just to animate in. Treat it as a failure.
+const INSTANT_CANCEL_MS = 1000;
+
+// Shown when Sign in with Apple fails for an environment reason. It names the
+// two fixes that actually work and points at the always-available fallback, so
+// the button is never a dead end (App Review saw it as one).
+const APPLE_UNAVAILABLE_HINT =
+  'Sign in with Apple is unavailable on this device. Check that you are signed in to iCloud with two-factor authentication on, or use email instead.';
+
 // Apple's identity token embeds a hash of the nonce we pass to signInAsync.
 // We give Supabase the RAW nonce; it re-hashes and compares to the token's
 // claim itself — this is what stops a captured token from being replayed.
@@ -20,7 +30,10 @@ function randomNonce(length = 32): string {
 export async function signInWithApple(): Promise<{ error?: string }> {
   const available = await AppleAuthentication.isAvailableAsync();
   if (!available) {
-    return { error: 'Sign in with Apple is not available on this device.' };
+    reportError(new Error('Apple auth reported unavailable'), {
+      where: 'appleAuth.isAvailableAsync',
+    });
+    return { error: APPLE_UNAVAILABLE_HINT };
   }
 
   const rawNonce = randomNonce();
@@ -28,6 +41,14 @@ export async function signInWithApple(): Promise<{ error?: string }> {
     Crypto.CryptoDigestAlgorithm.SHA256,
     rawNonce
   );
+
+  // A real person needs time to read Apple's sheet and dismiss it. iOS reports
+  // ASAuthorizationError 1001 (-> ERR_REQUEST_CANCELED) for a genuine cancel
+  // AND for environment failures the user never even sees: no iCloud account,
+  // two-factor disabled, a managed/restricted Apple ID, Screen Time limits. If
+  // 1001 comes back almost instantly, the sheet was never actually presented,
+  // so it is a failure — not a choice — and must not be swallowed.
+  const startedAt = Date.now();
 
   let credential: Awaited<ReturnType<typeof AppleAuthentication.signInAsync>>;
   try {
@@ -39,9 +60,19 @@ export async function signInWithApple(): Promise<{ error?: string }> {
       nonce: hashedNonce,
     });
   } catch (e: any) {
-    // User dismissed the native sheet — silent no-op, same convention as
-    // signInWithGoogle's result.type === 'cancel'.
-    if (e?.code === 'ERR_REQUEST_CANCELED') return {};
+    if (e?.code === 'ERR_REQUEST_CANCELED') {
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= INSTANT_CANCEL_MS) return {}; // genuine dismissal
+      // App Review 1.0(30) failed here: "Sign in with Apple does not login".
+      // The tap produced no error, no session and no server request — the auth
+      // logs show zero traffic in the review window — because this branch
+      // returned {} and the screen rendered nothing at all.
+      reportError(e, {
+        where: 'appleAuth.instantCancel',
+        extra: { code: e?.code, elapsedMs: elapsed },
+      });
+      return { error: APPLE_UNAVAILABLE_HINT };
+    }
     reportError(e, { where: 'appleAuth.signInAsync', extra: { code: e?.code } });
     return { error: 'Could not sign in with Apple.' };
   }
