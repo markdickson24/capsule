@@ -1,6 +1,7 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
+import { reportError } from './sentry';
 
 // Apple's identity token embeds a hash of the nonce we pass to signInAsync.
 // We give Supabase the RAW nonce; it re-hashes and compares to the token's
@@ -41,10 +42,14 @@ export async function signInWithApple(): Promise<{ error?: string }> {
     // User dismissed the native sheet — silent no-op, same convention as
     // signInWithGoogle's result.type === 'cancel'.
     if (e?.code === 'ERR_REQUEST_CANCELED') return {};
+    reportError(e, { where: 'appleAuth.signInAsync', extra: { code: e?.code } });
     return { error: 'Could not sign in with Apple.' };
   }
 
   if (!credential.identityToken) {
+    reportError(new Error('Apple credential had no identityToken'), {
+      where: 'appleAuth.identityToken',
+    });
     return { error: 'Could not get credentials from Apple.' };
   }
 
@@ -54,7 +59,22 @@ export async function signInWithApple(): Promise<{ error?: string }> {
     nonce: rawNonce,
   });
 
-  if (error) return { error: error.message };
+  // This is the step that silently failed App Review 1.0(30) with "Sign in
+  // with Apple does not login": the exchange returns a plain error object, so
+  // nothing threw and nothing reached Sentry. Report it.
+  //
+  // The overwhelmingly common cause is server config, not this file: Supabase
+  // validates the token's `aud` claim against Authentication -> Providers ->
+  // Apple -> "Client IDs", and for NATIVE sign-in that value is the iOS bundle
+  // id (com.markdickson.capsule), not the Services ID used by the web flow.
+  // Missing it returns "Unacceptable audience in id_token".
+  if (error) {
+    reportError(error, {
+      where: 'appleAuth.signInWithIdToken',
+      extra: { status: (error as any)?.status, code: (error as any)?.code },
+    });
+    return { error: error.message };
+  }
 
   // Apple sends fullName ONLY on the very first authorization ever for this
   // Apple ID + app — never again, even on a later sign-out/sign-in. Capture
