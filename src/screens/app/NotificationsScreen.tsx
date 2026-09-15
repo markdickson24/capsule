@@ -312,8 +312,16 @@ export default function NotificationsScreen() {
       .from('capsule_members')
       .delete()
       .eq('id', memberId)
-      .then(({ error }) => {
-        if (error) {
+      // The capsule_members_delete RLS policy only allows the capsule OWNER
+      // to delete rows — the invitee calling this can never satisfy it. A
+      // delete that matches nobody's row still comes back as { error: null }
+      // (PostgREST has no "0 rows affected" error), so without .select() here
+      // this silently "succeeds" and persistRead marks the invite read forever
+      // while the pending row survives untouched. Requesting the deleted rows
+      // back lets us tell a real delete apart from a zero-row RLS no-op.
+      .select('id')
+      .then(({ data, error }) => {
+        if (error || !data || data.length === 0) {
           reinsertNotification(item);
           setPendingMap(prev => ({ ...prev, [capsuleId]: memberId }));
           toast.show("Couldn't decline the invite — try again.");
