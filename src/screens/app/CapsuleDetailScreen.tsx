@@ -1922,6 +1922,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
+      setError('');
       applyCapsule(capsuleRes.data as unknown as Capsule);
     }
 
