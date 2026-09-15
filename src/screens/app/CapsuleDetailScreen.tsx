@@ -1100,7 +1100,7 @@ function MediaViewerModal({
   // capsule screen (#0A0A0A) back there instead, which is what the drag should
   // be revealing.
   return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <Modal testID="media-viewer" visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <Animated.View style={{ flex: 1, backgroundColor: '#000', opacity: bgOpacity }}>
         <Animated.View
           style={{ flex: 1, transform: [{ translateY }] }}
@@ -1326,7 +1326,7 @@ function MediaGalleryModal({
   const thumbSize = (Dimensions.get('window').width - 4) / 3;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal testID="media-gallery" visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaProvider>
       <SafeAreaView style={gal.container}>
         <View style={gal.header}>
@@ -1350,6 +1350,7 @@ function MediaGalleryModal({
           })}
           renderItem={({ item, index }) => (
             <TouchableOpacity
+              testID={`gallery-thumb-${index}`}
               style={[gal.thumb, { width: thumbSize, height: thumbSize }]}
               onPress={() => onSelect(index)}
               activeOpacity={0.8}
@@ -2632,6 +2633,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                   return (
                     <TouchableOpacity
                       key={p.id}
+                      testID={`capsule-thumb-${index}`}
                       style={styles.photoThumb}
                       activeOpacity={0.8}
                       onPress={() => isLast ? setShowGallery(true) : setActiveMediaIndex(index)}
@@ -2883,7 +2885,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         visible={showGallery}
         items={photos}
         onClose={() => setShowGallery(false)}
-        onSelect={(index) => setActiveMediaIndex(index)}
+        onSelect={(index) => {
+          // Close the gallery before opening the viewer — otherwise both
+          // Modals are mounted/visible at once, which is two simultaneous
+          // native presentations on iOS (the gallery's non-transparent,
+          // full-screen Modal, and the viewer's) and the second one is
+          // refused, leaving the tap looking dead until the gallery is
+          // manually dismissed. See CapsuleDetailScreen bug notes.
+          setShowGallery(false);
+          setActiveMediaIndex(index);
+        }}
       />
 
       {activeMediaIndex !== null && (
