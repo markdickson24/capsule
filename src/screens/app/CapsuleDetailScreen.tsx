@@ -59,6 +59,7 @@ import { presentPaywall } from '../../lib/purchases';
 import { reportError } from '../../lib/sentry';
 import { clampPan, distanceBetween, scaleFromPinch, shouldSnapBack } from '../../lib/zoomMath';
 import { galleryItemLayout } from '../../lib/galleryLayout';
+import { mergeCapsuleUpdate } from '../../lib/mergeCapsuleUpdate';
 import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -1884,7 +1885,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   function applyCapsule(fresh: Capsule) {
     const was = prevStatusRef.current;
     prevStatusRef.current = fresh.status;
-    setCapsule(fresh);
+    // A realtime `postgres_changes` UPDATE payload's `payload.new` is the
+    // bare `capsules` table row — it structurally cannot carry the `owner`
+    // PostgREST embed that only load()'s own `.select()` fetches. A plain
+    // `setCapsule(fresh)` replace here silently dropped that embed on ANY
+    // realtime UPDATE (title edit, unlock, a live-activity flip, ...),
+    // which downgraded `ownerTier` (derived from `capsule.owner` on every
+    // render) to 'free' for the rest of the session. Merge instead, so a
+    // bare row preserves the previously-fetched owner while a `fresh` that
+    // genuinely carries its own `owner` (load()'s rows) still wins.
+    setCapsule(prev => mergeCapsuleUpdate(prev, fresh));
     if (fresh.status === 'unlocked' && was !== null && was !== 'unlocked') {
       triggerReveal();
       // Surprise-mode owners couldn't read media rows pre-unlock (RLS), so a
