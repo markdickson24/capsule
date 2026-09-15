@@ -2,7 +2,16 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
-    "lib": ["ES2022", "DOM"]
+    "lib": ["ES2022", "DOM"],
+    // @expo/vector-icons is nested under expo's own node_modules rather than
+    // hoisted, so plain node resolution can't reach it from src/. Metro has a
+    // custom resolver for this and jest.config.js has the matching
+    // moduleNameMapper; tsc needs the same redirect or all 36 importing files
+    // report TS2307.
+    "paths": {
+      "@expo/vector-icons": ["./node_modules/expo/node_modules/@expo/vector-icons"],
+      "@expo/vector-icons/*": ["./node_modules/expo/node_modules/@expo/vector-icons/*"]
+    }
   },
-  "exclude": ["node_modules", "supabase/functions"]
+  "exclude": ["node_modules", "supabase/functions", "netlify/edge-functions"]
 }
