@@ -58,6 +58,7 @@ import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall } from '../../lib/purchases';
 import { reportError } from '../../lib/sentry';
 import { clampPan, distanceBetween, scaleFromPinch, shouldSnapBack } from '../../lib/zoomMath';
+import { galleryItemLayout } from '../../lib/galleryLayout';
 import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -1343,11 +1344,7 @@ function MediaGalleryModal({
           initialNumToRender={15}
           maxToRenderPerBatch={12}
           windowSize={5}
-          getItemLayout={(_, index) => ({
-            length: thumbSize,
-            offset: thumbSize * Math.floor(index / 3),
-            index,
-          })}
+          getItemLayout={(_, index) => galleryItemLayout(thumbSize, index)}
           renderItem={({ item, index }) => (
             <TouchableOpacity
               style={[gal.thumb, { width: thumbSize, height: thumbSize }]}
