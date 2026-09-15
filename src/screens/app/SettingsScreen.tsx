@@ -18,7 +18,6 @@ import { sessionStore } from '../../lib/sessionStore';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
 import { useEntitlements } from '../../hooks/useEntitlements';
-import { clearPushToken } from '../../hooks/usePushNotifications';
 import { presentPaywall, presentCustomerCenter, restorePurchases } from '../../lib/purchases';
 import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
 import { ACCENT_PRESETS, ACCENT_GRADIENTS } from '../../lib/accentPresets';
@@ -293,15 +292,7 @@ export default function SettingsScreen({ navigation }: Props) {
       <DeleteAccountModal
         visible={showDelete}
         onClose={() => setShowDelete(false)}
-        onDeleted={async () => {
-          // Best-effort — clear before sign-out for the same shared-device
-          // reason as ProfileScreen's Sign Out button (see
-          // usePushNotifications.native.ts's clearPushToken doc). By this
-          // point the account row itself is usually already gone (the RPC
-          // deletes it), so this is normally a harmless no-op; it only
-          // matters if a row somehow outlives the delete.
-          const uid = sessionStore.get()?.user.id;
-          if (uid) await clearPushToken(uid);
+        onDeleted={() => {
           cache.clear();
           sessionStore.markIntentionalSignOut();
           supabase.auth.signOut();

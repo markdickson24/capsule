@@ -27,7 +27,6 @@ import { countFriends } from '../../lib/friends';
 import { useSlideUp } from '../../lib/animations';
 import ProBadge from '../../components/ProBadge';
 import { useEntitlements } from '../../hooks/useEntitlements';
-import { clearPushToken } from '../../hooks/usePushNotifications';
 
 type Profile = {
   id: string;
@@ -464,16 +463,7 @@ export default function ProfileScreen() {
             </Text>
             <TouchableOpacity
               style={styles.destructBtn}
-              onPress={async () => {
-                // Clear the shared-device push token BEFORE signing out —
-                // useAuth's SIGNED_OUT handler runs too late (RLS no longer
-                // authorizes the write once the session is gone). See
-                // usePushNotifications.native.ts's clearPushToken doc.
-                const uid = sessionStore.get()?.user.id;
-                if (uid) await clearPushToken(uid);
-                sessionStore.markIntentionalSignOut();
-                supabase.auth.signOut();
-              }}
+              onPress={() => { sessionStore.markIntentionalSignOut(); supabase.auth.signOut(); }}
             >
               <Text style={styles.destructBtnText}>Sign Out</Text>
             </TouchableOpacity>
