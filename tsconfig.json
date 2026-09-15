@@ -3,5 +3,6 @@
   "compilerOptions": {
     "strict": true,
     "lib": ["ES2022", "DOM"]
-  }
+  },
+  "exclude": ["node_modules", "supabase/functions"]
 }
