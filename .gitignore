@@ -2,6 +2,11 @@
 
 # dependencies
 node_modules/
+# Bare form as well: in a git worktree, node_modules is often a SYMLINK to the
+# parent checkout, and the directory-only rule above does not match a symlink.
+# Without this, `git add -A` stages a dangling absolute-path symlink, which
+# breaks `npm install` / the patch-package postinstall on the EAS builder.
+node_modules
 
 # Expo
 .expo/

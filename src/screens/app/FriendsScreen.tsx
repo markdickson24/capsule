@@ -20,6 +20,7 @@ import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { transformAvatarUrl } from '../../lib/avatarUrl';
 import { blockStore } from '../../lib/blocks';
+import { isDemoAccountId } from '../../lib/demoAccounts';
 import {
   listFriends, listIncomingRequests, acceptFriendRequest, removeFriendship,
   type FriendProfile,
@@ -229,7 +230,8 @@ function FindPeopleModal({
         .ilike('display_name', `%${text.trim()}%`)
         .neq('id', myId ?? '')
         .limit(15);
-      setResults((data ?? []).filter((u: UserResult) => !blockStore.has(u.id)));
+      // Exclude blocked users and demo/marketing fixtures (see demoAccounts.ts).
+      setResults((data ?? []).filter((u: UserResult) => !blockStore.has(u.id) && !isDemoAccountId(u.id)));
       setSearching(false);
     }, 300);
   }

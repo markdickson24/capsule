@@ -223,9 +223,14 @@ export function useLiveActivities(userId?: string | null) {
     }
   }, [userId]);
 
-  // Mount + whenever the signed-in user changes.
+  // Mount + whenever the signed-in user changes. Gated on the app actually
+  // being foregrounded, mirroring the AppState listener below: a cold launch
+  // can happen with the app in the background (a push wake, for instance), and
+  // ActivityKit rejects start() off the foreground with "Target is not
+  // foreground". Nothing is lost by skipping — the listener below runs the same
+  // pass on the next foreground.
   useEffect(() => {
-    reconcile();
+    if (AppState.currentState === 'active') reconcile();
   }, [reconcile]);
 
   // Foreground: catches a deadline that passed, or a capsule that unlocked,

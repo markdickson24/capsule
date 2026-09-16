@@ -1,0 +1,39 @@
+-- capsule_join_preview lost its `anon` EXECUTE grant and was never actually
+-- callable by the one caller it exists for: the public, signed-out /join/*
+-- Netlify Edge Function (netlify/edge-functions/join.ts), which has no user
+-- session and can only authenticate as `anon`.
+--
+-- Chain of events:
+-- 1. 20260623000000_capsule_join_preview.sql created this SECURITY DEFINER
+--    RPC specifically so a non-member could read a public preview "gated
+--    only by possession of the (unguessable) capsule UUID" — but only ever
+--    granted EXECUTE to `authenticated`, never `anon`.
+-- 2. 20260718120000_revoke_anon_rpc_execute.sql swept every function's
+--    implicit PUBLIC/anon grant on the (generally correct) reasoning that
+--    "the app never calls any RPC signed-out" — true for the in-app client,
+--    false for this specific RPC's real caller.
+-- 3. 20260724220000_join_preview_pending_state.sql did a signature-changing
+--    DROP+CREATE (wipes the ACL) and re-granted authenticated + service_role
+--    — its own comment names "the /join/* edge function" as a caller that
+--    would break without a re-grant, then omitted anon from the actual
+--    grant list.
+--
+-- Net effect verified live: `capsule_join_preview`'s ACL is
+-- {postgres=X,authenticated=X,service_role=X} — no anon entry. Every
+-- anonymous fetch of https://getcapsuleapp.com/join/<id> (iMessage/WhatsApp/
+-- Slack/Twitter link-unfurl bots, or any signed-out visitor) gets a
+-- permission-denied error from PostgREST, which join.ts's fetchPreview()
+-- treats as "unavailable" and falls back to generic copy — "<owner> invited
+-- you to "a Capsule"" instead of the real title, in the rich link preview
+-- iMessage renders when a capsule invite is shared.
+--
+-- Fix: restore the anon grant. This matches the function's own documented
+-- security model from its very first migration — it is SECURITY DEFINER and
+-- returns only fields already shown on this public page (title, owner
+-- display name, owner avatar, member count, already_member, is_pending) —
+-- none of it more sensitive than what `users` already exposes to any
+-- authenticated reader via `USING (true)`. This is not a broadening of
+-- exposure; it's undoing an accidental regression of a grant that was
+-- always meant to exist.
+
+grant execute on function public.capsule_join_preview(uuid) to anon;

@@ -13,6 +13,7 @@
 //  - Performance tracing only (no Session Replay — it records the user's screen).
 import * as Sentry from '@sentry/react-native';
 import Constants from 'expo-constants';
+import { describeError } from './errorFields';
 
 const DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
 
@@ -85,14 +86,33 @@ export function reportError(
   error: unknown,
   { where, extra }: { where?: string; extra?: Record<string, unknown> } = {},
 ) {
-  const err = error instanceof Error ? error : new Error(String(error));
-  if (!where && !extra) {
+  // Real Errors pass through untouched, so their message/stack/grouping in
+  // Sentry are byte-identical to before this helper existed.
+  let err: Error;
+  let errorFields: Record<string, unknown> = {};
+  if (error instanceof Error) {
+    err = error;
+  } else {
+    // Non-Error values — notably Supabase's plain `{ message, code, details,
+    // hint }` error objects, which `String(error)` flattened to the literal
+    // "[object Object]" — get a real message plus their scalar fields as extras.
+    const described = describeError(error);
+    err = new Error(described.message);
+    if (described.name) err.name = described.name;
+    errorFields = described.fields;
+  }
+  // Caller-supplied `extra` wins a key collision: it's deliberate context from
+  // the call site, the error's own fields are incidental. (No existing call site
+  // uses code/details/hint as an extras key.)
+  const allExtras =
+    Object.keys(errorFields).length > 0 || extra ? { ...errorFields, ...extra } : undefined;
+  if (!where && !allExtras) {
     Sentry.captureException(err);
     return;
   }
   Sentry.withScope((scope) => {
     if (where) scope.setTag('where', where);
-    if (extra) scope.setExtras(extra);
+    if (allExtras) scope.setExtras(allExtras);
     Sentry.captureException(err);
   });
 }
