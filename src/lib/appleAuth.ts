@@ -61,7 +61,9 @@ export async function signInWithApple(): Promise<{ error?: string }> {
   // it now or it's gone for good.
   const givenName = credential.fullName?.givenName?.trim();
   const familyName = credential.fullName?.familyName?.trim();
-  const fullName = [givenName, familyName].filter(Boolean).join(' ').trim();
+  // Capped at 30 to match users_display_name_length_check — a longer value
+  // would fail the update below and leave the relay-email placeholder.
+  const fullName = [givenName, familyName].filter(Boolean).join(' ').trim().slice(0, 30).trim();
 
   if (fullName && data.user) {
     // Unconditional overwrite — safe because Apple only ever grants fullName

@@ -68,6 +68,17 @@ img { display: block; max-width: 100%; }
 .btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--border); }
 .btn-ghost:hover { border-color: #3a3a3a; }
 
+/* ── App Store badge ──
+   app-store-badge.svg is Apple's official "Download on the App Store" artwork
+   (white variant, correct for this near-black background). Do not redraw,
+   recolour, or add effects to it; Apple's identity guidelines treat the badge
+   as fixed artwork. Both heights stay above Apple's 40px minimum, and the
+   inline-block wrapper preserves the clear space required around it. */
+.appstore-badge { display: inline-block; line-height: 0; transition: transform .15s ease, opacity .15s ease; }
+.appstore-badge:hover { transform: translateY(-1px); opacity: .9; }
+.appstore-badge img { height: 54px; width: auto; }
+.appstore-badge--sm img { height: 40px; }
+
 /* ── nav ── */
 nav {
   position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
@@ -79,8 +90,6 @@ nav.scrolled { background: rgba(10,10,10,.9); backdrop-filter: blur(14px); borde
 .nav-inner { width: 100%; max-width: var(--maxw); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 19px; letter-spacing: -0.01em; }
 .brand .mark { width: 36px; height: 36px; border-radius: 9px; display: block; object-fit: cover; }
-.beta-pill { font-size: 11px; font-weight: 800; letter-spacing: .03em; color: var(--accent-soft); background: rgba(var(--accent-rgb),.12); border: 1px solid rgba(var(--accent-rgb),.3); border-radius: var(--r-pill); padding: 3px 9px; }
-@media (max-width: 480px){ .beta-pill { display: none; } }
 .nav-links { display: flex; align-items: center; gap: 28px; }
 .nav-links a.lnk { color: var(--text-2); font-size: 15px; font-weight: 600; transition: color .2s; }
 .nav-links a.lnk:hover { color: var(--text); }
@@ -197,21 +206,8 @@ section { padding: 88px 0; }
 .cta-band { padding: 20px 0 80px; text-align: center; }
 .cta-band h2 { font-weight: 800; font-size: clamp(26px, 3.6vw, 38px); letter-spacing: -0.015em; }
 .cta-band > .wrap > p { color: var(--text-2); margin: 12px auto 28px; max-width: 28em; font-size: 16px; }
-.cta-form { display: flex; flex-direction: column; align-items: center; gap: 12px; max-width: 440px; margin: 0 auto; }
-.cta-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; width: 100%; }
-.cta-form input[type="email"] {
-  flex: 1; min-width: 220px; background: var(--surface); border: 1px solid var(--border); color: var(--text);
-  padding: 14px 18px; border-radius: var(--r-pill); font-family: var(--font); font-size: 15px; outline: none;
-}
-.cta-form input[type="email"]:focus { border-color: var(--accent); }
-.cta-consent { display: flex; align-items: flex-start; gap: 9px; max-width: 420px; text-align: left; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
-.cta-consent input { width: 16px; height: 16px; margin-top: 2px; flex: none; accent-color: var(--accent); cursor: pointer; }
-.cta-consent a { color: var(--text); font-weight: 600; text-decoration: underline; }
-.cta-msg { font-size: 13.5px; font-weight: 700; min-height: 18px; }
-.cta-msg.ok { color: var(--success); }
-.cta-msg.err { color: var(--accent); }
-/* ── honest access note — replaces store badges while there is no live
-   store listing to link to; states real distribution status only ── */
+/* ── honest access note: sits under the store badge and states the real
+   distribution status (platform, price, what is not shipped yet) ── */
 .access-note { display: flex; align-items: center; gap: 12px; text-align: left; max-width: 440px; margin: 26px auto 0; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px 18px; }
 .access-note .ic { color: var(--accent); flex: none; }
 .access-note b { display: block; font-size: 14.5px; font-weight: 800; }
@@ -292,8 +288,6 @@ footer { border-top: 1px solid var(--border); padding: 36px 0; }
   .hero-cta { gap: 10px; justify-content: center; }
   .hero-cta .btn { width: 100%; justify-content: center; }
   section { padding: 50px 0; }
-  .cta-form input[type="email"] { min-width: 0; }
-  .cta-form .btn { width: 100%; justify-content: center; }
   .occasion-grid { grid-template-columns: 1fr; }
 }
 

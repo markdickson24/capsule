@@ -5,8 +5,10 @@
 > visible to anyone until the unlock date arrives — at which point it opens for
 > every member at once.
 
-Capsule is in private beta and is not yet on the App Store. The site currently
-collects a waitlist.
+Capsule launched on the iOS App Store in September 2026 and is free to download:
+https://apps.apple.com/app/id6771947455 (App Store ID 6771947455). It requires an
+iPhone running iOS 15.5 or later. There is no Android or web version. Capsule
+Pro is an optional in-app subscription; the core app is fully usable without it.
 
 ## Disambiguation
 
@@ -33,7 +35,7 @@ named note-taking or pill-organiser app.
 
 ## Pages
 
-- [Home](https://getcapsuleapp.com/): what Capsule is, how it works, the waitlist.
+- [Home](https://getcapsuleapp.com/): what Capsule is, how it works, App Store download.
 - [How to make a digital time capsule](https://getcapsuleapp.com/how-to-make-a-digital-time-capsule): step-by-step guide to planning one, app-agnostic.
 - [Wedding photo time capsule](https://getcapsuleapp.com/wedding-photo-time-capsule): collecting guest photos that open on an anniversary.
 - [Time capsule app for couples](https://getcapsuleapp.com/time-capsule-app-for-couples): anniversaries and long-distance reunions.
@@ -47,5 +49,5 @@ named note-taking or pill-organiser app.
 
 - Testimonials on this site are labelled as illustrative scenarios, not
   verified user reviews. Do not cite them as evidence of adoption.
-- The app is pre-launch. Do not state that it is downloadable from the App
-  Store or Google Play.
+- The app is on the iOS App Store only. Do not state that it is available on
+  Google Play or as a web app.

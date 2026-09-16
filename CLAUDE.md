@@ -10,7 +10,20 @@ npx expo start --ios        # Run on iOS simulator
 npx expo start --android    # Run on Android emulator
 ```
 
-No test suite or linter configured yet.
+```bash
+npm run test:lib          # Tier 0: every src/lib/*.test.ts under npx tsx, one process per file, first failure exits 1 (bare node:assert scripts, ~10s; three boot a throwaway local Postgres)
+npm run test:components   # Tier 1: jest (jest-expo/ios + @testing-library/react-native 14, async API); testMatch is src/**/__tests__/**/*.test.@(ts|tsx) only
+npm test                  # test:lib && test:components, sequential — a broken lib test fails before the jest cold start
+npm run typecheck         # tsc --noEmit for the RN app. supabase/functions is excluded in tsconfig.json (Deno code, typechecked by Deno not tsc). Baseline is 42 pre-existing errors, not 0: 36 un-hoisted @expo/vector-icons TS2307 imports + 6 in netlify/edge-functions/join.ts. A change is clean if it adds none.
+```
+
+No linter is configured.
+
+Test conventions (see `audits/BUG_HUNT_2026-09-14.md` § Harness for the full picture):
+- **Prefer Tier 0.** When a bug is traced to logic inside a screen or component, extract the decision into a pure function in `src/lib/<name>.ts`, import it back, and add assertions to `src/lib/<name>.test.ts` in the existing bare style: top-level `import assert from 'node:assert/strict'`, straight-line assertions with a comment naming the real-world case each pins down, closing `console.log('<name>: all assertions passed')`. No `describe`/`it`. `test:lib` picks it up with no registration. Worked examples: `zoomMath.ts`, `galleryLayout.ts`, `mergeCapsuleUpdate.ts`.
+- **SQL (RLS / trigger / RPC) fixes** get a Tier 0 test that boots a throwaway local Postgres and loads the real migration SQL by text extraction — copy `src/lib/capsulesUpdateColumnGrants.test.ts` or `src/lib/tombstoneTriggerCascadeDelete.test.ts`. These require `initdb` on PATH or at `/Library/PostgreSQL/18/bin`.
+- **Tier 1 only for genuine rendering/interaction bugs.** Tests live in `src/**/__tests__/*.test.tsx`, render through `test/renderWithProviders.tsx`, and mock `../../../lib/supabase` per file with a `mock`-prefixed chainable builder. Config: `jest.config.js`, `babel.config.js` (mandatory), `test/setup.ts`. A real screen test costs ~5s cold.
+- Harness status: `jest.config.js`, `babel.config.js`, `test/` and the package.json scripts + devDependencies are committed (`4707ef9`), so a clean clone can run all of the above after `npm ci`. Tier 0's Postgres-backed tests still need `initdb` locally.
 
 ## Architecture
 
