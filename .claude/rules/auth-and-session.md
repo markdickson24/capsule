@@ -11,34 +11,34 @@ paths:
   - "App.tsx"
 ---
 
-<!-- Moved verbatim from CLAUDE.md. Loads automatically when Claude reads a file matching `paths`. -->
+<!-- Trimmed from the original CLAUDE.md; backstory kept in HTML comments. Loads automatically when Claude reads a file matching `paths`. -->
 
 ## Auth Flow
 
-`useAuth` (`src/hooks/useAuth.ts`) listens to `supabase.auth.onAuthStateChange`. `App.tsx` renders `AuthNavigator` or `AppNavigator` based on session presence. Loading state blocks rendering until session is confirmed (Supabase session restore is async).
+`useAuth` (`src/hooks/useAuth.ts`) listens to `supabase.auth.onAuthStateChange`; `App.tsx` renders `AuthNavigator`/`AppNavigator` by session presence, blocking render until session is confirmed.
 
-**Auth methods:** email/password (`supabase.auth.signInWithPassword`) and Google OAuth (`src/lib/googleAuth.ts` — uses `expo-auth-session` + `expo-web-browser`, reads `?code=` off the redirect URL and calls `supabase.auth.exchangeCodeForSession`). **The client is configured `flowType: 'pkce'`** — see "Deep links" for why, and for the one-line change that would break both Google sign-in and password reset at once.
+**Auth methods:** email/password (`supabase.auth.signInWithPassword`) and Google OAuth (`src/lib/googleAuth.ts`, via `expo-auth-session`/`expo-web-browser`, reads `?code=` off the redirect, calls `supabase.auth.exchangeCodeForSession`). Client is `flowType: 'pkce'` (see "Deep links") — changing it breaks both Google sign-in and password reset.
 
-**Platform split in `src/lib/supabase.ts`:** on web, Supabase uses `localStorage` (default). On native, `expo-secure-store` is used via a custom async adapter. Do not use the async adapter on web — it causes the JWT to not be attached to requests.
+**Platform split (`src/lib/supabase.ts`):** web uses `localStorage`; native uses `expo-secure-store` via a custom async adapter. Never use the async adapter on web — JWT won't attach to requests.
 
-⚠️ **The native SecureStore adapter writes with `keychainAccessible: AFTER_FIRST_UNLOCK`, and must keep doing so.** expo-secure-store defaults to `WHEN_UNLOCKED`, which makes the keychain item unreadable **while the device is locked** — SecureStore throws `User interaction is not allowed`, the auth client sees no stored session, and the user lands on Welcome as if signed out. Confirmed in production: a `getValueWithKeyAsync` failure with `screen: Welcome` in the same Sentry trace. The app reads the session precisely when the device tends to be locked — a push tap, a Live Activity tap from the lock screen, and the background `autoRefreshToken` timer. ⚠️ **Accessibility is fixed when the item is WRITTEN**, so this is not retroactive: an install that stored its session under `WHEN_UNLOCKED` keeps that until the session is next written (sign-in, or a refresh while unlocked). `getItem` also catches and returns null rather than throwing, so a failed read degrades to "signed out" instead of an unhandled exception, and reports through `reportError`.
+⚠️ **Native SecureStore writes must use `keychainAccessible: AFTER_FIRST_UNLOCK`**, not the `WHEN_UNLOCKED` default, which is unreadable while the device is locked (throws `User interaction is not allowed`) — exactly when session reads happen most (push tap, Live Activity tap, background `autoRefreshToken`). Confirmed in production: a `getValueWithKeyAsync` failure with `screen: Welcome` in the same Sentry trace. Fix applies only on the next WRITE (sign-in or refresh-while-unlocked), not retroactively. `getItem` catches and returns null instead of throwing, reporting via `reportError`.
 
+**Use `getSession()`, never `getUser()`**, for user ID/token — `getUser()` is a live network call (500ms–2s); `getSession()` reads local storage instantly.
 
-**Always use `getSession()` instead of `getUser()`** when you just need the user ID or token. `getUser()` makes a live network request on every call (500ms–2s latency). `getSession()` reads from local storage instantly.
-
-**Email OTP confirmation (`SignUpScreen`)** — signup verifies the email with a **6-digit code**, not a magic link. When `supabase.auth.signUp` succeeds with `data.session === null` (email confirmation required), the screen replaces the whole form with a `pendingEmail` code-entry state: shows the email, a **6-digit `TextInput`** (`textContentType="oneTimeCode"`, auto-submits at 6 digits via `onOtpChange` → `handleVerify`), a "Verify & continue" button, a "Resend code" button (`supabase.auth.resend({ type: 'signup', email })`, 60s cooldown), and a "Use a different email" link that resets to the form. `handleVerify(code)` calls **`supabase.auth.verifyOtp({ email, token: code, type: 'signup' })`** — on success this sets the session, so `useAuth`'s `onAuthStateChange` swaps `AuthNavigator` → `AppNavigator` → Onboarding automatically, with **no separate Login step** (the old flow required tapping an emailed link in a browser, then manually signing in). A wrong/expired code shows an inline error and clears the input. **This requires the Supabase "Confirm signup" email template to emit `{{ .Token }}`** (the code) — the default template only sends `{{ .ConfirmationURL }}` (a link); keep both in the template so already-installed older app builds (which expected a link) still work during rollout. `AuthStackParamList['Login']` is still `{ email?: string } | undefined` (`LoginScreen` seeds its email from `route.params?.email`) — used by the "already registered → Sign in instead" path. Auth error strings are mapped through `mapAuthError` (`src/lib/authErrors.ts`); "already registered" renders a tappable "Sign in instead" link.
+**Email OTP (`SignUpScreen`)** — signup verifies via a **6-digit code**, not a magic link. `data.session === null` from `supabase.auth.signUp` shows a `pendingEmail` state: 6-digit `TextInput` (`textContentType="oneTimeCode"`, auto-submits via `onOtpChange` → `handleVerify`), "Resend code" (`supabase.auth.resend({ type: 'signup', email })`, 60s cooldown), "Use a different email". `handleVerify(code)` calls `supabase.auth.verifyOtp({ email, token: code, type: 'signup' })` — success sets the session, `useAuth` swaps navigators automatically, **no separate Login step**. Requires the "Confirm signup" email template to emit `{{ .Token }}` (default only sends `{{ .ConfirmationURL }}` — keep both for older builds). `AuthStackParamList['Login']` stays `{ email?: string } | undefined` (`LoginScreen` seeds from `route.params?.email`) for "Sign in instead". Errors map through `mapAuthError` (`src/lib/authErrors.ts`).
 
 ## Sign-Up Flow
 
-`SignUpScreen` collects only email and password — **no display name**. Display name is collected in Onboarding Step 1 (the first screen after sign-up). This avoids asking for the name twice.
+`SignUpScreen` collects only email + password — no display name (collected in Onboarding Step 1, to avoid asking twice).
 
-**`handle_new_user` does NOT leave `display_name` null** — this doc previously claimed it did, which was wrong and caused a real bug (see "Apple Sign In" → name auto-fill). The live trigger is `coalesce(new.raw_user_meta_data->>'display_name', split_part(coalesce(new.email, new.phone, 'user'), '@', 1))` — with no `display_name` key in `raw_user_meta_data` (true for email signup, Google, and Apple), it falls back to the **local part of the email**. For a normal email signup this is harmless today only because nothing reads `users.display_name` back before `OnboardingScreen`'s own `saveProfile()` overwrites it — the local `displayName` state starts blank (`useState('')`) regardless of what's in the DB. Any new code that reads `users.display_name` before onboarding completes (like Apple Sign In's pre-fill) **will** see this fallback value, not null. For Apple's private-relay email (`4n66rhjb5j@privaterelay.appleid.com`) that fallback is a random-looking string — exactly what a real user saw in production before this was fixed.
+**`handle_new_user` does NOT leave `display_name` null** — trigger is `coalesce(new.raw_user_meta_data->>'display_name', split_part(coalesce(new.email, new.phone, 'user'), '@', 1))`, falling back to the **email's local part** when no `display_name` key exists (true for email/Google/Apple signup). Harmless for email signup only because nothing reads `users.display_name` before `OnboardingScreen.saveProfile()` overwrites it (local `displayName` state starts blank via `useState('')`). Code reading `users.display_name` before onboarding completes **will** see this fallback — e.g. Apple's private-relay email (`4n66rhjb5j@privaterelay.appleid.com`) yields a random-looking string.
+<!-- History: this doc previously wrongly claimed display_name stayed null; caused a real bug in Apple Sign In's name auto-fill. -->
 
 ## Web Auth Gotchas
 
-`supabase.auth.getSession()` on web hangs indefinitely when the stored access token is expired and the refresh network call is slow or blocked. The Supabase internal `initializePromise` does not resolve until the refresh completes, so both `getSession()` and the `INITIAL_SESSION` auth event can be blocked simultaneously.
+`supabase.auth.getSession()` hangs on web when the stored token is expired and the refresh call is slow/blocked — Supabase's `initializePromise` won't resolve until refresh completes, blocking both `getSession()` and `INITIAL_SESSION`.
 
-**Pattern to use everywhere:**
+**Pattern:**
 ```ts
 // WRONG — hangs on web if token is expired
 const { data: { session } } = await supabase.auth.getSession();
@@ -48,13 +48,10 @@ import { sessionStore } from '../../lib/sessionStore';
 const session = sessionStore.get();
 ```
 
-`sessionStore` (`src/lib/sessionStore.ts`) seeds itself synchronously on web by reading Supabase's `sb-<projectRef>-auth-token` entry from `localStorage` at module load. This means `sessionStore.get()` returns the persisted session before Supabase has finished its async init — so the app never has to wait on `initializePromise`.
+`sessionStore` (`src/lib/sessionStore.ts`) seeds synchronously on web from `sb-<projectRef>-auth-token` in `localStorage` at module load, returning the persisted session before Supabase finishes init.
 
-`useAuth` (`src/hooks/useAuth.ts`) uses that synchronous seed: on web, `loading` starts as `false` and the initial `session` comes straight from `sessionStore`, so the root spinner never blocks. On native, a 1.5s fallback timeout forces `loading` off in case SecureStore-backed init lags. `onAuthStateChange` then updates state when Supabase eventually catches up.
+`useAuth`: web `loading` starts `false`, initial session from `sessionStore`. Native: 1.5s fallback timeout forces `loading` off if SecureStore init lags. `onAuthStateChange` updates state once Supabase catches up.
 
-**Push notifications on web:** `expo-notifications` triggers side effects at import time that warn on web. Solved with platform-specific files:
-- `usePushNotifications.native.ts` — full implementation (native only)
-- `usePushNotifications.web.ts` — no-op stub (web)
-- `usePushNotifications.ts` — no-op stub (TypeScript resolution fallback)
+**Push notifications on web:** `expo-notifications` warns at import time — split via platform files: `usePushNotifications.native.ts` (full impl), `usePushNotifications.web.ts` (no-op), `usePushNotifications.ts` (TS fallback stub).
 
-**Shadow props on web:** `shadowColor`, `shadowOpacity`, `shadowRadius`, `shadowOffset` are deprecated in React Native Web. Wrap in `Platform.select({ default: { shadow... }, web: {} })` applied as an inline style override, and remove from `StyleSheet.create`.
+**Shadow props on web:** `shadowColor`/`shadowOpacity`/`shadowRadius`/`shadowOffset` are deprecated in RN Web — wrap in `Platform.select({ default: { shadow... }, web: {} })`, remove from `StyleSheet.create`.
