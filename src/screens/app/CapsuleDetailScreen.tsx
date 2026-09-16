@@ -59,6 +59,8 @@ import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall } from '../../lib/purchases';
 import { reportError } from '../../lib/sentry';
 import { clampPan, distanceBetween, scaleFromPinch, shouldSnapBack } from '../../lib/zoomMath';
+import { galleryItemLayout } from '../../lib/galleryLayout';
+import { mergeCapsuleUpdate } from '../../lib/mergeCapsuleUpdate';
 import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
@@ -1102,7 +1104,7 @@ function MediaViewerModal({
   // capsule screen (#0A0A0A) back there instead, which is what the drag should
   // be revealing.
   return (
-    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+    <Modal testID="media-viewer" visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <Animated.View style={{ flex: 1, backgroundColor: '#000', opacity: bgOpacity }}>
         <Animated.View
           style={{ flex: 1, transform: [{ translateY }] }}
@@ -1356,7 +1358,7 @@ function MediaGalleryModal({
   const thumbSize = (Dimensions.get('window').width - 4) / 3;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Modal testID="media-gallery" visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaProvider>
       <SafeAreaView style={gal.container}>
         <View style={gal.header}>
@@ -1373,13 +1375,10 @@ function MediaGalleryModal({
           initialNumToRender={15}
           maxToRenderPerBatch={12}
           windowSize={5}
-          getItemLayout={(_, index) => ({
-            length: thumbSize,
-            offset: thumbSize * Math.floor(index / 3),
-            index,
-          })}
+          getItemLayout={(_, index) => galleryItemLayout(thumbSize, index)}
           renderItem={({ item, index }) => (
             <TouchableOpacity
+              testID={`gallery-thumb-${index}`}
               style={[gal.thumb, { width: thumbSize, height: thumbSize }]}
               onPress={() => onSelect(index)}
               activeOpacity={0.8}
@@ -1917,7 +1916,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
   function applyCapsule(fresh: Capsule) {
     const was = prevStatusRef.current;
     prevStatusRef.current = fresh.status;
-    setCapsule(fresh);
+    // A realtime `postgres_changes` UPDATE payload's `payload.new` is the
+    // bare `capsules` table row — it structurally cannot carry the `owner`
+    // PostgREST embed that only load()'s own `.select()` fetches. A plain
+    // `setCapsule(fresh)` replace here silently dropped that embed on ANY
+    // realtime UPDATE (title edit, unlock, a live-activity flip, ...),
+    // which downgraded `ownerTier` (derived from `capsule.owner` on every
+    // render) to 'free' for the rest of the session. Merge instead, so a
+    // bare row preserves the previously-fetched owner while a `fresh` that
+    // genuinely carries its own `owner` (load()'s rows) still wins.
+    setCapsule(prev => mergeCapsuleUpdate(prev, fresh));
     if (fresh.status === 'unlocked' && was !== null && was !== 'unlocked') {
       triggerReveal();
       // Surprise-mode owners couldn't read media rows pre-unlock (RLS), so a
@@ -1945,6 +1953,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
     if (capsuleRes.error) {
       setError('Failed to load capsule.');
     } else {
+      setError('');
       applyCapsule(capsuleRes.data as unknown as Capsule);
     }
 
@@ -2662,6 +2671,7 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
                   return (
                     <TouchableOpacity
                       key={p.id}
+                      testID={`capsule-thumb-${index}`}
                       style={styles.photoThumb}
                       activeOpacity={0.8}
                       onPress={() => isLast ? setShowGallery(true) : setActiveMediaIndex(index)}
@@ -2913,7 +2923,16 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         visible={showGallery}
         items={photos}
         onClose={() => setShowGallery(false)}
-        onSelect={(index) => setActiveMediaIndex(index)}
+        onSelect={(index) => {
+          // Close the gallery before opening the viewer — otherwise both
+          // Modals are mounted/visible at once, which is two simultaneous
+          // native presentations on iOS (the gallery's non-transparent,
+          // full-screen Modal, and the viewer's) and the second one is
+          // refused, leaving the tap looking dead until the gallery is
+          // manually dismissed. See CapsuleDetailScreen bug notes.
+          setShowGallery(false);
+          setActiveMediaIndex(index);
+        }}
       />
 
       {activeMediaIndex !== null && (

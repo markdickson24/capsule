@@ -111,6 +111,38 @@ async function registerToken(userId: string) {
 }
 
 /**
+ * Clears this user's push token. Call sites must run this BEFORE
+ * supabase.auth.signOut(), never from useAuth's SIGNED_OUT handler — by the
+ * time that event fires the client's session is already gone, so the UPDATE
+ * would run unauthenticated and RLS would silently reject it (0 rows
+ * affected, no error). Without this, a shared/handed-off device keeps the
+ * departing user's Expo push token on their `users` row; permission is
+ * device/OS-scoped rather than account-scoped, so the next user who signs in
+ * on the same device re-registers the SAME token with no new prompt
+ * (`registerToken` above only checks `getPermissionsAsync`), and the
+ * departing user's capsule-title pushes keep arriving on the new user's
+ * screen. Best-effort: a failure here is no worse than the pre-existing bug.
+ *
+ * Only ProfileScreen's Sign Out button calls this — NOT the delete-account
+ * flow. `delete_my_account` destroys the auth user, so by the time its
+ * `onDeleted` callback runs the JWT is already dead and this UPDATE would be
+ * a guaranteed-zero-rows unauthenticated call for no benefit (the row itself
+ * is typically already gone too, per the RPC's cascade). See the reverted
+ * da38749/14db716 history for why that call site was removed rather than
+ * kept as a "harmless" no-op.
+ */
+export async function clearPushToken(userId: string): Promise<void> {
+  try {
+    await supabase
+      .from('users')
+      .update({ push_token: null })
+      .eq('id', userId);
+  } catch (e) {
+    console.warn('[PushNotifications] clearPushToken failed:', e);
+  }
+}
+
+/**
  * The one place the native permission prompt is allowed to fire. Called from
  * the Onboarding "Don't miss it" primer (and any future contextual re-ask).
  * Returns whether pushes ended up enabled; registers the token on grant.
