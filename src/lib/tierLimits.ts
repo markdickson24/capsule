@@ -86,3 +86,30 @@ export function entitlementsResolved(rc: SourceState, db: SourceState): boolean 
   if (rc === 'pending' || db === 'pending') return false;
   return rc === 'known' || db === 'known';
 }
+
+/**
+ * The tier that sets the VIDEO-LENGTH cap for one target capsule.
+ *
+ * Normally the owner's mirrored `users.subscription_tier`. But when the current
+ * user owns the capsule, their own live entitlement (`useEntitlements`) is also
+ * trusted: the DB tier only flips via the RevenueCat webhook, and when that
+ * webhook failed (Oct 2026 — a secret mismatch 401'd every delivery) a paying
+ * owner was capped at 30s in their own capsule while every isPro-gated screen
+ * correctly showed them Pro.
+ *
+ * While entitlements are still loading this fails OPEN to Pro, matching
+ * CreateScreen's pendingMedia trim: video length has no server backstop, and
+ * trimming a paying user's clip on a guess is irreversible.
+ *
+ * Video only. Photo/member caps are enforced by server triggers on the DB tier,
+ * so loosening them client-side would just turn a clear gate into a failed upload.
+ */
+export function videoCapTier(
+  ownerDbTier: string | null | undefined,
+  ownedByCurrentUser: boolean,
+  currentUserIsPro: boolean,
+  entitlementsLoading: boolean,
+): string | null | undefined {
+  if (ownedByCurrentUser && (currentUserIsPro || entitlementsLoading)) return 'pro';
+  return ownerDbTier;
+}
