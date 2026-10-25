@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Animated,
-  TouchableOpacity, Modal, Pressable, Linking, Switch, Platform,
+  TouchableOpacity, Modal, Pressable, Switch, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -25,6 +25,7 @@ import { proGateHit } from '../../lib/proGate';
 import { reportError } from '../../lib/sentry';
 import ProBadge from '../../components/ProBadge';
 import { DISCORD_URL, INSTAGRAM_URL, TIKTOK_URL } from '../../lib/communityLinks';
+import { openLink } from '../../lib/openLink';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Settings'>;
 
@@ -228,17 +229,17 @@ export default function SettingsScreen({ navigation }: Props) {
             <SettingsRow
               icon="logo-discord"
               label="Join our Discord"
-              onPress={() => Linking.openURL(DISCORD_URL)}
+              onPress={() => openLink(DISCORD_URL)}
             />
             <SettingsRow
               icon="logo-instagram"
               label="Instagram"
-              onPress={() => Linking.openURL(INSTAGRAM_URL)}
+              onPress={() => openLink(INSTAGRAM_URL)}
             />
             <SettingsRow
               icon="logo-tiktok"
               label="TikTok"
-              onPress={() => Linking.openURL(TIKTOK_URL)}
+              onPress={() => openLink(TIKTOK_URL)}
             />
           </View>
 
@@ -256,17 +257,17 @@ export default function SettingsScreen({ navigation }: Props) {
             <SettingsRow
               icon="mail-outline"
               label="Contact Support"
-              onPress={() => Linking.openURL(SUPPORT_URL)}
+              onPress={() => openLink(SUPPORT_URL, `Email us at ${SUPPORT_EMAIL}`)}
             />
             <SettingsRow
               icon="document-text-outline"
               label="Privacy Policy"
-              onPress={() => Linking.openURL(PRIVACY_URL)}
+              onPress={() => openLink(PRIVACY_URL)}
             />
             <SettingsRow
               icon="reader-outline"
               label="Terms of Service"
-              onPress={() => Linking.openURL(TERMS_URL)}
+              onPress={() => openLink(TERMS_URL)}
             />
           </View>
 

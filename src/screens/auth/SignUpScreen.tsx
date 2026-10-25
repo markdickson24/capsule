@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, TouchableOpacity, TextInput,
-  KeyboardAvoidingView, Platform, Linking,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import { AuthStackParamList } from '../../types/navigation';
 import { supabase } from '../../lib/supabase';
 import { mapAuthError } from '../../lib/authErrors';
 import { PRIVACY_URL, TERMS_URL } from '../../lib/legalLinks';
+import { openLink } from '../../lib/openLink';
 import PasswordRequirements, { isPasswordValid } from '../../components/PasswordRequirements';
 
 type Props = {
@@ -277,11 +278,11 @@ export default function SignUpScreen({ navigation }: Props) {
 
         <Text style={styles.consentText}>
           By creating an account you agree to our{' '}
-          <Text style={styles.consentLink} onPress={() => Linking.openURL(TERMS_URL)}>
+          <Text style={styles.consentLink} onPress={() => openLink(TERMS_URL)}>
             Terms of Service
           </Text>{' '}
           and{' '}
-          <Text style={styles.consentLink} onPress={() => Linking.openURL(PRIVACY_URL)}>
+          <Text style={styles.consentLink} onPress={() => openLink(PRIVACY_URL)}>
             Privacy Policy
           </Text>
           .
