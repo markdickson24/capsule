@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as VideoThumbnails from 'expo-video-thumbnails';
 import { supabase, getFreshAccessToken } from './supabase';
@@ -118,7 +118,12 @@ async function uploadFile(storageKey: string, uri: string, mimeType: string): Pr
     }
   );
   if (result.status < 200 || result.status >= 300) {
-    throw new Error(`Storage ${result.status}`);
+    // The body is storage-api's JSON ({ statusCode, error, message }). The
+    // bare status alone left every 400 undiagnosable in Sentry
+    // (REACT-NATIVE-E): expired token, RLS rejection and bad key all looked
+    // identical.
+    const detail = (result.body ?? '').slice(0, 300);
+    throw new Error(detail ? `Storage ${result.status}: ${detail}` : `Storage ${result.status}`);
   }
   return fileInfo.exists ? (fileInfo as any).size ?? 0 : 0;
 }
@@ -317,16 +322,48 @@ async function cleanupOrphanedUploads(
 // either finish or fail within 3 minutes so the loop always keeps moving.
 const TASK_TIMEOUT_MS = 180_000;
 
+// Only time spent in the foreground counts toward `ms`. iOS suspends JS (and
+// its timers) in the background, so a wall-clock timer fired the moment the
+// app resumed and failed an upload that was still progressing in its
+// background session (REACT-NATIVE-9). The budget exists to catch a dead
+// connection, which only foreground time can tell apart from a suspended one.
+// (uploadAsync already defaults to a background NSURLSession on iOS, so the
+// transfer itself keeps going.)
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let remaining = ms;
+  let startedAt = 0;
+  let sub: { remove(): void } | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
+    const arm = () => {
+      startedAt = Date.now();
+      timer = setTimeout(() => reject(new Error(message)), remaining);
+    };
+    const pause = () => {
+      if (timer === undefined) return;
+      clearTimeout(timer);
+      timer = undefined;
+      remaining = Math.max(0, remaining - (Date.now() - startedAt));
+    };
+    if (Platform.OS === 'web' || AppState.currentState === 'active') arm();
+    if (Platform.OS !== 'web') {
+      sub = AppState.addEventListener('change', state => {
+        if (state === 'active') {
+          if (timer === undefined) arm();
+        } else {
+          pause();
+        }
+      });
+    }
   });
   // If `promise` itself later rejects after the timeout has already won the
   // race, nobody else is listening to it — swallow that here so it can't
   // surface as an unhandled promise rejection.
   promise.catch(() => {});
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+    sub?.remove();
+  });
 }
 
 async function work() {
