@@ -42,6 +42,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promi
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// expo-modules-core surfaces ActivityKit's NSError as a CodedError whose
+// message carries the localized description.
+function isNotForegroundError(err: unknown): boolean {
+  return err instanceof Error && /not foreground/i.test(err.message);
+}
+
 /**
  * Keeps iOS Live Activities in sync with the capsules that are currently open
  * for photos. Runs a reconcile pass on mount, on every foreground, and
@@ -78,6 +84,12 @@ export function useLiveActivities(userId?: string | null) {
   const reconcile = useCallback(async () => {
     if (Platform.OS !== 'ios') return;
     if (!isLiveActivitySupported()) return;
+    // ActivityKit rejects start() off the foreground ("Target is not
+    // foreground" — REACT-NATIVE-3, the app's top Sentry issue). The mount
+    // effect was already gated, but the upload-drain subscriber below wasn't,
+    // and uploads routinely finish after the user has left the app. Gating
+    // here covers every caller; the foreground listener reruns the pass.
+    if (AppState.currentState !== 'active') return;
     // A reconcile pass is a few round-trips; overlapping passes (foreground
     // event landing while the mount pass is still in flight) would double-start.
     if (runningRef.current) return;
@@ -194,6 +206,8 @@ export function useLiveActivities(userId?: string | null) {
           if (generationRef.current !== myGeneration) return;
 
           if (startIds.has(d.capsuleId)) {
+            // The awaits above can span a trip to the background.
+            if (AppState.currentState !== 'active') return;
             await startLiveActivity({
               capsuleId: d.capsuleId,
               title: d.title,
@@ -207,6 +221,9 @@ export function useLiveActivities(userId?: string | null) {
             await updateLiveActivity(d.capsuleId, photoCount, memberCount ?? 0);
           }
         } catch (err) {
+          // Backgrounded between the check above and the native call: expected,
+          // and the next foreground pass starts it.
+          if (isNotForegroundError(err)) return;
           reportError(err, { where: 'useLiveActivities.upsert', extra: { capsuleId: d.capsuleId } });
         }
       }
@@ -215,11 +232,17 @@ export function useLiveActivities(userId?: string | null) {
     try {
       await withTimeout(runPass(), RECONCILE_TIMEOUT_MS, 'Live activity reconcile timed out');
     } catch (err) {
+      // A pass abandoned by backgrounding (see the AppState listener) hits the
+      // timeout because iOS suspended JS mid-pass, not because anything hung —
+      // REACT-NATIVE-4. Only a pass that is still current is worth reporting.
+      if (generationRef.current !== myGeneration) return;
       // Ambient decoration — the user never asked for this in the moment, so
       // failures are reported, never toasted.
       reportError(err, { where: 'useLiveActivities.reconcile' });
     } finally {
-      runningRef.current = false;
+      // An abandoned pass must not clear the guard out from under the newer
+      // pass that has since taken it.
+      if (generationRef.current === myGeneration) runningRef.current = false;
     }
   }, [userId]);
 
@@ -238,7 +261,16 @@ export function useLiveActivities(userId?: string | null) {
   // AppState listener — realtime events aren't delivered while backgrounded.
   useEffect(() => {
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active') reconcile();
+      if (state === 'active') {
+        reconcile();
+      } else if (state === 'background') {
+        // Abandon any in-flight pass: its remaining native calls would be
+        // refused off the foreground anyway, and its timeout would otherwise
+        // fire on resume and report a hang that never happened. Releasing the
+        // guard lets the next foreground start a fresh pass immediately.
+        generationRef.current++;
+        runningRef.current = false;
+      }
     });
     return () => sub.remove();
   }, [reconcile]);
