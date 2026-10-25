@@ -6,7 +6,7 @@ import { sessionStore } from './sessionStore';
 import { randomUUID } from './uuid';
 import { cache } from './cache';
 import { toast } from './toast';
-import { resizeForUpload } from './imageResize';
+import { resizeForUpload, makeGridThumbnail } from './imageResize';
 import { reportError } from './sentry';
 
 // Background media-upload queue. The optimistic-UI backbone: callers enqueue
@@ -243,18 +243,27 @@ async function runTask(task: UploadTask): Promise<void> {
   const sizeBytes = main.size;
   const altStorageKey = altEntry?.key ?? null;
 
-  // Video thumbnail generated from the LOCAL file (no network) so every
-  // member's device doesn't have to download+decode the remote video just to
-  // draw a grid cell. Native only — VideoThumbnails has no web implementation.
-  // Best-effort: a failure here just means this row falls back to the
-  // client-side on-device generation in fetchPhotos, same as pre-existing rows.
+  // Grid thumbnail, generated from the LOCAL file (no network):
+  //  - video: a frame, so no member's device has to download+decode the remote
+  //    video just to draw a grid cell. Native only — VideoThumbnails has no
+  //    web implementation.
+  //  - photo: a small JPEG, so the grid never goes through Supabase's render
+  //    API, which bills per distinct origin image (see makeGridThumbnail).
+  // Best-effort: a failure leaves thumbnail_key null and fetchPhotos falls
+  // back (on-device frame for video, the full-size photo for photos).
   let thumbEntry: CachedUpload | null = null;
-  if (task.mediaType === 'video' && Platform.OS !== 'web') {
+  const produceThumb =
+    task.mediaType === 'video'
+      ? (Platform.OS !== 'web'
+          ? async () => {
+              const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 });
+              return { uri: thumbUri, mimeType: 'image/jpeg' };
+            }
+          : null)
+      : () => makeGridThumbnail(task.uri);
+  if (produceThumb) {
     try {
-      thumbEntry = await copyOrUpload(thumbUploadCache, task.uri, task.capsuleId, async () => {
-        const { uri: thumbUri } = await VideoThumbnails.getThumbnailAsync(task.uri, { time: 0 });
-        return { uri: thumbUri, mimeType: 'image/jpeg' };
-      });
+      thumbEntry = await copyOrUpload(thumbUploadCache, task.uri, task.capsuleId, produceThumb);
     } catch {
       thumbEntry = null;
     }

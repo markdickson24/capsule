@@ -1,5 +1,6 @@
 import { Image } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { thumbResize } from './thumbSize';
 
 const MAX_WIDTH = 1920;
 
@@ -34,4 +35,33 @@ export async function resizeForUpload(uri: string): Promise<string> {
     uri, [{ resize: { width: MAX_WIDTH } }], { compress: 0.82 }
   );
   return result.uri;
+}
+
+function getSize(uri: string): Promise<{ width: number; height: number } | null> {
+  return new Promise(resolve => {
+    Image.getSize(
+      uri,
+      (width, height) => resolve({ width, height }),
+      () => resolve(null),
+    );
+  });
+}
+
+/**
+ * Small JPEG stored alongside each photo as `media.thumbnail_key`, so the grid
+ * never asks Supabase's render API to resize the original. That API bills per
+ * distinct origin image (100/month on Pro), and routing every grid cell
+ * through it was the whole Image Transformations overage. Keeps the aspect
+ * ratio (see thumbResize) so it also works as the
+ * contain-fit placeholder in the full-screen viewer; the grid crops it with
+ * contentFit="cover".
+ */
+export async function makeGridThumbnail(uri: string): Promise<{ uri: string; mimeType: string }> {
+  const resize = thumbResize(await getSize(uri));
+  const action = resize ? [{ resize }] : [];
+  const result = await ImageManipulator.manipulateAsync(uri, action, {
+    compress: 0.7,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  return { uri: result.uri, mimeType: 'image/jpeg' };
 }
