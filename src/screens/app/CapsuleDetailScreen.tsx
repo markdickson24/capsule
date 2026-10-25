@@ -25,7 +25,6 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { supabase } from '../../lib/supabase';
 import { sessionStore } from '../../lib/sessionStore';
 import { randomUUID } from '../../lib/uuid';
-import { transformMediaUrl } from '../../lib/mediaUrl';
 import { Avatar } from './ProfileScreen';
 import { Ionicons } from '@expo/vector-icons';
 import { Capsule } from '../../types/database';
@@ -533,10 +532,6 @@ function InviteModal({
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
 
-// Both the gallery grid (3 columns) and the 3-up detail-screen preview render
-// roughly screen-width/3 tiles — one shared thumbnail size covers both so
-// fetchPhotos only needs to derive one resized URL per photo.
-const GRID_THUMB_PX = Math.ceil(SCREEN_WIDTH / 3);
 // How many grid thumbnails to warm up front. The grid is 3-up, so this is
 // roughly four rows — a screenful plus a little scroll headroom. Kept modest
 // on purpose: prefetching the whole capsule would contend with the cells the
@@ -1185,9 +1180,9 @@ function MediaViewerModal({
                         //
                         // Main view only: a swapped dual photo has no alt thumbnail, and
                         // the main thumb would flash the wrong lens under it. Note the
-                        // thumb is a 260px `resize=cover` square (transformMediaUrl), so
-                        // the framing shifts slightly when the contain-fit full-res
-                        // arrives — accepted over a black frame.
+                        // thumb is the upload-time JPEG (makeGridThumbnail), which keeps
+                        // the photo's aspect ratio, so the contain-fit full-res lands
+                        // on the same framing.
                         placeholder={
                           !swapped[item.id] && item.thumbSignedUrl && Math.abs(index - currentIndex) <= 1
                             ? { uri: item.thumbSignedUrl, cacheKey: `${item.storage_key}:thumb` }
@@ -1839,10 +1834,12 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
 
     const items: MediaItem[] = visibleMedia.map((m: any) => {
       const signedUrl = signedUrlMap![m.storage_key] ?? '';
-      // Uploaded-at-upload-time thumbnail (see uploadQueue.runTask) — a small
-      // JPEG generated from the local video file, no remote decode needed.
-      // Older rows have no thumbnail_key and fall back to the client-side
-      // generation loop below.
+      // Upload-time thumbnail (see uploadQueue.runTask): a small JPEG made from
+      // the local file, shown as-is. Deliberately NOT routed through Supabase's
+      // render API — that bills per distinct origin image (100/month on Pro)
+      // and every grid cell going through it was the whole overage. Rows
+      // without one fall back: photos to the full-size image (expo-image
+      // downsamples on decode), videos to the on-device frame loop below.
       const uploadedThumbUrl = m.thumbnail_key ? signedUrlMap![m.thumbnail_key] : undefined;
       return {
         id: m.id,
@@ -1851,11 +1848,8 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
         uploaded_at: m.uploaded_at,
         mediaType: m.media_type,
         signedUrl,
-        // Derived from the already-signed URL — no extra signing round-trip.
-        thumbSignedUrl: m.media_type === 'photo' ? (transformMediaUrl(signedUrl, GRID_THUMB_PX) ?? undefined) : undefined,
-        thumbnailUri: m.media_type === 'video' && uploadedThumbUrl
-          ? (transformMediaUrl(uploadedThumbUrl, GRID_THUMB_PX) ?? undefined)
-          : undefined,
+        thumbSignedUrl: m.media_type === 'photo' ? uploadedThumbUrl : undefined,
+        thumbnailUri: m.media_type === 'video' ? uploadedThumbUrl : undefined,
         altSignedUrl: m.alt_storage_key ? signedUrlMap![m.alt_storage_key] : undefined,
         altStorageKey: m.alt_storage_key ?? undefined,
         caption: m.caption ?? null,
