@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import LoadingBrand from '../../components/LoadingBrand';
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Platform, KeyboardAvoidingView, Animated, Share, Linking,
+  Platform, KeyboardAvoidingView, Animated, Share,
 } from 'react-native';
 import { Image } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -27,6 +27,7 @@ import DatePickerField from '../../components/DatePicker';
 import type { TablesUpdate } from '../../types/supabase';
 import { proGateHit } from '../../lib/proGate';
 import { setTourPending } from '../../lib/tourStorage';
+import { openLink } from '../../lib/openLink';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -694,7 +695,7 @@ export default function OnboardingScreen({ navigation }: Props) {
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.discordRow}
-                onPress={() => Linking.openURL(DISCORD_URL)}
+                onPress={() => openLink(DISCORD_URL)}
                 activeOpacity={0.8}
                 accessibilityRole="button"
                 accessibilityLabel="Join the Capsule Discord community"
