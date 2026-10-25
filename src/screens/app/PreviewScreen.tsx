@@ -15,7 +15,8 @@ import { sessionStore } from '../../lib/sessionStore';
 import { AppStackParamList, PendingMedia } from '../../types/navigation';
 import { useTheme } from '../../context/ThemeContext';
 import { uploadQueue } from '../../lib/uploadQueue';
-import { limitsForTier } from '../../lib/tierLimits';
+import { limitsForTier, videoCapTier } from '../../lib/tierLimits';
+import { useEntitlements } from '../../hooks/useEntitlements';
 import { proGateHit } from '../../lib/proGate';
 import { limitSheet } from '../../lib/limitSheet';
 import { toast } from '../../lib/toast';
@@ -43,6 +44,7 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function PreviewScreen({ route, navigation }: Props) {
   const { accentColor, onAccentColor } = useTheme();
+  const { isPro, loading: entitlementsLoading } = useEntitlements();
 
   const items: PendingMedia[] = useMemo(() => {
     const params: any = route.params;
@@ -230,14 +232,19 @@ export default function PreviewScreen({ route, navigation }: Props) {
     const targets = ids
       .map(id => capsules.find(c => c.capsule_id === id)?.capsules)
       .filter((c): c is NonNullable<typeof c> => !!c);
+    // Per-target cap via videoCapTier: the owner's DB tier, except the current
+    // user's own capsules also trust their live entitlement (webhook-desync guard).
+    const videoCapFor = (t: (typeof targets)[number]) => limitsForTier(
+      videoCapTier(t.owner?.subscription_tier, t.owner_id === currentUserId, isPro, entitlementsLoading),
+    ).videoSeconds;
     const effectiveVideoCap = targets.length > 0
-      ? Math.min(...targets.map(t => limitsForTier(t.owner?.subscription_tier).videoSeconds))
+      ? Math.min(...targets.map(videoCapFor))
       : limitsForTier('free').videoSeconds;
     // Whether the current user owns one of the targets driving the strictest
     // cap — only then is "Upgrade" a meaningful action (upgrading a tier the
     // user doesn't own wouldn't lift this particular cap).
     const ownerOfStrictest = targets.some(
-      t => t.owner_id === currentUserId && limitsForTier(t.owner?.subscription_tier).videoSeconds === effectiveVideoCap
+      t => t.owner_id === currentUserId && videoCapFor(t) === effectiveVideoCap
     );
 
     const isOverCap = (item: PendingMedia) =>

@@ -7,6 +7,7 @@ import {
   resolveIsPro,
   tierFromIsPro,
   TIER_LIMITS,
+  videoCapTier,
 } from './tierLimits';
 
 assert.equal(limitsForTier('free').activeCapsules, 3);
@@ -50,5 +51,20 @@ assert.equal(entitlementsResolved('pending', 'unavailable'), false);
 // NEITHER source could answer: isPro is false only because we know nothing.
 // Acting on that would paywall a paying user, so this must never read resolved.
 assert.equal(entitlementsResolved('unavailable', 'unavailable'), false);
+
+// videoCapTier — webhook-desync case (Oct 2026): a paying owner whose DB tier
+// never flipped must still get the Pro video cap in their own capsule.
+assert.equal(limitsForTier(videoCapTier('free', true, true, false)).videoSeconds, 120);
+// Entitlements still loading on the owner's own capsule: fail open, never trim on a guess.
+assert.equal(limitsForTier(videoCapTier('free', true, false, true)).videoSeconds, 120);
+// Owner confirmed free: DB tier stands.
+assert.equal(limitsForTier(videoCapTier('free', true, false, false)).videoSeconds, 30);
+// Guest in a free host's capsule: the guest's own Pro must NOT lift the host's cap.
+assert.equal(limitsForTier(videoCapTier('free', false, true, false)).videoSeconds, 30);
+assert.equal(limitsForTier(videoCapTier('free', false, false, true)).videoSeconds, 30);
+// Pro host: guest gets 120s regardless of their own tier.
+assert.equal(limitsForTier(videoCapTier('pro', false, false, false)).videoSeconds, 120);
+// Missing owner embed still fails safe to free for someone else's capsule.
+assert.equal(limitsForTier(videoCapTier(undefined, false, true, false)).videoSeconds, 30);
 
 console.log('tierLimits.test.ts: all assertions passed');
