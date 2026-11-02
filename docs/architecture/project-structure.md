@@ -63,7 +63,7 @@ src/
     animations.ts           # Reusable animation hooks (useFadeIn, useSlideUp, useListItemEntrance)
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
     avatarUrl.ts             # transformAvatarUrl() — pass-through (render API disabled, see Image Transforms)
-    mediaUrl.ts              # transformMediaUrl() — resized capsule media via the signed/private-bucket render API
+    thumbSize.ts             # GRID_THUMB_PX + thumbResize() — sizing for upload-time grid thumbnails (see Image Transforms)
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
     sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load); also the
                              # per-user onboarded-flag + session-expired AsyncStorage flags

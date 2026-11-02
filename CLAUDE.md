@@ -99,7 +99,7 @@ Each rule exists because breaking it caused a real bug. The linked doc has the f
 
 ### Media and uploads ([storage-and-media](docs/architecture/storage-and-media.md))
 - All uploads go through `uploadQueue` (`src/lib/uploadQueue.ts`). Native: `FileSystem.uploadAsync` with both `Authorization` and `apikey` headers.
-- **Don't send new images through Supabase's render API.** It bills per distinct origin image (100/month on Pro) and is what pushed the project over quota. Avatars are already pass-through.
+- **Don't send new images through Supabase's render API.** It bills per distinct origin image (100/month on Pro) and is what pushed the project over quota. Nothing uses it now: avatars are pass-through and capsule media grids use upload-time thumbnails (`thumbnail_key`).
 - Map `createSignedUrls` results by index, not `item.path`.
 - Invalidate `media:${id}` and `signedUrls:${id}` together.
 - Front-camera photos are already mirrored natively; don't flip them again in JS.
