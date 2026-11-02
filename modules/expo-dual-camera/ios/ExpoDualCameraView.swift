@@ -65,7 +65,6 @@ class ExpoDualCameraView: ExpoView {
   private let audioOutput = AVCaptureAudioDataOutput()
   private var audioGrabber: AudioGrabber?
   private var isRecording = false
-  private var recordingStartTime: CMTime = .zero
   private var needsRecordingStartTime = false
   private var recordingPromise: Promise?
   private var latestBackBuffer: CMSampleBuffer?
@@ -594,7 +593,12 @@ class ExpoDualCameraView: ExpoView {
       recordingLock.lock()
       if needsRecordingStartTime {
         needsRecordingStartTime = false
-        recordingStartTime = pts
+        // The session starts at the capture clock's ABSOLUTE time, so every
+        // append (video here, audio in onAudioFrame) must use absolute
+        // timestamps too. Video used to be appended relative to this start
+        // (pts - start, i.e. from 0), which put every frame before the session
+        // start: AVAssetWriter dropped them all and the file played black with
+        // working audio.
         assetWriter?.startSession(atSourceTime: pts)
       }
       recordingLock.unlock()
@@ -624,8 +628,6 @@ class ExpoDualCameraView: ExpoView {
     }
     guard let img = composite, let pb = pixelBufferFromImage(img) else { return }
 
-    let relPTS = CMTimeSubtract(pts, recordingStartTime)
-
     // Re-validate and append ATOMICALLY under the lock. `finalizeRecording` (on
     // sessionQueue) can flip `isRecording` false, nil these ivars, and call
     // `markAsFinished()` at any point during the unlocked compositing work
@@ -644,7 +646,7 @@ class ExpoDualCameraView: ExpoView {
       recordingLock.unlock()
       return
     }
-    liveAdaptor.append(pb, withPresentationTime: relPTS)
+    liveAdaptor.append(pb, withPresentationTime: pts)
     recordingLock.unlock()
   }
 
