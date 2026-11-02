@@ -123,6 +123,7 @@ Each rule exists because breaking it caused a real bug. The linked doc has the f
 - Caps key off the capsule **owner's** tier; gates go through `proGateHit` (owner sees upgrade, guest sees explain-only).
 - `isPro` is UI-only. While `useEntitlements().loading` is true, never treat the user as free — pick the safe shape from the table in the doc.
 - Never recreate the `Capsule Pro` entitlement in RevenueCat without updating `PRO_ENTITLEMENT_OBJECT_ID`.
+- Never comp the App Store reviewer account to Pro: `isPro` from the DB column alone hides every purchase entry point, and Apple rejected all three IAPs. It stays `'free'` (`scripts/reviewer-seed/pre-submission-rearm.sql`).
 
 ### Builds and native ([infrastructure](docs/architecture/infrastructure.md))
 - Native modules, share extension, Live Activity and custom URL schemes need a dev/EAS build, not Expo Go.
