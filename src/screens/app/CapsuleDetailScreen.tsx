@@ -58,6 +58,7 @@ import { useEntitlements } from '../../hooks/useEntitlements';
 import { presentPaywall } from '../../lib/purchases';
 import { reportError } from '../../lib/sentry';
 import { clampPan, distanceBetween, scaleFromPinch, shouldSnapBack } from '../../lib/zoomMath';
+import { viewerClaimsTouch } from '../../lib/viewerGestures';
 import { galleryItemLayout } from '../../lib/galleryLayout';
 import { mergeCapsuleUpdate } from '../../lib/mergeCapsuleUpdate';
 import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
@@ -966,7 +967,15 @@ function MediaViewerModal({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      // On a video, a touch starting in the timebar band is left to expo-video's
+      // native controls, or dragging the timebar pages to the next item (see
+      // src/lib/viewerGestures.ts). itemsRef, not `items`: see above.
+      onStartShouldSetPanResponder: evt =>
+        viewerClaimsTouch(
+          itemsRef.current[currentIndexRef.current]?.mediaType === 'video',
+          evt.nativeEvent.pageY,
+          SCREEN_HEIGHT,
+        ),
       onPanResponderGrant: () => {
         axis.current = 'none';
         pinchStartDistance.current = 0;
