@@ -122,8 +122,27 @@ resolution — 5–10x the bytes of the in-app camera path for no visual gain at
 display size. When the resize actually runs, the output is always JPEG
 (`ImageManipulator`'s default save format), so `prepareForUpload` also bumps
 the task's `mimeType`/extension to `image/jpeg` in that case — otherwise the
-original mimeType from the picker/share-intent asset is kept as-is. Video is
-untouched.
+original mimeType from the picker/share-intent asset is kept as-is.
+
+**Video re-encode before upload:** Storage rejects any object over the
+project-wide upload limit (**50 MB**; the `capsule-media` bucket sets no limit
+of its own) with `413 EntityTooLarge`, surfaced as "Storage 400"
+(REACT-NATIVE-E). Library videos used to upload untouched, and a 4K iPhone clip
+passes 50 MB in seconds; dual-camera recordings run at 8 Mbps (~60 MB/min).
+`prepareForUpload` now sends every native video through `prepareVideo`:
+`probeVideo` reads the displayed size and duration, `videoCompressionPlan()`
+(`src/lib/videoCompression.ts`, Tier 0 tested) decides, and `compressVideo`
+(`expo-video-stitcher`) re-encodes to H.264/AAC MP4 with the long side ≤1920px,
+≤30fps, at a bitrate sized per clip to fit a 42 MiB budget (headroom for
+encoder overshoot; clamped 1.5–6 Mbps, so a 120s Pro clip lands ~2.8 Mbps). A
+video already ≤1080p and under budget uploads as-is. The encode reads through
+the asset's own video composition, so rotation is baked in and iPhone HDR (HLG)
+is tone-mapped to Rec.709 rather than washed out. It runs inside
+`copyOrUpload`'s `produce()`, so a multi-capsule fan-out encodes once. A failed
+encode is reported and falls back to the original; anything still over 50 MB
+throws before the upload starts. Video tasks get a 5-minute timeout
+(`VIDEO_TASK_TIMEOUT_MS`) instead of 3 to cover encode time. The thumbnail is
+still taken from the original local file. Web uploads are untouched.
 
 Failures stay in the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
 as retryable tiles by `CapsuleDetailScreen`. `useUploadTasks(capsuleId)`

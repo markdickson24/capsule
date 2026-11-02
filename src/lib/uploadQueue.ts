@@ -8,6 +8,8 @@ import { cache } from './cache';
 import { toast } from './toast';
 import { resizeForUpload, makeGridThumbnail } from './imageResize';
 import { reportError } from './sentry';
+import { STORAGE_UPLOAD_LIMIT_BYTES, videoCompressionPlan } from './videoCompression';
+import { compressVideo, probeVideo } from '../../modules/expo-video-stitcher';
 
 // Background media-upload queue. The optimistic-UI backbone: callers enqueue
 // and navigate away immediately; screens render pending tasks as local-URI
@@ -133,14 +135,44 @@ async function uploadFile(storageKey: string, uri: string, mimeType: string): Pr
 // size. Resize output is always JPEG when it actually runs (ImageManipulator's
 // default save format), so the mimeType is bumped alongside the uri; if the
 // photo is already small enough, resizeForUpload is a no-op and the original
-// mimeType is kept. Video is left untouched (out of scope here).
+// mimeType is kept. Videos go through prepareVideo.
 async function prepareForUpload(
   uri: string, mediaType: 'photo' | 'video', mimeType: string
 ): Promise<{ uri: string; mimeType: string }> {
-  if (mediaType !== 'photo') return { uri, mimeType };
+  if (mediaType === 'video') return prepareVideo(uri, mimeType);
   const resizedUri = await resizeForUpload(uri);
   if (resizedUri === uri) return { uri, mimeType };
   return { uri: resizedUri, mimeType: 'image/jpeg' };
+}
+
+// Storage rejects objects over the project upload limit (50 MB) with 413
+// EntityTooLarge (REACT-NATIVE-E). Library videos used to upload untouched, and
+// a 4K clip passes that in seconds; dual-camera recordings run ~60 MB/min. Re-
+// encode to 1080p at a bitrate sized to fit (src/lib/videoCompression.ts).
+// Runs inside copyOrUpload's produce(), so a multi-capsule fan-out encodes once.
+// A failed encode falls back to the original; anything still over the limit
+// fails here instead of spending the user's data on a doomed upload.
+async function prepareVideo(uri: string, mimeType: string): Promise<{ uri: string; mimeType: string }> {
+  if (Platform.OS === 'web') return { uri, mimeType };
+  let prepared = { uri, mimeType };
+  try {
+    const probe = await probeVideo(uri);
+    const info = await FileSystem.getInfoAsync(uri);
+    const sizeBytes = info.exists ? (info as any).size ?? 0 : 0;
+    const plan = probe ? videoCompressionPlan(probe, sizeBytes) : null;
+    if (plan) {
+      const compressedUri = await compressVideo(uri, plan.maxDimension, plan.videoBitrate);
+      if (compressedUri) prepared = { uri: compressedUri, mimeType: 'video/mp4' };
+    }
+  } catch (err) {
+    reportError(err, { where: 'uploadQueue.prepareVideo' });
+  }
+  const finalInfo = await FileSystem.getInfoAsync(prepared.uri);
+  const finalSize = finalInfo.exists ? (finalInfo as any).size ?? 0 : 0;
+  if (finalSize > STORAGE_UPLOAD_LIMIT_BYTES) {
+    throw new Error(`Video too large to upload (${Math.round(finalSize / (1024 * 1024))} MB)`);
+  }
+  return prepared;
 }
 
 // Multi-capsule fan-out shortcut: if `sourceUri` was already uploaded once in
@@ -330,6 +362,9 @@ async function cleanupOrphanedUploads(
 // UI to recover from (only a force-quit does). This forces every task to
 // either finish or fail within 3 minutes so the loop always keeps moving.
 const TASK_TIMEOUT_MS = 180_000;
+// Videos also spend time re-encoding on-device before the upload starts (up
+// to ~a minute for a 2-minute 4K clip on an older iPhone).
+const VIDEO_TASK_TIMEOUT_MS = 300_000;
 
 // Only time spent in the foreground counts toward `ms`. iOS suspends JS (and
 // its timers) in the background, so a wall-clock timer fired the moment the
@@ -413,7 +448,8 @@ async function work() {
       //     `batchFailed` — that bookkeeping only happens in this try/catch,
       //     which has already run to completion for `task` by the time any
       //     late resolution arrives, so nothing here double-fires.
-      await withTimeout(runTask(task), TASK_TIMEOUT_MS, 'Upload timed out');
+      const timeoutMs = task.mediaType === 'video' ? VIDEO_TASK_TIMEOUT_MS : TASK_TIMEOUT_MS;
+      await withTimeout(runTask(task), timeoutMs, 'Upload timed out');
       tasks = tasks.filter(t => t.id !== task.id);
       batchAdded += 1;
       const p = progressByCapsule[task.capsuleId];
