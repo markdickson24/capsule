@@ -1098,11 +1098,23 @@ Full strategy/pricing rationale lives in `docs/monetization-strategy.md`. This s
   *any* RevenueCat purchase/cancellation activity is now exposed to this on the
   cancellation path as well, not just at term end. Not reachable without
   RevenueCat purchase activity on that account, but it's why comp accounts
-  must never be used as webhook test targets, and why production currently
-  holds two comp-Pro accounts by direct DB write, one of which is the App
-  Store reviewer account — **the pre-submission checklist should confirm the
-  reviewer account's `subscription_tier` is still `'pro'`** before each
-  submission, alongside re-arming its countdown capsule.
+  must never be used as webhook test targets, and why production holds
+  comp-Pro accounts by direct DB write.
+
+  ⚠️ **The App Store reviewer account is NOT one of them, and must never be.**
+  An earlier version of this file instructed the opposite — "confirm the
+  reviewer account's `subscription_tier` is still `'pro'` before each
+  submission" — and that instruction directly caused Apple to **approve the
+  binary and reject all three in-app purchases** on the first submission.
+  Because `isPro` resolves from *either* source (see `resolveIsPro` above), a
+  comped column alone flips the whole app into its Pro presentation, and every
+  purchase entry point in the app is gated on `!isPro`: Settings' "Upgrade to
+  Capsule Pro" button (replaced by "Manage Subscription"), Settings' locked
+  custom-colour row, `CapsuleDetailScreen`'s post-unlock upsell nudge, and all
+  five tier gates (which only fire on a free-tier cap). The reviewer had no
+  reachable way to see or buy an IAP. **The pre-submission checklist must
+  confirm the reviewer account's `subscription_tier` is `'free'`**, alongside
+  re-arming its countdown capsule — see `docs/REVIEWER_ACCOUNT.md`.
 - Any code that gates a feature by subscription tier reads `users.subscription_tier` (server-side, un-bypassable) for the two hard gates, and the client mirrors the same limits for UX — see "Tier enforcement" below.
 
 ### Post-unlock upsell
@@ -1486,7 +1498,7 @@ REVENUECAT_API_KEY=...         # RevenueCat V2 key, customer_information:custome
 CRON_SECRET=...                # project-wide, read by every cron-triggered function
 ```
 
-**The App Store reviewer account's credential is NOT in the repo and must never be reintroduced.** `scripts/reviewer-seed/*.mjs` read `REVIEWER_EMAIL`/`REVIEWER_PASSWORD` from the environment and fail fast when unset; `seed.sql` takes it as a psql variable (`-v reviewer_password=…`). It was previously hardcoded in four tracked files — a live production login for a comp-Pro account, and with `users` SELECT being `USING (true)`, an authenticated foothold that could enumerate every profile. It remains in git history prior to the `20260802` fix, so **treat any pre-fix clone as compromised**. Keep the value only in the password manager and App Store Connect review notes; `docs/REVIEWER_ACCOUNT.md` carries a pre-submission item to rotate it and re-verify `subscription_tier = 'pro'`.
+**The App Store reviewer account's credential is NOT in the repo and must never be reintroduced.** `scripts/reviewer-seed/*.mjs` read `REVIEWER_EMAIL`/`REVIEWER_PASSWORD` from the environment and fail fast when unset; `seed.sql` takes it as a psql variable (`-v reviewer_password=…`). It was previously hardcoded in four tracked files — a live production login for the reviewer account, and with `users` SELECT being `USING (true)`, an authenticated foothold that could enumerate every profile. It remains in git history prior to the `20260802` fix, so **treat any pre-fix clone as compromised**. Keep the value only in the password manager and App Store Connect review notes; `docs/REVIEWER_ACCOUNT.md` carries a pre-submission item to rotate it and re-verify `subscription_tier = 'free'`.
 
 `REVENUECAT_API_KEY` must be the **read-only** V2 key, not the full-access key
 used by the RevenueCat MCP — least privilege, since a leak of this one only

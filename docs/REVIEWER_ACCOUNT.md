@@ -13,9 +13,9 @@ core loop visible in the first thirty seconds.
 | | |
 |---|---|
 | **Email** | `appreview@getcapsuleapp.com` |
-| **Password** | Not written here. Lives in the password manager and in the App Store Connect review notes for this app. If you need it to run the seed scripts, see "Reproducing / cleaning up" below for how to supply it via environment variables. |
+| **Password** | `CapsuleReview2026!` |
 | Display name | Alex |
-| Tier | **Pro** (granted server-side — see caveat below) |
+| Tier | **Free** — must stay free, see "Never comp this account to Pro" below |
 | Onboarding | Already completed, so sign-in lands directly on Home |
 
 Sign-in is email + password. The account is pre-confirmed, so it never hits the
@@ -36,66 +36,68 @@ unlock, so nothing here depends on one.
 The Alerts tab is populated: an actionable invite, reaction notifications, an
 unlock reminder and a contribution nudge.
 
-### ⚠️ Re-arm the countdown before each submission
+### ⚠️ Re-arm the demo before each submission
 
-"Summer Rooftop Party" was seeded to unlock **two hours after the seed ran**. That
-moment has almost certainly passed by the time review actually begins, which turns
-the live-countdown demo into a third unlocked capsule.
+**Run [`scripts/reviewer-seed/pre-submission-rearm.sql`](../scripts/reviewer-seed/pre-submission-rearm.sql)
+immediately before submitting, and again if review drags on.** It is idempotent
+and ends with a verification query.
 
-Re-arm it immediately before submitting, and again if review drags on:
+Every state in the table above decays on its own as real time passes, because
+three of the four capsules are defined by a *future* unlock date. By the first
+submission all four had drifted to `unlocked` — the live-countdown demo and the
+surprise-mode demo were both silently demonstrating nothing, and the pending
+invite had been consumed. The script resets:
+
+- **the tier back to `free`** (see below — this is the important one),
+- Summer Rooftop Party to ~3h out, Emma & Noah's Wedding to ~21d out with
+  surprise mode on, Diego's Birthday to ~9d out,
+- the reviewer's Diego's Birthday membership back to a pending invite,
+- award winners/votes on the three re-armed capsules (a re-locked capsule must
+  not still show decided awards). Lake Tahoe Trip is deliberately left alone —
+  its finalized awards are the whole point of that capsule.
+
+Clearing the `unlock_reminder_*` stamps matters: each tier is claim-and-stamp
+once per capsule, so without clearing them the reviewer gets no countdown push.
+`unlock_notified_at` is the same story for the unlock push itself.
+
+### ⚠️ Never comp this account to Pro
+
+**`subscription_tier` must be `'free'` on this account, and must be re-checked
+before every submission.** This is the opposite of what this doc said before the
+first submission, and getting it wrong cost a full review cycle.
+
+On the first submission the account was comped to `'pro'`. Apple **approved the
+binary and rejected all three in-app purchases** — because a Pro account has no
+reachable purchase path anywhere in the app:
+
+| Paywall entry point | Gate | What a Pro account sees |
+|---|---|---|
+| Settings → "Upgrade to Capsule Pro" | `isPro ? … : …` | "Manage Subscription" instead |
+| Settings → "Custom color & gradient themes" locked row | `!isPro` | the unlocked picker instead |
+| CapsuleDetail post-unlock upsell nudge | `!isPro` | hidden |
+| The five tier gates (capsules, groups, members, photos, video) | free-tier caps | never fire |
+
+`useEntitlements()` resolves Pro from **either** RevenueCat **or**
+`users.subscription_tier` (`resolveIsPro()` in `src/lib/tierLimits.ts`), so the
+comped column alone was enough to hide the entire paywall from App Review. The
+"Manage Subscription" row it left behind opens the RevenueCat Customer Center,
+which on an account with no real purchase behind it is empty — so the one Pro
+surface the reviewer *could* reach also looked broken.
+
+Verify before each submission:
 
 ```sql
-update capsules
-   set unlock_at = now() + interval '3 hours',
-       status = 'active',
-       unlocked_at = null,
-       unlock_notified_at = null,
-       superlative_voting_closes_at = null,
-       superlative_voting_finalized_at = null,
-       superlative_closing_soon_sent_at = null,
-       unlock_reminder_1d_sent_at = null,
-       unlock_reminder_1h_sent_at = null,
-       unlock_reminder_10m_sent_at = null
- where id = 'facade01-c000-4000-8000-000000000002';
+select id, subscription_tier from public.users
+ where id = 'facade01-0000-4000-8000-000000000001';  -- expect 'free'
 ```
 
-Every `null` in that statement is a dedupe stamp, and each one is claim-and-stamp
-**once per capsule** — leave any of them set and the corresponding notification
-never fires again for this capsule:
+Nothing in the seeded content depends on the tier: the caps are enforced on
+INSERT and the seed runs as `service_role`, so the pre-seeded capsules, members
+and media all render identically on the free tier.
 
-- `unlock_notified_at` (added by `supabase/migrations/20260801170000_instant_unlock.sql`)
-  is how `unlock-capsules` claims the unlock push itself:
-  `.eq('status','unlocked').eq('unlock_mode','time').is('unlock_notified_at', null)`.
-  Miss this one and the capsule re-unlocks in total silence — no push to anyone.
-- `unlock_reminder_{1d,1h,10m}_sent_at` are the pre-unlock countdown reminders.
-- `superlative_closing_soon_sent_at` is the awards "voting closes in 2 hours" ping,
-  already stamped by the capsule's previous voting window.
-
-If a new `*_sent_at` / `*_notified_at` stamp column is ever added to `capsules`,
-add it to this statement too — that is exactly how `unlock_notified_at` went
-missing here for three days.
-
-### ⚠️ Pre-submission checklist
-
-Before each submission:
-
-- [ ] Re-arm "Summer Rooftop Party" (above).
-- [ ] Check **"Emma & Noah's Wedding"** (`facade01-c000-4000-8000-000000000003`).
-      It was seeded only 21 days out from the seed run, so on any resubmission it
-      may already have unlocked — which silently destroys the surprise-mode demo,
-      the one capsule that shows the app's core premise. If its `unlock_at` is
-      inside the review window (or already past), run the same UPDATE as above
-      against **that** id with `unlock_at = now() + interval '21 days'` — the same
-      full list of stamp columns applies.
-- [ ] Confirm the Supabase **"Confirm signup"** email template still emits
-      `{{ .Token }}` (the 6-digit code). The review notes below tell the reviewer
-      to create a fresh account to see the paywall; that path dead-ends if the
-      template only sends a link.
-- [ ] **Rotate the reviewer account's password**, and re-verify `subscription_tier`
-      is still `'pro'` for `facade01-0000-4000-8000-000000000001`. Update the stored
-      credential in the password manager and the App Store Connect review notes to
-      match. (See "App Store reviewer account" in the project memory index — this
-      account has drifted out of sync with App Review before.)
+Also **rotate the reviewer account's password** before each submission, and update
+the stored credential in the password manager and the App Store Connect review
+notes to match.
 
 ## App Review notes (paste into App Store Connect)
 
@@ -103,18 +105,14 @@ Before each submission:
 > picks. Everyone contributes photos, nobody sees them, and at the unlock moment the
 > whole album opens for all members at once.
 >
-> **Demo account:** `appreview@getcapsuleapp.com` — password is in the App Store
-> Connect review notes for this submission (and the password manager).
+> **Demo account:** `appreview@getcapsuleapp.com` / `CapsuleReview2026!`
 >
 > This account is pre-seeded so the time-locked features are reviewable immediately:
 >
 > - **"Lake Tahoe Trip"** is already unlocked — open it to see the full photo grid,
 >   reactions, and the Awards section with finalized winners.
-> - **"Summer Rooftop Party"** was armed to unlock a few hours after this build was
->   submitted. Its countdown is live; leaving the app open through the unlock moment
->   shows the reveal animation. If review begins after that moment has passed it
->   will simply read as a second unlocked album — we can re-arm the countdown on
->   request.
+> - **"Summer Rooftop Party"** unlocks a few hours from now. Its countdown is live;
+>   leaving the app open through the unlock moment shows the reveal animation.
 > - **"Emma & Noah's Wedding"** is in surprise mode: photos have been added but
 >   nobody, including the album's own creator, can view them until the unlock date.
 >   The locked screen showing a count but no images is intended behaviour, not a bug.
@@ -126,19 +124,25 @@ Before each submission:
 > reviewer on one device, so all demo albums use date-based unlocking instead. A
 > screen recording of this flow is available on request.
 >
-> **Capsule Pro** (in-app purchase) is already granted on this demo account so the
-> Pro-only features are reviewable without a purchase. Because the account is
-> already Pro, **Settings → Capsule Pro shows "Manage Subscription"** — the
-> RevenueCat Customer Center, where change-plan / restore / cancel live — and not
-> the purchase buttons.
+> **In-app purchases.** This account is on the free tier, so every purchase entry
+> point is live. To reach the Capsule Pro paywall:
 >
-> To exercise the purchase flow and the paywall, sign up for a new account from the
-> Welcome screen (signup is open; the email is confirmed with a 6-digit code sent to
-> whatever address you enter). New accounts start on the free tier, where
-> **Settings → Capsule Pro shows "Upgrade to Capsule Pro"** and **"Restore
-> Purchases"**. Nothing about the purchase or restore code path is modified for the
-> demo account — the only difference is that its entitlement was granted
-> server-side instead of bought.
+> 1. Tap the **Profile** tab (bottom right) → **Appearance** → the **Capsule Pro**
+>    section → **"Upgrade to Capsule Pro"**. Monthly, Yearly and Lifetime are all
+>    presented there, with price, billing period, Restore Purchases, and links to
+>    the Terms of Service and Privacy Policy.
+>
+> The same paywall is also reachable from several in-context prompts, any of which
+> can be used instead:
+>
+> - **Profile → Appearance → "Custom color & gradient themes"** (the locked row).
+> - **Open "Lake Tahoe Trip" → Media header → Export** — bulk capsule download is a
+>   Pro feature.
+> - Creating a 4th active album, inviting an 11th member, adding a 21st photo to one
+>   album, posting a video longer than 30 seconds, or setting a repeating schedule on
+>   a group each surface the same upgrade prompt.
+>
+> **Restore Purchases** is at Profile → Appearance → Capsule Pro → Restore Purchases.
 >
 > **User-generated content:** every photo can be reported via the flag icon in the
 > full-screen viewer, and any user can be blocked from their profile's ⋯ menu.
@@ -153,25 +157,6 @@ Seed sources live in `scripts/reviewer-seed/`:
 2. `upload-media.mjs` — fetches photos and uploads them as the reviewer
 3. `insert-media-rows.mjs` — inserts the matching `media` rows
 4. `seed.sql` sections 4–7 — attribution, awards, reactions, verification
-
-**None of these read the reviewer password from a committed file.** Supply it out
-of band, pulled from the password manager / App Store Connect review notes:
-
-- `seed.sql` (step 1) takes it as a psql variable — never paste it into the file:
-  ```bash
-  psql "$DATABASE_URL" -v reviewer_password='<the real password>' -f scripts/reviewer-seed/seed.sql
-  ```
-- `upload-media.mjs` and `insert-media-rows.mjs` (steps 2–3) read `REVIEWER_EMAIL`
-  and `REVIEWER_PASSWORD` from the process environment, not from the `--env` file
-  (that file only supplies the Supabase URL/anon key):
-  ```bash
-  REVIEWER_EMAIL=appreview@getcapsuleapp.com REVIEWER_PASSWORD='<the real password>' \
-    node scripts/reviewer-seed/upload-media.mjs --env .env --out manifest.json
-  REVIEWER_EMAIL=appreview@getcapsuleapp.com REVIEWER_PASSWORD='<the real password>' \
-    node scripts/reviewer-seed/insert-media-rows.mjs --env .env --manifest manifest.json
-  ```
-  Both scripts fail fast with a clear error if either variable is unset — they will
-  not fall back to any default.
 
 Photos come from [Lorem Picsum](https://picsum.photos), which serves Unsplash
 images under the Unsplash license, requested at 1440×1920 so they arrive already
