@@ -26,7 +26,10 @@ modules/
                            # mid-recording flip feature. Also exports trimVideo(uri, maxSeconds) —
                            # first-N-seconds trim (iOS AVAssetExportSession timeRange; Android
                            # MediaExtractor+MediaMuxer to the cutoff), used by the Preview video-length
-                           # gate. JS entry: modules/expo-video-stitcher/index.ts
+                           # gate. probeVideo(uri) + compressVideo(uri, maxDimension, videoBitrate)
+                           # (iOS only: AVAssetReader→AVAssetWriter H.264 re-encode, HDR tone-mapped)
+                           # back the uploadQueue's pre-upload video re-encode; both return null
+                           # where unavailable. JS entry: modules/expo-video-stitcher/index.ts
 src/
   components/
     AwardsSection.tsx        # Superlatives UI inside CapsuleDetail — voting open / tallying / finalized cards
@@ -64,6 +67,7 @@ src/
     cache.ts                # In-memory cache with TTL, invalidation, and pub/sub listeners
     avatarUrl.ts             # transformAvatarUrl() — pass-through (render API disabled, see Image Transforms)
     thumbSize.ts             # GRID_THUMB_PX + thumbResize() — sizing for upload-time grid thumbnails (see Image Transforms)
+    videoCompression.ts      # videoCompressionPlan() + bitrate sizing for the pre-upload video re-encode (50 MB Storage limit)
     supabase.ts             # Supabase client + on-web accessToken override (see Web Auth Gotchas)
     sessionStore.ts         # Synchronous session cache (web seeds from localStorage at module load); also the
                              # per-user onboarded-flag + session-expired AsyncStorage flags
