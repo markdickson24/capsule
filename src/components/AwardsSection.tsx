@@ -500,7 +500,7 @@ function WinnerCard({
   return (
     <Animated.View style={[styles.winnerCard, { borderColor: `${accentColor}50`, shadowColor: accentColor }, anim]}>
       <View style={styles.winnerHeader}>
-        <View style={styles.winnerCrown}>
+        <View style={[styles.winnerCrown, { backgroundColor: `${accentColor}1F` }]}>
           <Ionicons name="trophy" size={14} color={accentColor} />
         </View>
         <View style={{ flex: 1 }}>
@@ -623,7 +623,7 @@ const styles = StyleSheet.create({
   emptySubtext: { color: '#888888', fontSize: 12, paddingHorizontal: 20, textAlign: 'center' },
   list: { gap: 10 },
   groupLabel: {
-    fontSize: 11, color: '#666',
+    fontSize: 11, color: '#888888',
     textTransform: 'uppercase', letterSpacing: 0.7,
     fontWeight: '700',
   },
@@ -711,7 +711,6 @@ const styles = StyleSheet.create({
   },
   winnerCrown: {
     width: 28, height: 28, borderRadius: 14,
-    backgroundColor: 'rgba(255,107,53,0.12)',
     alignItems: 'center', justifyContent: 'center',
   },
   winnerCategoryLabel: { color: '#FFFFFF', fontSize: 16, fontWeight: '800' },
@@ -739,5 +738,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 3, paddingVertical: 1,
   },
   winnerName: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
-  winnerMeta: { color: '#666', fontSize: 11, fontWeight: '600' },
+  winnerMeta: { color: '#888888', fontSize: 11, fontWeight: '600' },
 });
