@@ -40,7 +40,7 @@ function getTimeLeft(target: string) {
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: { unlockAt: string; status: string; unlockMode?: string; contributionStartAt?: string | null }) {
+function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt, compact = false }: { unlockAt: string; status: string; unlockMode?: string; contributionStartAt?: string | null; compact?: boolean }) {
   const { accentColor } = useTheme();
   const notStartedYet = !!contributionStartAt && status !== 'unlocked' && new Date(contributionStartAt) > new Date();
   // Whichever date is the "active" countdown target right now — reusing one
@@ -87,8 +87,9 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
 
   if (status === 'unlocked') return (
     <View style={styles.unlockedBadge}>
-      <Ionicons name="lock-open-outline" size={13} color="#30D158" />
-      <Text style={[styles.unlockedBadgeText, styles.badgeTextFit]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}> Unlocked</Text>
+      {/* Grid cards already show the open lock top-left — one lock per box. */}
+      {!compact && <Ionicons name="lock-open-outline" size={13} color="#30D158" />}
+      <Text style={[styles.unlockedBadgeText, styles.badgeTextFit]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{compact ? 'Unlocked' : ' Unlocked'}</Text>
     </View>
   );
   // `unlock_at` is a placeholder for proximity capsules (never used to
@@ -122,6 +123,7 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list', i
   // agree, and both flip to unlock-based copy at the same instant.
   const contributionStartAt = (capsule as any).contribution_start_at as string | null | undefined;
   const notStartedYet = !!contributionStartAt && capsule.status !== 'unlocked' && new Date(contributionStartAt) > new Date();
+  const ownerIsPro = (capsule as any).owner?.subscription_tier === 'pro';
   return (
     <Animated.View ref={innerRef} collapsable={false} style={[entrance, isGrid && styles.gridCell]}>
       <TouchableOpacity
@@ -137,23 +139,33 @@ function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list', i
             color={isLocked ? '#888888' : '#30D158'}
           />
           <View style={styles.cardTopRight}>
-            {(capsule as any).owner?.subscription_tier === 'pro' && <ProBadge />}
-            <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={contributionStartAt} />
+            {!isGrid && ownerIsPro && <ProBadge />}
+            <CountdownBadge unlockAt={capsule.unlock_at} status={capsule.status} unlockMode={capsule.unlock_mode} contributionStartAt={contributionStartAt} compact={isGrid} />
           </View>
         </View>
         <Text style={[styles.cardTitle, isGrid && styles.cardTitleGrid]} numberOfLines={isGrid ? 2 : undefined}>{capsule.title}</Text>
         {!isGrid && capsule.description ? <Text style={styles.cardDesc} numberOfLines={2}>{capsule.description}</Text> : null}
-        {notStartedYet ? (
-          <Text style={styles.cardDate}>
-            Starts {new Date(contributionStartAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </Text>
-        ) : isLocked && capsule.unlock_mode === 'proximity' ? (
-          <Text style={styles.cardDate}>Unlocks when you're all together</Text>
-        ) : (
-          <Text style={styles.cardDate}>
-            {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-          </Text>
-        )}
+        {/* On grid cards Pro is just the sparkles icon in the bottom-right corner,
+            leaving the narrow top row to the countdown so "Starts in 12m 34s"
+            stays legible. List cards keep the full PRO badge up top. */}
+        <View style={[styles.cardDateRow, isGrid && styles.cardDateRowGrid]}>
+          <View style={{ flex: 1 }}>
+            {notStartedYet ? (
+              <Text style={styles.cardDate} numberOfLines={isGrid ? 1 : undefined} adjustsFontSizeToFit={isGrid} minimumFontScale={0.85}>
+                Starts {new Date(contributionStartAt!).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </Text>
+            ) : isLocked && capsule.unlock_mode === 'proximity' ? (
+              <Text style={styles.cardDate} numberOfLines={isGrid ? 1 : undefined} adjustsFontSizeToFit={isGrid} minimumFontScale={0.85}>Unlocks when you're all together</Text>
+            ) : (
+              <Text style={styles.cardDate} numberOfLines={isGrid ? 1 : undefined} adjustsFontSizeToFit={isGrid} minimumFontScale={0.85}>
+                {isLocked ? 'Unlocks' : 'Unlocked'} {new Date(capsule.unlock_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </Text>
+            )}
+          </View>
+          {isGrid && ownerIsPro && (
+            <Ionicons name="sparkles" size={14} color={accentColor} accessibilityLabel="Pro" accessible />
+          )}
+        </View>
       </TouchableOpacity>
     </Animated.View>
   );
@@ -613,7 +625,11 @@ const styles = StyleSheet.create({
   togetherBadgeText: { fontSize: 13, fontWeight: '700' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
-  cardDate: { fontSize: 12, color: '#888888', marginTop: 4 },
+  cardDate: { fontSize: 12, color: '#888888' },
+  cardDateRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  // Grid cards in a row share a height; pinning the date line to the bottom keeps
+  // it level across them whether the title takes one line or two.
+  cardDateRowGrid: { marginTop: 'auto' },
   emptyOuter: { flex: 1 },
   // Rendered as the list's ListHeaderComponent, which already sits inside
   // styles.list's 16pt padding. Bleed back out to the screen edge so the header
