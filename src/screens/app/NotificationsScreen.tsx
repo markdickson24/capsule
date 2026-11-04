@@ -22,6 +22,12 @@ import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 import { limitsForTier } from '../../lib/tierLimits';
 import { proGateHit } from '../../lib/proGate';
+import {
+  groupNotifications,
+  isGroupedPerCapsule,
+  notificationKey,
+  unlockReminderText,
+} from '../../lib/notificationGrouping';
 
 type Actor = { id: string; display_name: string; avatar_url: string | null };
 
@@ -48,7 +54,7 @@ type NotificationRow = {
   sent_at: string;
   read_at: string | null;
   count: number | null;
-  capsules: { title: string } | null;
+  capsules: { title: string; unlock_at: string | null } | null;
   groups: { name: string } | null;
   actor: Actor | null;
 };
@@ -74,7 +80,7 @@ function isCapsuleNav(type: NotificationRow['type']) {
   );
 }
 
-type DisplayNotification = NotificationRow & { reactionCount?: number };
+type DisplayNotification = NotificationRow & { reactionCount?: number; groupCount?: number };
 
 type PendingMember = {
   id: string;
@@ -86,31 +92,10 @@ type NotifData = {
   pendingMap: Record<string, string>;
 };
 
+// Reactions and unlock reminders collapse to one card per capsule — see
+// src/lib/notificationGrouping.ts.
 function processNotifications(raw: NotificationRow[]): DisplayNotification[] {
-  const display: DisplayNotification[] = [];
-  const reactionGroups: Record<string, { latest: NotificationRow; count: number }> = {};
-
-  for (const n of raw) {
-    if (n.type === 'reaction' && n.capsule_id) {
-      const cid = n.capsule_id;
-      if (!reactionGroups[cid]) {
-        reactionGroups[cid] = { latest: n, count: 0 };
-      }
-      reactionGroups[cid].count++;
-      if (n.sent_at > reactionGroups[cid].latest.sent_at) {
-        reactionGroups[cid].latest = n;
-      }
-    } else {
-      display.push(n);
-    }
-  }
-
-  for (const group of Object.values(reactionGroups)) {
-    display.push({ ...group.latest, reactionCount: group.count });
-  }
-
-  display.sort((a, b) => (a.sent_at < b.sent_at ? 1 : -1));
-  return display;
+  return groupNotifications(raw);
 }
 
 function AnimatedNotificationCard({ index, children }: { index: number; children: React.ReactNode }) {
@@ -136,7 +121,7 @@ export default function NotificationsScreen() {
       const [notifsRes, pendingRes] = await Promise.all([
         supabase
           .from('notifications')
-          .select('id, capsule_id, group_id, actor_id, type, sent_at, read_at, count, capsules(title), groups(name), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
+          .select('id, capsule_id, group_id, actor_id, type, sent_at, read_at, count, capsules(title, unlock_at), groups(name), actor:users!notifications_actor_id_fkey(id, display_name, avatar_url)')
           .eq('user_id', userId)
           .is('read_at', null)
           .order('sent_at', { ascending: false })
@@ -165,8 +150,8 @@ export default function NotificationsScreen() {
 
   function dismiss(item: DisplayNotification) {
     // Optimistic remove
-    if (item.type === 'reaction') {
-      setNotifications(prev => prev.filter(n => !(n.type === 'reaction' && n.capsule_id === item.capsule_id)));
+    if (isGroupedPerCapsule(item)) {
+      setNotifications(prev => prev.filter(n => !(n.type === item.type && n.capsule_id === item.capsule_id)));
     } else {
       setNotifications(prev => prev.filter(n => n.id !== item.id));
     }
@@ -182,15 +167,17 @@ export default function NotificationsScreen() {
     const session = sessionStore.get();
     if (!session) return;
     const now = new Date().toISOString();
-    const query = item.type === 'reaction' && item.capsule_id
+    // A collapsed card (reactions, unlock reminders — one per capsule) stands
+    // for every unread row of its type for that capsule, so mark them all read.
+    const query = isGroupedPerCapsule(item) && item.capsule_id
       ? supabase.from('notifications')
           .update({ read_at: now })
           .eq('user_id', session.user.id)
           .eq('capsule_id', item.capsule_id)
-          .eq('type', 'reaction')
+          .eq('type', item.type)
           // Only sweep rows the user could actually have seen: the grouped
-          // card is the NEWEST fetched reaction (its sent_at is the group's
-          // ceiling), so a reaction arriving server-side after the last
+          // card is the NEWEST fetched row (its sent_at is the group's
+          // ceiling), so a row arriving server-side after the last
           // fetch must not be marked read before it was ever surfaced.
           .is('read_at', null)
           .lte('sent_at', item.sent_at)
@@ -485,7 +472,7 @@ export default function NotificationsScreen() {
           {notifications.map((item, idx) => {
             const isPending = item.type === 'invite' && !!item.capsule_id && !!pendingMap[item.capsule_id];
             const isAccepted = item.type === 'invite' && (!item.capsule_id || !pendingMap[item.capsule_id]);
-            const key = item.type === 'reaction' ? `reaction-${item.capsule_id}` : item.id;
+            const key = notificationKey(item);
 
             return (
               <AnimatedNotificationCard key={key} index={idx}>
@@ -552,7 +539,7 @@ export default function NotificationsScreen() {
                     ) : item.type === 'unlock_reminder' ? (
                       <>
                         <Text style={styles.cardCapsuleTitle}>{item.capsules?.title ?? 'A capsule'}</Text>
-                        {' '}is unlocking soon
+                        {' '}{unlockReminderText(item.capsules?.unlock_at, Date.now())}
                       </>
                     ) : item.type === 'reaction' ? (
                       <>
