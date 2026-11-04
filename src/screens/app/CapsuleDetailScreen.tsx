@@ -1295,14 +1295,22 @@ function MediaViewerModal({
                       setEditingCaption(true);
                     }}
                     style={{ padding: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit caption"
                   >
                     <Ionicons name="pencil-outline" size={22} color="#fff" />
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }}>
+                <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Report">
                   <Ionicons name="flag-outline" size={22} color="#fff" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
+                <TouchableOpacity
+                  onPress={downloadCurrent}
+                  disabled={downloading}
+                  style={{ padding: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={downloadDone ? 'Saved to Photos' : 'Save to Photos'}
+                >
                   {downloading ? (
                     <LoadingBrand size="small" color="#fff" />
                   ) : (
