@@ -80,7 +80,7 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
     return (
       <View style={styles.togetherBadge}>
         <Ionicons name="calendar-outline" size={13} color={accentColor} />
-        <Text style={[styles.togetherBadgeText, { color: accentColor }]} maxFontSizeMultiplier={1.3}> {label}</Text>
+        <Text style={[styles.togetherBadgeText, { color: accentColor }, styles.badgeTextFit]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}> {label}</Text>
       </View>
     );
   }
@@ -88,7 +88,7 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
   if (status === 'unlocked') return (
     <View style={styles.unlockedBadge}>
       <Ionicons name="lock-open-outline" size={13} color="#30D158" />
-      <Text style={styles.unlockedBadgeText} maxFontSizeMultiplier={1.3}> Unlocked</Text>
+      <Text style={[styles.unlockedBadgeText, styles.badgeTextFit]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}> Unlocked</Text>
     </View>
   );
   // `unlock_at` is a placeholder for proximity capsules (never used to
@@ -98,7 +98,7 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
     return (
       <View style={styles.togetherBadge}>
         <Ionicons name="people-outline" size={13} color={accentColor} />
-        <Text style={[styles.togetherBadgeText, { color: accentColor }]}> Unlocks together</Text>
+        <Text style={[styles.togetherBadgeText, { color: accentColor }, styles.badgeTextFit]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}> Unlocks together</Text>
       </View>
     );
   }
@@ -109,7 +109,7 @@ function CountdownBadge({ unlockAt, status, unlockMode, contributionStartAt }: {
   else if (hoursLeft > 0) label = `${hoursLeft}h ${minutesLeft}m left`;
   else if (minutesLeft > 0) label = `${minutesLeft}m ${secondsLeft}s left`;
   else label = `${secondsLeft}s left`;
-  return <Text style={[styles.countdownText, { color: accentColor }]} maxFontSizeMultiplier={1.3}>{label}</Text>;
+  return <Text style={[styles.countdownText, { color: accentColor }, styles.badgeTextFit]} maxFontSizeMultiplier={1.3} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{label}</Text>;
 }
 
 function CapsuleCard({ capsule, onPress, onLongPress, index, variant = 'list', innerRef }: { capsule: CapsuleWithCountdown; onPress: () => void; onLongPress?: () => void; index: number; variant?: HomeLayout; innerRef?: (node: any) => void }) {
@@ -600,12 +600,16 @@ const styles = StyleSheet.create({
   gridCell: { flex: 1 },
   gridRow: { gap: 12 },
   cardTitleGrid: { fontSize: 15 },
-  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTopRight: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto' },
+  cardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  // flexShrink + minWidth 0 let the badge cluster give way on a half-width grid
+  // card; the countdown/badge text then fits itself (numberOfLines 1 +
+  // adjustsFontSizeToFit) instead of running past the card edge.
+  cardTopRight: { flexDirection: 'row', alignItems: 'center', gap: 6, marginLeft: 'auto', flexShrink: 1, minWidth: 0 },
   countdownText: { fontSize: 13, fontWeight: '700', color: '#FF6B35' },
-  unlockedBadge: { flexDirection: 'row', alignItems: 'center' },
+  unlockedBadge: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 },
+  badgeTextFit: { flexShrink: 1, minWidth: 0 },
   unlockedBadgeText: { fontSize: 13, fontWeight: '700', color: '#30D158' },
-  togetherBadge: { flexDirection: 'row', alignItems: 'center' },
+  togetherBadge: { flexDirection: 'row', alignItems: 'center', flexShrink: 1, minWidth: 0 },
   togetherBadgeText: { fontSize: 13, fontWeight: '700' },
   cardTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
