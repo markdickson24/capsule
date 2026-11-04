@@ -1269,9 +1269,13 @@ function MediaViewerModal({
             style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 120 }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 56 }}>
-              <TouchableOpacity onPress={onClose} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Close">
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
+              {/* Left and right clusters both flex: 1 so the counter stays screen-centred
+                  when the uploader-only edit button adds width on the right. */}
+              <View style={{ flex: 1, flexBasis: 0, flexDirection: 'row' }}>
+                <TouchableOpacity onPress={onClose} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Close">
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
               <View style={{ alignItems: 'center', gap: 2 }}>
                 <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
                   {currentIndex + 1} / {items.length}
@@ -1282,7 +1286,7 @@ function MediaViewerModal({
                   </Text>
                 ) : null}
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1, flexBasis: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
                 {/* Caption edit — uploader only */}
                 {items[currentIndex]?.uploader_id === currentUserId && (
                   <TouchableOpacity
