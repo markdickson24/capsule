@@ -3128,7 +3128,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 20, borderWidth: 1, borderColor: '#2A2A2A', gap: 4,
   },
-  timeLabel: { fontSize: 13, color: '#555555', textTransform: 'uppercase', letterSpacing: 0.5 },
+  timeLabel: { fontSize: 13, color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
   timeDate: { fontSize: 14, color: '#888888' },
   sectionRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -3172,7 +3172,7 @@ const styles = StyleSheet.create({
     borderColor: '#0A0A0A',
   },
   memberOverflowText: { fontSize: 11, fontWeight: '700', color: '#888888' },
-  memberCountLabel: { fontSize: 14, color: '#666666', marginLeft: 18 },
+  memberCountLabel: { fontSize: 14, color: '#888888', marginLeft: 18 },
   inviteNudge: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderRadius: 14, borderWidth: 1, padding: 14,
@@ -3292,7 +3292,7 @@ const styles = StyleSheet.create({
   errorText: { color: '#FF3B30', textAlign: 'center', marginTop: 40, fontSize: 15 },
   archiveSection: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
   dangerZone: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
-  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#444444', textTransform: 'uppercase', letterSpacing: 0.5 },
+  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
   archiveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 14, paddingVertical: 16,

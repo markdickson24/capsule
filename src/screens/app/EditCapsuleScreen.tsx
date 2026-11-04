@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
   },
   saveButtonText: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
   dangerZone: { gap: 10, marginTop: 8, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
-  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#444444', textTransform: 'uppercase', letterSpacing: 0.5 },
+  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
   archiveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 14, paddingVertical: 16,
