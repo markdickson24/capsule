@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl,
   TextInput, Modal, Keyboard, ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, SafeAreaProvider } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -245,6 +245,10 @@ function FindPeopleModal({
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={close}>
+      {/* A Modal is its own native window: without its own provider the
+          SafeAreaView reads zero insets and the header slides under the
+          status bar / Dynamic Island. */}
+      <SafeAreaProvider>
       <SafeAreaView style={styles.container}>
         <View style={styles.navBar}>
           <TouchableOpacity onPress={close} hitSlop={8} accessibilityRole="button" accessibilityLabel="Close">
@@ -289,6 +293,7 @@ function FindPeopleModal({
           </ScrollView>
         </View>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

@@ -1269,9 +1269,13 @@ function MediaViewerModal({
             style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 120 }}
           >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, marginTop: 56 }}>
-              <TouchableOpacity onPress={onClose} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Close">
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
+              {/* Left and right clusters both flex: 1 so the counter stays screen-centred
+                  when the uploader-only edit button adds width on the right. */}
+              <View style={{ flex: 1, flexBasis: 0, flexDirection: 'row' }}>
+                <TouchableOpacity onPress={onClose} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Close">
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
               <View style={{ alignItems: 'center', gap: 2 }}>
                 <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>
                   {currentIndex + 1} / {items.length}
@@ -1282,7 +1286,7 @@ function MediaViewerModal({
                   </Text>
                 ) : null}
               </View>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <View style={{ flex: 1, flexBasis: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
                 {/* Caption edit — uploader only */}
                 {items[currentIndex]?.uploader_id === currentUserId && (
                   <TouchableOpacity
@@ -1291,14 +1295,22 @@ function MediaViewerModal({
                       setEditingCaption(true);
                     }}
                     style={{ padding: 8 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit caption"
                   >
                     <Ionicons name="pencil-outline" size={22} color="#fff" />
                   </TouchableOpacity>
                 )}
-                <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }}>
+                <TouchableOpacity onPress={() => setShowReport(true)} style={{ padding: 8 }} accessibilityRole="button" accessibilityLabel="Report">
                   <Ionicons name="flag-outline" size={22} color="#fff" />
                 </TouchableOpacity>
-                <TouchableOpacity onPress={downloadCurrent} disabled={downloading} style={{ padding: 8 }}>
+                <TouchableOpacity
+                  onPress={downloadCurrent}
+                  disabled={downloading}
+                  style={{ padding: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={downloadDone ? 'Saved to Photos' : 'Save to Photos'}
+                >
                   {downloading ? (
                     <LoadingBrand size="small" color="#fff" />
                   ) : (
@@ -3116,7 +3128,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1A1A1A', borderRadius: 16,
     padding: 20, borderWidth: 1, borderColor: '#2A2A2A', gap: 4,
   },
-  timeLabel: { fontSize: 13, color: '#555555', textTransform: 'uppercase', letterSpacing: 0.5 },
+  timeLabel: { fontSize: 13, color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
   timeDate: { fontSize: 14, color: '#888888' },
   sectionRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -3160,7 +3172,7 @@ const styles = StyleSheet.create({
     borderColor: '#0A0A0A',
   },
   memberOverflowText: { fontSize: 11, fontWeight: '700', color: '#888888' },
-  memberCountLabel: { fontSize: 14, color: '#666666', marginLeft: 18 },
+  memberCountLabel: { fontSize: 14, color: '#888888', marginLeft: 18 },
   inviteNudge: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     borderRadius: 14, borderWidth: 1, padding: 14,
@@ -3280,7 +3292,7 @@ const styles = StyleSheet.create({
   errorText: { color: '#FF3B30', textAlign: 'center', marginTop: 40, fontSize: 15 },
   archiveSection: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
   dangerZone: { gap: 10, marginTop: 16, paddingTop: 24, borderTopWidth: 1, borderTopColor: '#1A1A1A' },
-  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#444444', textTransform: 'uppercase', letterSpacing: 0.5 },
+  dangerLabel: { fontSize: 12, fontWeight: '600', color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
   archiveBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     borderRadius: 14, paddingVertical: 16,
