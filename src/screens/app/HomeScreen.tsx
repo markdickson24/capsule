@@ -611,10 +611,14 @@ const styles = StyleSheet.create({
   cardDesc: { fontSize: 14, color: '#888888', lineHeight: 20 },
   cardDate: { fontSize: 12, color: '#888888', marginTop: 4 },
   emptyOuter: { flex: 1 },
-  groupsSection: { marginBottom: 8, paddingHorizontal: 0 },
+  // Rendered as the list's ListHeaderComponent, which already sits inside
+  // styles.list's 16pt padding. Bleed back out to the screen edge so the header
+  // can align with the 24pt page title and the cards/prompt with the 16pt
+  // capsule cards (and the horizontal group strip scrolls edge to edge).
+  groupsSection: { marginBottom: 8, marginHorizontal: -16 },
   groupsHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, marginBottom: 10,
+    paddingHorizontal: 24, marginBottom: 10,
   },
   groupsTitle: { fontSize: 18, fontWeight: '700', color: '#FFFFFF' },
   groupsAddBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
