@@ -8,6 +8,9 @@ import {
   VIDEO_BUDGET_BYTES,
   videoBitrateFor,
   videoCompressionPlan,
+  videoRetryPlan,
+  RETRY_MAX_VIDEO_DIMENSION,
+  RETRY_MIN_VIDEO_BITRATE,
 } from './videoCompression';
 
 const MB = 1024 * 1024;
@@ -49,5 +52,22 @@ assert.equal(plan1080Long.videoBitrate, videoBitrateFor(90));
 assert.ok(videoCompressionPlan({ width: 2160, height: 3840, durationSec: 5 }, 30 * MB));
 // Exactly at the budget and 1080p: no re-encode.
 assert.equal(videoCompressionPlan({ width: 1920, height: 1080, durationSec: 60 }, VIDEO_BUDGET_BYTES), null);
+
+// REACT-NATIVE-M: a 120s clip encoded at the 120s bitrate came out at 56 MB.
+// The retry scales the bitrate down so the same overshoot ratio lands under the limit.
+const retry = videoRetryPlan(bitrate120, 56 * MB);
+assert.ok(retry);
+assert.equal(retry.maxDimension, RETRY_MAX_VIDEO_DIMENSION);
+const overshootRatio = (56 * MB) / VIDEO_BUDGET_BYTES;
+assert.ok(((retry.videoBitrate + AUDIO_BITRATE) * 120 * overshootRatio) / 8 < STORAGE_UPLOAD_LIMIT_BYTES);
+// The retry never asks for MORE bitrate than the pass that overshot.
+const tiny = videoRetryPlan(1_000_000, 43 * MB);
+assert.ok(tiny && tiny.videoBitrate <= 1_000_000);
+// A first pass at the floor that came out 3x over can't be saved: fail with the size error instead.
+assert.equal(videoRetryPlan(MIN_VIDEO_BITRATE, 3 * VIDEO_BUDGET_BYTES), null);
+assert.ok(RETRY_MIN_VIDEO_BITRATE < MIN_VIDEO_BITRATE);
+// Unknown size or bitrate: no retry.
+assert.equal(videoRetryPlan(bitrate120, 0), null);
+assert.equal(videoRetryPlan(0, 56 * MB), null);
 
 console.log('videoCompression: all assertions passed');

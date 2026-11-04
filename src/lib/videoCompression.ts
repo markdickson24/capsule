@@ -45,3 +45,28 @@ export function videoCompressionPlan(
   if (longSide <= MAX_VIDEO_DIMENSION && sizeBytes <= VIDEO_BUDGET_BYTES) return null;
   return { maxDimension: MAX_VIDEO_DIMENSION, videoBitrate: videoBitrateFor(probe.durationSec) };
 }
+
+/** Floor for the second, corrective encode — below the first-pass floor,
+ *  because a clip that overshot once must now fit, not look its best. */
+export const RETRY_MIN_VIDEO_BITRATE = 600_000;
+
+/** 720p for the corrective encode: fewer pixels keep a lower bitrate watchable. */
+export const RETRY_MAX_VIDEO_DIMENSION = 1280;
+
+/**
+ * Second encode for a re-encoded video that still came out over the Storage
+ * limit. AVAssetWriter's average bitrate is a target, not a cap: high-motion
+ * footage overshoots it, and the first-pass floor can't fit long clips at all
+ * (REACT-NATIVE-M: 56 MB out of a 42 MB budget). Scale the bitrate by how far
+ * the output overshot the budget, with 15% extra margin.
+ * Returns null when no retry can help (the floor still wouldn't fit).
+ */
+export function videoRetryPlan(
+  firstBitrate: number,
+  producedBytes: number,
+): { maxDimension: number; videoBitrate: number } | null {
+  if (!(producedBytes > 0) || !(firstBitrate > 0)) return null;
+  const scaled = Math.round(firstBitrate * (VIDEO_BUDGET_BYTES / producedBytes) * 0.85);
+  if (scaled < RETRY_MIN_VIDEO_BITRATE) return null;
+  return { maxDimension: RETRY_MAX_VIDEO_DIMENSION, videoBitrate: Math.min(scaled, firstBitrate) };
+}

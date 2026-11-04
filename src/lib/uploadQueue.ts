@@ -8,7 +8,7 @@ import { cache } from './cache';
 import { toast } from './toast';
 import { resizeForUpload, makeGridThumbnail } from './imageResize';
 import { reportError } from './sentry';
-import { STORAGE_UPLOAD_LIMIT_BYTES, videoCompressionPlan } from './videoCompression';
+import { STORAGE_UPLOAD_LIMIT_BYTES, videoCompressionPlan, videoRetryPlan } from './videoCompression';
 import { compressVideo, probeVideo } from '../../modules/expo-video-stitcher';
 
 // Background media-upload queue. The optimistic-UI backbone: callers enqueue
@@ -152,6 +152,11 @@ async function prepareForUpload(
 // Runs inside copyOrUpload's produce(), so a multi-capsule fan-out encodes once.
 // A failed encode falls back to the original; anything still over the limit
 // fails here instead of spending the user's data on a doomed upload.
+async function fileSize(uri: string): Promise<number> {
+  const info = await FileSystem.getInfoAsync(uri);
+  return info.exists ? (info as any).size ?? 0 : 0;
+}
+
 async function prepareVideo(uri: string, mimeType: string): Promise<{ uri: string; mimeType: string }> {
   if (Platform.OS === 'web') return { uri, mimeType };
   let prepared = { uri, mimeType };
@@ -162,13 +167,28 @@ async function prepareVideo(uri: string, mimeType: string): Promise<{ uri: strin
     const plan = probe ? videoCompressionPlan(probe, sizeBytes) : null;
     if (plan) {
       const compressedUri = await compressVideo(uri, plan.maxDimension, plan.videoBitrate);
-      if (compressedUri) prepared = { uri: compressedUri, mimeType: 'video/mp4' };
+      if (compressedUri) {
+        prepared = { uri: compressedUri, mimeType: 'video/mp4' };
+        // The encoder's average bitrate is a target, not a cap; high-motion
+        // footage can overshoot well past the budget (REACT-NATIVE-M). One
+        // corrective pass from the ORIGINAL at a bitrate scaled by the overshoot.
+        const firstSize = await fileSize(compressedUri);
+        const retry = firstSize > STORAGE_UPLOAD_LIMIT_BYTES
+          ? videoRetryPlan(plan.videoBitrate, firstSize)
+          : null;
+        if (retry) {
+          const retryUri = await compressVideo(uri, retry.maxDimension, retry.videoBitrate);
+          if (retryUri) {
+            FileSystem.deleteAsync(compressedUri, { idempotent: true }).catch(() => {});
+            prepared = { uri: retryUri, mimeType: 'video/mp4' };
+          }
+        }
+      }
     }
   } catch (err) {
     reportError(err, { where: 'uploadQueue.prepareVideo' });
   }
-  const finalInfo = await FileSystem.getInfoAsync(prepared.uri);
-  const finalSize = finalInfo.exists ? (finalInfo as any).size ?? 0 : 0;
+  const finalSize = await fileSize(prepared.uri);
   if (finalSize > STORAGE_UPLOAD_LIMIT_BYTES) {
     throw new Error(`Video too large to upload (${Math.round(finalSize / (1024 * 1024))} MB)`);
   }

@@ -139,8 +139,11 @@ video already ≤1080p and under budget uploads as-is. The encode reads through
 the asset's own video composition, so rotation is baked in and iPhone HDR (HLG)
 is tone-mapped to Rec.709 rather than washed out. It runs inside
 `copyOrUpload`'s `produce()`, so a multi-capsule fan-out encodes once. A failed
-encode is reported and falls back to the original; anything still over 50 MB
-throws before the upload starts. Video tasks get a 5-minute timeout
+encode is reported and falls back to the original. The encoder's average
+bitrate is a target, not a cap, so an encode that still comes out over 50 MB
+(REACT-NATIVE-M: 56 MB) gets one corrective pass from the original at ≤1280px
+and a bitrate scaled by the overshoot (`videoRetryPlan()`, floor 600 kbps).
+Anything still over 50 MB throws before the upload starts. Video tasks get a 5-minute timeout
 (`VIDEO_TASK_TIMEOUT_MS`) instead of 3 to cover encode time. The thumbnail is
 still taken from the original local file. Web uploads are untouched.
 
