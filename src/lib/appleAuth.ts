@@ -2,6 +2,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { supabase } from './supabase';
 import { reportError } from './sentry';
+import { AUTH_NETWORK_MESSAGE, isAuthNetworkError } from './authErrors';
 
 // Below this, a "canceled" result cannot be a human dismissing Apple's sheet —
 // the sheet takes longer than this just to animate in. Treat it as a failure.
@@ -100,6 +101,9 @@ export async function signInWithApple(): Promise<{ error?: string }> {
   // id (com.markdickson.capsule), not the Services ID used by the web flow.
   // Missing it returns "Unacceptable audience in id_token".
   if (error) {
+    // No HTTP answer at all: the user's connection, not config. Friendly copy,
+    // nothing to Sentry (REACT-NATIVE-N).
+    if (isAuthNetworkError(error)) return { error: AUTH_NETWORK_MESSAGE };
     reportError(error, {
       where: 'appleAuth.signInWithIdToken',
       extra: { status: (error as any)?.status, code: (error as any)?.code },
