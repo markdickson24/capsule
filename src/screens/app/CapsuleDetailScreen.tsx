@@ -40,6 +40,7 @@ import { blockStore } from '../../lib/blocks';
 import { isDemoAccountId } from '../../lib/demoAccounts';
 import { limitsForTier } from '../../lib/tierLimits';
 import { assetDurationMs } from '../../lib/mediaDuration';
+import { shouldMountVideoPlayer } from '../../lib/viewerWindow';
 import { proGateHit } from '../../lib/proGate';
 import { useBlockedUsers } from '../../hooks/useBlockedUsers';
 import { listFriends, type FriendProfile } from '../../lib/friends';
@@ -1119,7 +1120,21 @@ function MediaViewerModal({
             {items.map((item, index) => (
               <View key={item.id} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
                 {item.mediaType === 'video' ? (
-                  <VideoSlide item={item} isActive={index === currentIndex} />
+                  shouldMountVideoPlayer(index, currentIndex) ? (
+                    <VideoSlide item={item} isActive={index === currentIndex} />
+                  ) : (
+                    // Off-window: no player (see viewerWindow.ts). The frame
+                    // thumbnail keeps a mid-swipe glimpse from showing black.
+                    <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, backgroundColor: '#000' }}>
+                      {item.thumbnailUri ? (
+                        <Image
+                          source={{ uri: item.thumbnailUri }}
+                          style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}
+                          contentFit="contain"
+                        />
+                      ) : null}
+                    </View>
+                  )
                 ) : (
                   <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT, justifyContent: 'center', backgroundColor: '#000' }}>
                     <Animated.View
