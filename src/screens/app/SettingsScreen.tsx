@@ -440,7 +440,7 @@ const styles = StyleSheet.create({
   section: { gap: 12 },
   sectionLabel: {
     fontSize: 12, fontWeight: '700',
-    color: '#666', textTransform: 'uppercase', letterSpacing: 0.7,
+    color: '#888888', textTransform: 'uppercase', letterSpacing: 0.7,
   },
   helper: { color: '#888888', fontSize: 13, lineHeight: 18 },
   primaryBtn: {
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
   },
   destructiveText: { color: '#FF3B30', fontSize: 15, fontWeight: '700' },
   versionFooter: {
-    color: '#444',
+    color: '#888888',
     fontSize: 12,
     textAlign: 'center',
     marginTop: 16,
