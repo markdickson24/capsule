@@ -451,8 +451,14 @@ export default function NotificationsScreen() {
         <Animated.View style={[styles.header, headerAnim]}>
           <Text style={styles.title}>Notifications</Text>
           {pendingCount > 0 && (
-            <View style={[styles.badge, { backgroundColor: accentColor }]}>
-              <Text style={[styles.badgeText, { color: onAccentColor }]} maxFontSizeMultiplier={1.3}>{pendingCount}</Text>
+            <View
+              style={[styles.badge, { backgroundColor: accentColor }]}
+              accessible
+              accessibilityLabel={`${pendingCount} pending ${pendingCount === 1 ? 'invite' : 'invites'}`}
+            >
+              <Text style={[styles.badgeText, { color: onAccentColor }]} maxFontSizeMultiplier={1.3}>
+                {pendingCount} {pendingCount === 1 ? 'invite' : 'invites'}
+              </Text>
             </View>
           )}
           {clearableCount > 1 && (
@@ -702,7 +708,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   badge: {
     backgroundColor: '#FF6B35', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 2,
+    paddingHorizontal: 10, paddingVertical: 3,
   },
   badgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   markAllBtn: { marginLeft: 'auto' },
