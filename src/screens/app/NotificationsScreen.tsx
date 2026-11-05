@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, Animated,
   TouchableOpacity, RefreshControl,
@@ -22,6 +22,7 @@ import { haptics } from '../../lib/haptics';
 import { useListItemEntrance, useFadeIn } from '../../lib/animations';
 import { limitsForTier } from '../../lib/tierLimits';
 import { proGateHit } from '../../lib/proGate';
+import { inviteFilterActive, visibleNotifications } from '../../lib/inviteFilter';
 
 type Actor = { id: string; display_name: string; avatar_url: string | null };
 
@@ -123,6 +124,15 @@ export default function NotificationsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AppStackParamList>>();
   const [notifications, setNotifications] = useState<DisplayNotification[]>([]);
   const [pendingMap, setPendingMap] = useState<Record<string, string>>({});
+  // Tapping the "N invites" pill narrows the list to pending invites; tapping
+  // again shows everything (src/lib/inviteFilter.ts).
+  const [inviteFilterRequested, setInviteFilterRequested] = useState(false);
+  const pendingInviteCount = Object.keys(pendingMap).length;
+  // Once the last invite is handled the pill disappears; drop the filter so a
+  // future invite doesn't reopen the tab already filtered.
+  useEffect(() => {
+    if (pendingInviteCount === 0) setInviteFilterRequested(false);
+  }, [pendingInviteCount]);
   const [refreshing, setRefreshing] = useState(false);
   const headerAnim = useFadeIn(0, 250);
 
@@ -414,8 +424,10 @@ export default function NotificationsScreen() {
     });
   }
 
-  const pendingCount = Object.keys(pendingMap).length;
+  const pendingCount = pendingInviteCount;
   const clearableCount = notifications.filter(n => !isActionable(n)).length;
+  const onlyInvites = inviteFilterActive(inviteFilterRequested, pendingCount);
+  const shown = visibleNotifications(notifications, pendingMap, onlyInvites);
 
   if (loading) {
     if (timedOut) {
@@ -451,11 +463,31 @@ export default function NotificationsScreen() {
         <Animated.View style={[styles.header, headerAnim]}>
           <Text style={styles.title}>Notifications</Text>
           {pendingCount > 0 && (
-            <View style={[styles.badge, { backgroundColor: accentColor }]}>
-              <Text style={[styles.badgeText, { color: onAccentColor }]} maxFontSizeMultiplier={1.3}>{pendingCount}</Text>
-            </View>
+            <TouchableOpacity
+              style={[
+                styles.badge,
+                // Filled = showing everything; outlined with an × = filtered to invites.
+                onlyInvites
+                  ? { backgroundColor: `${accentColor}22`, borderColor: accentColor }
+                  : { backgroundColor: accentColor, borderColor: accentColor },
+              ]}
+              onPress={() => { haptics.light(); setInviteFilterRequested(v => !v); }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityState={{ selected: onlyInvites }}
+              accessibilityLabel={`${pendingCount} pending ${pendingCount === 1 ? 'invite' : 'invites'}`}
+              accessibilityHint={onlyInvites ? 'Shows all notifications' : 'Shows only pending invites'}
+            >
+              <Text
+                style={[styles.badgeText, { color: onlyInvites ? accentColor : onAccentColor }]}
+                maxFontSizeMultiplier={1.3}
+              >
+                {pendingCount} {pendingCount === 1 ? 'invite' : 'invites'}
+              </Text>
+              {onlyInvites && <Ionicons name="close" size={13} color={accentColor} />}
+            </TouchableOpacity>
           )}
-          {clearableCount > 1 && (
+          {!onlyInvites && clearableCount > 1 && (
             <TouchableOpacity
               style={styles.markAllBtn}
               onPress={markAllRead}
@@ -467,7 +499,7 @@ export default function NotificationsScreen() {
             </TouchableOpacity>
           )}
         </Animated.View>
-        {notifications.length === 0 ? (
+        {shown.length === 0 ? (
           <View style={styles.empty}>
             <View style={styles.emptyIconWrap}>
               <Ionicons name="notifications-outline" size={40} color="#555555" />
@@ -475,14 +507,16 @@ export default function NotificationsScreen() {
                 <Ionicons name="checkmark-circle" size={22} color="#30D158" />
               </View>
             </View>
-            <Text style={styles.emptyText}>You're all caught up</Text>
+            <Text style={styles.emptyText}>{onlyInvites ? 'No invite cards here' : "You're all caught up"}</Text>
             <Text style={styles.emptySubtext}>
-              Invites, unlocks, and reactions will show up here.
+              {onlyInvites
+                ? 'Tap the invites pill again to see all notifications.'
+                : 'Invites, unlocks, and reactions will show up here.'}
             </Text>
           </View>
         ) : (
           <View style={styles.list}>
-          {notifications.map((item, idx) => {
+          {shown.map((item, idx) => {
             const isPending = item.type === 'invite' && !!item.capsule_id && !!pendingMap[item.capsule_id];
             const isAccepted = item.type === 'invite' && (!item.capsule_id || !pendingMap[item.capsule_id]);
             const key = item.type === 'reaction' ? `reaction-${item.capsule_id}` : item.id;
@@ -702,7 +736,9 @@ const styles = StyleSheet.create({
   title: { fontSize: 28, fontWeight: '800', color: '#FFFFFF' },
   badge: {
     backgroundColor: '#FF6B35', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 2,
+    paddingHorizontal: 10, paddingVertical: 3,
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    borderWidth: 1,
   },
   badgeText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   markAllBtn: { marginLeft: 'auto' },
