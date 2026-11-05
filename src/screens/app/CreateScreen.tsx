@@ -24,6 +24,7 @@ import { getGroup, getGroupMembers, updateGroup } from '../../lib/groups';
 import { OCCASIONS, OccasionKey, pickDefaults } from '../../lib/awardPool';
 import SealedMoment from '../../components/SealedMoment';
 import { limitsForTier } from '../../lib/tierLimits';
+import { fieldScrollOffset } from '../../lib/fieldScroll';
 import { proGateHit } from '../../lib/proGate';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { trimVideo } from '../../../modules/expo-video-stitcher';
@@ -96,19 +97,32 @@ export default function CreateScreen() {
   const [errors, setErrors] = useState<FieldErrors>({});
 
   const scrollRef = useRef<ScrollView>(null);
+  // onLayout y is parent-relative, so also record the wrappers between each
+  // field and the ScrollView content and sum them (see src/lib/fieldScroll.ts).
   const fieldY = useRef<Partial<Record<keyof FieldErrors, number>>>({});
+  const wrapperY = useRef<{ form?: number; advSection?: number; advBody?: number }>({});
+  const ADVANCED_FIELDS: ReadonlyArray<keyof FieldErrors> = ['description', 'contribLockDate', 'votingHours'];
   function recordFieldY(field: keyof FieldErrors) {
     return (e: { nativeEvent: { layout: { y: number } } }) => {
       fieldY.current[field] = e.nativeEvent.layout.y;
     };
   }
+  function recordWrapperY(wrapper: 'form' | 'advSection' | 'advBody') {
+    return (e: { nativeEvent: { layout: { y: number } } }) => {
+      wrapperY.current[wrapper] = e.nativeEvent.layout.y;
+    };
+  }
   function scrollToField(field: keyof FieldErrors) {
-    const y = fieldY.current[field];
-    if (y == null) return;
     // requestAnimationFrame lets the advanced section (if it was just
     // expanded to reveal this field) lay out first, so the offset is current.
     requestAnimationFrame(() => {
-      scrollRef.current?.scrollTo({ y: Math.max(0, y - 24), animated: true });
+      const w = wrapperY.current;
+      const chain = ADVANCED_FIELDS.includes(field)
+        ? [w.form, w.advSection, w.advBody, fieldY.current[field]]
+        : [w.form, fieldY.current[field]];
+      const y = fieldScrollOffset(chain);
+      if (y == null) return;
+      scrollRef.current?.scrollTo({ y, animated: true });
     });
   }
 
@@ -414,13 +428,21 @@ export default function CreateScreen() {
           <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
       )}
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      {/* automaticallyAdjustKeyboardInsets (iOS): insets the content by the keyboard
+          and scrolls the focused field into view, so the multiline Description under
+          "More options" isn't typed blind behind the keyboard. Not KeyboardAvoidingView. */}
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
+      >
         <Animated.View style={headerAnim}>
           <Text style={styles.title}>New Capsule</Text>
           <Text style={styles.subtitle}>Lock your memories until the moment is right</Text>
         </Animated.View>
 
-        <Animated.View style={[{ gap: 24 }, formAnim]}>
+        <Animated.View style={[{ gap: 24 }, formAnim]} onLayout={recordWrapperY('form')}>
         {groupId && (
           <View style={[styles.pendingBanner, styles.pendingBannerTop, { borderColor: `${accentColor}40`, backgroundColor: `${accentColor}10` }]}>
             <Ionicons name="people-outline" size={18} color={accentColor} style={{ marginTop: 1 }} />
@@ -479,7 +501,7 @@ export default function CreateScreen() {
           </View>
         )}
 
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={recordWrapperY('advSection')}>
           <TouchableOpacity
             style={styles.advancedToggle}
             onPress={() => setAdvancedOpen(o => !o)}
@@ -494,7 +516,7 @@ export default function CreateScreen() {
           </TouchableOpacity>
 
           {advancedOpen && (
-            <View style={{ gap: 24, marginTop: 20 }}>
+            <View style={{ gap: 24, marginTop: 20 }} onLayout={recordWrapperY('advBody')}>
               <View onLayout={recordFieldY('description')}>
                 <Text style={styles.label}>Description <Text style={styles.optional}>(optional)</Text></Text>
                 <TextInput
@@ -506,6 +528,8 @@ export default function CreateScreen() {
                   multiline
                   numberOfLines={3}
                   maxLength={500}
+                  // Bring the whole box above the keyboard, not just the caret line.
+                  onFocus={() => scrollToField('description')}
                 />
                 {errors.description ? <Text style={styles.fieldError}>{errors.description}</Text> : null}
               </View>

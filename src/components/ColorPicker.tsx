@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
   previewRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   previewSwatch: { width: 56, height: 56, borderRadius: 28 },
   previewInfo: { flex: 1 },
-  previewLabel: { fontSize: 12, color: '#555555', textTransform: 'uppercase', letterSpacing: 0.5 },
+  previewLabel: { fontSize: 12, color: '#888888', textTransform: 'uppercase', letterSpacing: 0.5 },
   previewHex: { fontSize: 20, fontWeight: '700', marginTop: 2 },
   originalSwatch: { width: 28, height: 28, borderRadius: 14, opacity: 0.5 },
   svPanel: {
@@ -207,7 +207,7 @@ const styles = StyleSheet.create({
     borderColor: '#FFFFFF',
   },
   hexRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  hexLabel: { fontSize: 12, fontWeight: '700', color: '#555555', letterSpacing: 1, width: 36 },
+  hexLabel: { fontSize: 12, fontWeight: '700', color: '#888888', letterSpacing: 1, width: 36 },
   hexInput: {
     flex: 1,
     backgroundColor: '#1A1A1A',

@@ -570,7 +570,7 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     fontSize: 12,
-    color: '#666666',
+    color: '#888888',
     fontWeight: '500',
   },
   statDivider: {

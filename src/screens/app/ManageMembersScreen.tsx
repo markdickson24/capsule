@@ -176,6 +176,8 @@ export default function ManageMembersScreen({ route, navigation }: Props) {
                   style={styles.removeBtn}
                   onPress={() => requestRemove(item.user_id, displayName)}
                   hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${displayName}`}
                 >
                   <Ionicons name="person-remove-outline" size={20} color="#FF3B30" />
                 </TouchableOpacity>
@@ -225,7 +227,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: '#2A2A2A',
   },
   roleBadgeOwner: { borderColor: '#FF6B3550' },
-  roleText: { fontSize: 11, color: '#666666', fontWeight: '600' },
+  roleText: { fontSize: 11, color: '#888888', fontWeight: '600' },
   roleTextOwner: { color: '#FF6B35' },
   pendingBadge: {
     backgroundColor: '#1A1A1A', borderRadius: 6,
