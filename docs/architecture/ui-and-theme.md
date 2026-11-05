@@ -153,7 +153,11 @@ Controlled component. Props: `{ visible, title, message, confirmLabel?, cancelLa
 
 Shared date/time picker used by `CreateScreen` and `EditCapsuleScreen`. Controlled component.
 
-Props: `{ label, value, onChange, optional?, contextLabel? }`.
+Props: `{ label, value, onChange, optional?, contextLabel?, tooltip?, quickOptions?, initialValueIsDefault?, rangeStart?, toggleOnDefault? }`.
+
+- **Opening month** (`initialCalendarMonth` in `src/lib/calendarRange.ts`): while the shown date is a default the user never picked (`initialValueIsDefault`, a null value, or an optional field just switched on), the calendar opens on **today's month**. Once the user picks a date, or on Edit with a saved date, it opens on that date's month. The "is default" flag is derived each render, not frozen at mount, because Edit loads its dates after the first render.
+- **Defaults on Create:** Unlock Date defaults to tonight at 11:59 PM (`defaultUnlockTonight`; within an hour of midnight it rolls to tomorrow night, so it's never already past). In Together (proximity) mode the hidden unlock date is still sent as the old one-month placeholder. Starts uses `toggleOnDefault="now"`, so switching it on picks the current time (Create and Edit). Uploads Deadline still defaults to one month out.
+- **Start-date range** (`rangeStart`, passed to the Unlock Date field on Create and Edit): days from the start date through the selected unlock date are shaded as a band (`dayRangeRole`). The start day gets an accent ring, and a legend under the grid reads "Starts Wed, Nov 4 · Unlocks". There's no band if start ≥ unlock on a later day, or none is set.
 
 - Collapsed state shows the selected date/time with a "change" link; tapping expands inline
 - Quick preset buttons: "In 1 month", "In 3 months", "In 6 months", "In 1 year"
