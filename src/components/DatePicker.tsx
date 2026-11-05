@@ -9,6 +9,7 @@ import { useTheme } from '../context/ThemeContext';
 import { haptics } from '../lib/haptics';
 import InfoTooltip from './InfoTooltip';
 import { onAccent } from '../lib/accentContrast';
+import { dayRangeRole, initialCalendarMonth } from '../lib/calendarRange';
 
 // Delegate to the shared wrapper (web-no-op-safe) instead of calling
 // expo-haptics directly. All call sites use the light/selection defaults.
@@ -174,20 +175,32 @@ function buildWeeks(year: number, month: number): (number | null)[][] {
 const MONTH_NAMES_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const Calendar = memo(function Calendar({
-  selected, onSelect, minimumDate, accentColor,
+  selected, onSelect, minimumDate, accentColor, showingDefault, rangeStart,
 }: {
   selected: Date;
   onSelect: (date: Date) => void;
   minimumDate?: Date;
   accentColor: string;
+  // True while `selected` is a default the user never picked — the calendar
+  // then opens on today's month instead of the default's (one month out).
+  showingDefault?: boolean;
+  // Shades the days from this date through `selected` (e.g. the capsule's
+  // start date on the Unlock Date calendar).
+  rangeStart?: Date | null;
 }) {
-  const [viewMonth, setViewMonth] = useState(selected.getMonth());
-  const [viewYear, setViewYear] = useState(selected.getFullYear());
+  const [initialView] = useState(() => initialCalendarMonth(selected, new Date(), !!showingDefault));
+  const [viewMonth, setViewMonth] = useState(initialView.month);
+  const [viewYear, setViewYear] = useState(initialView.year);
   const [mode, setMode] = useState<'days' | 'months'>('days');
 
   const selMonth = selected.getMonth();
   const selYear = selected.getFullYear();
+  // Follow the selection when it changes (quick chips jump months), but not on
+  // mount — the initial month comes from initialCalendarMonth above.
+  const lastSel = useRef({ m: selMonth, y: selYear });
   useEffect(() => {
+    if (lastSel.current.m === selMonth && lastSel.current.y === selYear) return;
+    lastSel.current = { m: selMonth, y: selYear };
     setViewMonth(selMonth);
     setViewYear(selYear);
   }, [selMonth, selYear]);
@@ -306,6 +319,9 @@ const Calendar = memo(function Calendar({
             const isSel = day === selected.getDate() && viewMonth === selMonth && viewYear === selYear;
             const isToday = day === todayDay && viewMonth === todayMonth && viewYear === todayYear;
             const isPast = minDate ? new Date(viewYear, viewMonth, day) < minDate : false;
+            const role = dayRangeRole(new Date(viewYear, viewMonth, day), rangeStart, selected);
+            const isStart = role === 'start' || role === 'single';
+            const band = `${accentColor}2E`;
             return (
               <TouchableOpacity
                 key={di}
@@ -313,17 +329,26 @@ const Calendar = memo(function Calendar({
                 onPress={() => { haptic(); onSelect(new Date(viewYear, viewMonth, day)); }}
                 disabled={isPast}
                 activeOpacity={0.6}
+                accessibilityLabel={isStart && !isSel ? `${day}, start date` : undefined}
               >
+                {role && role !== 'single' ? (
+                  <View pointerEvents="none" style={cs.bandRow}>
+                    <View style={[cs.bandHalf, (role === 'middle' || role === 'end') && { backgroundColor: band }]} />
+                    <View style={[cs.bandHalf, (role === 'middle' || role === 'start') && { backgroundColor: band }]} />
+                  </View>
+                ) : null}
                 <View style={[
                   cs.dayInner,
+                  isStart && !isSel && { backgroundColor: '#111111', borderWidth: 1.5, borderColor: accentColor },
                   isSel && { backgroundColor: accentColor },
-                  isToday && !isSel && { borderWidth: 1, borderColor: `${accentColor}60` },
+                  isToday && !isSel && !isStart && { borderWidth: 1, borderColor: `${accentColor}60` },
                 ]}>
                   <Text style={[
                     cs.dayText,
                     isSel && cs.dayTextSel,
                     isSel && { color: onAccent(accentColor) },
-                    isToday && !isSel && { color: accentColor },
+                    (isToday || isStart) && !isSel && { color: accentColor },
+                    isStart && !isSel && cs.dayTextSel,
                     isPast && cs.dayTextPast,
                   ]}>
                     {day}
@@ -334,6 +359,17 @@ const Calendar = memo(function Calendar({
           })}
         </View>
       ))}
+
+      {rangeStart && dayRangeRole(rangeStart, rangeStart, selected) ? (
+        <View style={cs.legend}>
+          <View style={[cs.legendRing, { borderColor: accentColor }]} />
+          <Text style={cs.legendText}>
+            Starts {rangeStart.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+          </Text>
+          <View style={[cs.legendDot, { backgroundColor: accentColor }]} />
+          <Text style={cs.legendText}>Unlocks</Text>
+        </View>
+      ) : null}
     </View>
   );
 });
@@ -351,6 +387,18 @@ const cs = StyleSheet.create({
   weekdayText: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '600', color: '#888888' },
   weekRow: { flexDirection: 'row' },
   dayCell: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 2 },
+  bandRow: {
+    position: 'absolute', left: 0, right: 0, top: 2, bottom: 2,
+    flexDirection: 'row',
+  },
+  bandHalf: { flex: 1 },
+  legend: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 8, paddingTop: 8, paddingBottom: 4,
+  },
+  legendRing: { width: 12, height: 12, borderRadius: 6, borderWidth: 1.5 },
+  legendDot: { width: 12, height: 12, borderRadius: 6, marginLeft: 10 },
+  legendText: { fontSize: 12, color: '#888888' },
   dayInner: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   dayText: { fontSize: 15, color: '#FFFFFF' },
   dayTextSel: { fontWeight: '700' },
@@ -367,7 +415,7 @@ const cs = StyleSheet.create({
 
 // --- DatePickerField ---
 
-export default function DatePickerField({ label, optional, value, onChange, contextLabel, tooltip, quickOptions }: {
+export default function DatePickerField({ label, optional, value, onChange, contextLabel, tooltip, quickOptions, initialValueIsDefault, rangeStart, toggleOnDefault }: {
   label: string;
   optional?: boolean;
   value: Date | null;
@@ -378,18 +426,35 @@ export default function DatePickerField({ label, optional, value, onChange, cont
   // months) below. Pass a different set for a different context — e.g.
   // Groups' default unlock duration uses longer-range presets.
   quickOptions?: QuickOption[];
+  // The starting `value` is a screen default (e.g. Create's "one month out"),
+  // not a date the user chose. The calendar then opens on the current month
+  // until the user picks something.
+  initialValueIsDefault?: boolean;
+  // Shade the calendar from this date up to the selected one (the capsule's
+  // start date on the Unlock Date field). Ignored when null.
+  rangeStart?: Date | null;
+  // What an optional field is set to when switched on: 'now' (Starts), or
+  // one month out (the default, e.g. Uploads Deadline).
+  toggleOnDefault?: 'now' | 'oneMonth';
 }) {
   const { accentColor } = useTheme();
   const effectiveQuickOptions = quickOptions ?? QUICK_OPTIONS;
   const quickRows: QuickOption[][] = [];
   for (let i = 0; i < effectiveQuickOptions.length; i += 2) quickRows.push(effectiveQuickOptions.slice(i, i + 2));
-  const fallback = defaultDate();
+  const fallback = toggleOnDefault === 'now' ? new Date() : defaultDate();
   const isEnabled = !optional || value !== null;
   const selected = value ?? fallback;
 
   const [expanded, setExpanded] = useState(false);
   const [activeQuick, setActiveQuick] = useState<string | null>(null);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  // Whether the shown date is a default rather than the user's choice. Derived
+  // (not frozen at mount) because Edit loads its saved dates after first render.
+  // A null value renders `fallback`, and switching an optional field on sets
+  // `fallback`, so both count as defaults until the user picks a date.
+  const [picked, setPicked] = useState(false);
+  const [toggledOn, setToggledOn] = useState(false);
+  const showingDefault = !picked && (!!initialValueIsDefault || value === null || toggledOn);
 
   const chevronRotation = useRef(new Animated.Value(0)).current;
 
@@ -410,6 +475,7 @@ export default function DatePickerField({ label, optional, value, onChange, cont
     const merged = new Date(d);
     merged.setHours(selected.getHours(), selected.getMinutes());
     setActiveQuick(option.label);
+    setPicked(true);
     onChange(merged);
   }, [selected, onChange]);
 
@@ -417,6 +483,7 @@ export default function DatePickerField({ label, optional, value, onChange, cont
     const merged = new Date(selected);
     merged.setFullYear(date.getFullYear(), date.getMonth(), date.getDate());
     setActiveQuick(null);
+    setPicked(true);
     onChange(merged);
   }, [selected, onChange]);
 
@@ -458,6 +525,7 @@ export default function DatePickerField({ label, optional, value, onChange, cont
             value={isEnabled}
             onValueChange={(on) => {
               LayoutAnimation.configureNext(SPRING);
+              if (on) { setToggledOn(true); setPicked(false); }
               onChange(on ? fallback : null);
               if (!on) setExpanded(false);
             }}
@@ -511,6 +579,8 @@ export default function DatePickerField({ label, optional, value, onChange, cont
                 onSelect={handleDateChange}
                 minimumDate={new Date()}
                 accentColor={accentColor}
+                showingDefault={showingDefault}
+                rangeStart={rangeStart}
               />
 
               {/* Time row */}

@@ -278,9 +278,16 @@ export default function EditCapsuleScreen({ route, navigation }: Props) {
           onChange={setStartDate}
           contextLabel="No one can add photos until this date"
           quickOptions={START_DATE_QUICK_OPTIONS}
+            toggleOnDefault="now"
         />
         {unlockMode !== 'proximity' && (
-          <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
+          <DatePickerField
+            label="Unlock Date"
+            value={unlockDate}
+            onChange={setUnlockDate}
+            contextLabel="Capsule unlocks for everyone"
+            rangeStart={startDate}
+          />
         )}
         <DatePickerField label="Uploads Deadline" optional value={contribLockDate} onChange={setContribLockDate} contextLabel="No one can add photos after this date" />
 

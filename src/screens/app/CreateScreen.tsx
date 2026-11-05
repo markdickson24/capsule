@@ -15,6 +15,7 @@ import { AppStackParamList, AppTabParamList, PendingMedia } from '../../types/na
 import { UnlockMode } from '../../types/database';
 import { useTheme } from '../../context/ThemeContext';
 import DatePickerField, { START_DATE_QUICK_OPTIONS } from '../../components/DatePicker';
+import { defaultUnlockTonight } from '../../lib/calendarRange';
 import VotingWindowPicker from '../../components/VotingWindowPicker';
 import { cache } from '../../lib/cache';
 import { toast } from '../../lib/toast';
@@ -66,7 +67,7 @@ export default function CreateScreen() {
   const [title, setTitle] = useState(route.params?.presetTitle ?? '');
   const [description, setDescription] = useState(route.params?.presetDescription ?? '');
   const [unlockDate, setUnlockDate] = useState<Date | null>(
-    groupUnlockHours ? new Date(Date.now() + groupUnlockHours * 3_600_000) : defaultUnlockDate()
+    groupUnlockHours ? new Date(Date.now() + groupUnlockHours * 3_600_000) : defaultUnlockTonight(new Date())
   );
   const [contribLockDate, setContribLockDate] = useState<Date | null>(null);
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -240,7 +241,9 @@ export default function CreateScreen() {
     const { data: capsuleId, error: capsuleError } = await supabase.rpc('create_capsule_with_owner', {
       p_title: title.trim(),
       p_description: description.trim() || null,
-      p_unlock_at: (unlockDate ?? defaultUnlockDate()).toISOString(),
+      // Unlock Date is hidden in Together mode, so it keeps the old
+      // one-month placeholder rather than tonight's default.
+      p_unlock_at: (unlockMode === 'proximity' ? defaultUnlockDate() : (unlockDate ?? defaultUnlockDate())).toISOString(),
       p_contribution_lock_at: contribLockDate?.toISOString() ?? null,
       p_unlock_mode: unlockMode,
       p_superlative_voting_hours: votingHours,
@@ -486,6 +489,7 @@ export default function CreateScreen() {
             onChange={setStartDate}
             contextLabel="No one can add photos until this date"
             quickOptions={START_DATE_QUICK_OPTIONS}
+            toggleOnDefault="now"
             tooltip={{
               title: 'Start Date',
               body: 'Nobody — including you — can add photos or videos until this date arrives. Useful for planning a capsule ahead of an event or trip that hasn\'t happened yet.\n\nLeave it off to let people start adding photos right away.',
@@ -496,7 +500,14 @@ export default function CreateScreen() {
 
         {unlockMode !== 'proximity' && (
           <View onLayout={recordFieldY('unlockDate')}>
-            <DatePickerField label="Unlock Date" value={unlockDate} onChange={setUnlockDate} contextLabel="Capsule unlocks for everyone" />
+            <DatePickerField
+              label="Unlock Date"
+              value={unlockDate}
+              onChange={setUnlockDate}
+              contextLabel="Capsule unlocks for everyone"
+              initialValueIsDefault
+              rangeStart={startDate}
+            />
             {errors.unlockDate ? <Text style={styles.fieldError}>{errors.unlockDate}</Text> : null}
           </View>
         )}
