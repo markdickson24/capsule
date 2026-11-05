@@ -28,6 +28,7 @@ import type { TablesUpdate } from '../../types/supabase';
 import { proGateHit } from '../../lib/proGate';
 import { setTourPending } from '../../lib/tourStorage';
 import { openLink } from '../../lib/openLink';
+import { reportError } from '../../lib/sentry';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -278,6 +279,19 @@ export default function OnboardingScreen({ navigation }: Props) {
     setError('');
     setSaving(true);
     const ok = await saveProfile();
+    if (ok) {
+      // Skipping bypasses the step-4 primer, so ask here instead — every new
+      // user gets the native prompt. Awaited so Home doesn't mount under the
+      // system alert; no-op on web or if already decided.
+      const session = sessionStore.get();
+      if (session) {
+        try {
+          await requestPushPermission(session.user.id);
+        } catch (e) {
+          reportError(e, { where: 'OnboardingScreen.skipToHome.requestPushPermission' });
+        }
+      }
+    }
     setSaving(false);
     if (ok) navigation.replace('Tabs', { screen: 'Home' });
   }
