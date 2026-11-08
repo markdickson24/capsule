@@ -28,6 +28,9 @@ import { useSlideUp } from '../../lib/animations';
 import ProBadge from '../../components/ProBadge';
 import { useEntitlements } from '../../hooks/useEntitlements';
 import { clearPushToken } from '../../hooks/usePushNotifications';
+import { pickerErrorMessage, isICloudPickerError } from '../../lib/mediaErrors';
+import { toast } from '../../lib/toast';
+import { reportError } from '../../lib/sentry';
 
 type Profile = {
   id: string;
@@ -173,10 +176,15 @@ function EditProfileModal({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+    }).catch((err: unknown) => {
+      // iCloud-only items reject with PHPhotosErrorDomain 3164 when they can't
+      // be downloaded (REACT-NATIVE-3). Tell the user; only report the rest.
+      if (!isICloudPickerError(err)) reportError(err, { where: 'Profile.pickAvatar' });
+      toast.show(pickerErrorMessage(err));
+      return null;
     });
-    if (!result.canceled && result.assets[0]) {
-      setAvatarUri(result.assets[0].uri);
-    }
+    if (!result || result.canceled || !result.assets[0]) return;
+    setAvatarUri(result.assets[0].uri);
   }
 
   async function save() {

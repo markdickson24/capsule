@@ -29,6 +29,7 @@ import { proGateHit } from '../../lib/proGate';
 import { setTourPending } from '../../lib/tourStorage';
 import { openLink } from '../../lib/openLink';
 import { reportError } from '../../lib/sentry';
+import { pickerErrorMessage, isICloudPickerError } from '../../lib/mediaErrors';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'Onboarding'>;
 
@@ -155,8 +156,14 @@ export default function OnboardingScreen({ navigation }: Props) {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
+    }).catch((err: unknown) => {
+      // iCloud-only items reject with PHPhotosErrorDomain 3164 when they can't
+      // be downloaded (REACT-NATIVE-3). Tell the user; only report the rest.
+      if (!isICloudPickerError(err)) reportError(err, { where: 'Onboarding.pickAvatar' });
+      toast.show(pickerErrorMessage(err));
+      return null;
     });
-    if (result.canceled || !result.assets[0]) return;
+    if (!result || result.canceled || !result.assets[0]) return;
     const uri = result.assets[0].uri;
     setAvatarUri(uri);
     avatarUrlPromise.current = uploadAvatar(uri).catch(() => null);

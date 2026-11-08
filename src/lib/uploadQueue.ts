@@ -8,6 +8,7 @@ import { cache } from './cache';
 import { toast } from './toast';
 import { resizeForUpload, makeGridThumbnail } from './imageResize';
 import { reportError } from './sentry';
+import { isPhotoLimitError, uploadBatchToast } from './mediaErrors';
 import { STORAGE_UPLOAD_LIMIT_BYTES, videoCompressionPlan, videoRetryPlan } from './videoCompression';
 import { compressVideo, probeVideo } from '../../modules/expo-video-stitcher';
 
@@ -51,6 +52,8 @@ let working = false;
 // Counters for the drain toast; reset each time the queue goes idle→active.
 let batchAdded = 0;
 let batchFailed = 0;
+// Tasks dropped because the capsule hit its photo cap (not retryable).
+let batchLimitHit = 0;
 // Dedup for multi-capsule fan-out (same local file enqueued for N capsules,
 // e.g. PreviewScreen's multi-select "Add to Capsule"): keyed by the SOURCE
 // local uri, so the real upload only happens once per unique file per batch;
@@ -498,6 +501,20 @@ async function work() {
         notify();
         continue;
       }
+      if (isPhotoLimitError(e)) {
+        // The enforce_photo_limit trigger rejected the insert: the capsule is
+        // at its owner's cap, so a retry can never succeed. Expected, not a
+        // bug (REACT-NATIVE-F): drop the tile and say why in the batch toast
+        // instead of reporting it and leaving a "tap to retry" tile.
+        tasks = tasks.filter(t => t.id !== task.id);
+        batchLimitHit += 1;
+        const lp = progressByCapsule[task.capsuleId];
+        if (lp) lp.done += 1;
+        clearProgressIfDrained(task.capsuleId);
+        cache.invalidate('capsules', `capsule:${task.capsuleId}`, `media:${task.capsuleId}`, `signedUrls:${task.capsuleId}`);
+        notify();
+        continue;
+      }
       // Surface the failure — a media upload silently dying is a real
       // data-loss report. The tile stays visible/retryable regardless.
       reportError(e, {
@@ -513,18 +530,11 @@ async function work() {
   working = false;
 
   // Queue drained (failed tiles may remain — they're visible and retryable).
-  if (batchAdded > 0) {
-    const noun = batchAdded === 1 ? 'item' : 'items';
-    toast.show(
-      batchFailed > 0
-        ? `${batchAdded} ${noun} added · ${batchFailed} failed`
-        : `${batchAdded} ${noun} added`
-    );
-  } else if (batchFailed > 0) {
-    toast.show(`Upload failed — tap the item to retry`);
-  }
+  const summary = uploadBatchToast(batchAdded, batchFailed, batchLimitHit);
+  if (summary) toast.show(summary);
   batchAdded = 0;
   batchFailed = 0;
+  batchLimitHit = 0;
   // Drop the dedup caches now that the batch is fully done — a later,
   // unrelated upload shouldn't copy from a stale key. Bump the generation
   // counter first so any upload still in flight past this point (see the

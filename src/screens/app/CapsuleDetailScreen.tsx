@@ -63,6 +63,7 @@ import { viewerClaimsTouch } from '../../lib/viewerGestures';
 import { galleryItemLayout } from '../../lib/galleryLayout';
 import { mergeCapsuleUpdate } from '../../lib/mergeCapsuleUpdate';
 import { isLiveActivitySupported, startLiveActivity, endLiveActivity } from '../../../modules/expo-live-activity';
+import { pickerErrorMessage, isICloudPickerError } from '../../lib/mediaErrors';
 
 type Props = NativeStackScreenProps<AppStackParamList, 'CapsuleDetail'>;
 
@@ -2187,8 +2188,14 @@ export default function CapsuleDetailScreen({ route, navigation }: Props) {
       mediaTypes: ['images', 'videos'],
       allowsMultipleSelection: true,
       quality: 0.8,
+    }).catch((err: unknown) => {
+      // iCloud-only items reject with PHPhotosErrorDomain 3164 when they can't
+      // be downloaded (REACT-NATIVE-3). Tell the user; only report the rest.
+      if (!isICloudPickerError(err)) reportError(err, { where: 'CapsuleDetail.pickFromLibrary' });
+      toast.show(pickerErrorMessage(err));
+      return null;
     });
-    if (result.canceled) return;
+    if (!result || result.canceled) return;
     // Over-cap videos are no longer dropped here — they pass through to
     // Preview unchanged (with durationMs set above), where the length gate +
     // trim sheet handle them (Task 5).

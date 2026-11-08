@@ -148,11 +148,15 @@ Anything still over 50 MB throws before the upload starts. Video tasks get a 5-m
 still taken from the original local file. Web uploads are untouched.
 
 Failures stay in the queue as `status: 'failed'` tasks — `retry(id)` / `dismiss(id)` — rendered
-as retryable tiles by `CapsuleDetailScreen`. `useUploadTasks(capsuleId)`
+as retryable tiles by `CapsuleDetailScreen`. The exception is `PHOTO_LIMIT_REACHED`
+(the `enforce_photo_limit` trigger rejected the insert because the capsule is at
+its owner's cap): a retry can never succeed, so that task is dropped, not reported
+to Sentry, and counted in the drain toast ("This capsule is full — …",
+`uploadBatchToast` in `src/lib/mediaErrors.ts`). `useUploadTasks(capsuleId)`
 (`src/hooks/useUploadTasks.ts`) is the reactive subscription;
 `getProgress(capsuleId)` returns per-capsule `{done,total}` since that
 capsule's queue was last empty. When the whole queue drains it fires one toast
-("N items added" / "· M failed") through the global ToastHost, so completion
+("N items added" / "· M failed" / "· K didn't fit — capsule is full") through the global ToastHost, so completion
 reaches the user wherever they navigated. In-memory only: uploads do not
 survive an app kill (the failed/pending tiles vanish with the process).
 
