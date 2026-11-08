@@ -61,6 +61,10 @@ Simultaneous front+back capture (Snapchat-style) with two **selectable layouts**
 
 ---
 
+## Photo-library picks
+
+`CapsuleDetailScreen.pickFromLibrary` and the avatar pickers (Onboarding, Profile) call `ImagePicker.launchImageLibraryAsync` (iOS PHPicker, no permission prompt). The promise rejects when a picked item lives only in iCloud and can't be downloaded (`PHPhotosErrorDomain error 3164`), so every call has a `.catch` that toasts `pickerErrorMessage(err)` (`src/lib/mediaErrors.ts`) and reports only non-iCloud failures. Don't add a picker call without it — an uncaught rejection here was the top Sentry issue.
+
 ## Share Intent (`expo-share-intent`)
 
 Receives photos/videos shared from other apps (Photos, Files, Messages, Instagram, etc.) and routes them into the `PreviewScreen` capsule-selection flow.
