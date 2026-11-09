@@ -8,8 +8,17 @@
   publish = "landing"
 
   # Skip the deploy entirely when a commit doesn't touch either the landing
-  # page or the edge function — most commits in this repo are app-side.
-  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- landing netlify"
+  # page, the edge function or this config — most commits in this repo are
+  # app-side.
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- landing netlify netlify.toml"
+
+# The join edge function reads SUPABASE_URL + SUPABASE_ANON_KEY. Neither is a
+# secret (both ship inside the app binary), but Netlify's secrets scanner fails
+# the build on any env var value found in repo files — and the project URL is
+# committed in cron migrations (net.http_post targets), which must stay as
+# applied. Never add SUPABASE_SERVICE_ROLE_KEY here: that one IS a secret.
+[build.environment]
+  SECRETS_SCAN_OMIT_KEYS = "SUPABASE_URL,SUPABASE_ANON_KEY"
 
 [[edge_functions]]
   path = "/join/*"
